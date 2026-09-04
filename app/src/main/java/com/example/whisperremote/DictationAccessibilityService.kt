@@ -31,36 +31,72 @@ class DictationAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         when (event.eventType) {
-            AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
-                val source = event.source
-                if (source != null && source.isEditable) {
-                    focusedNode = AccessibilityNodeInfo.obtain(source)
-                    if (!hasFocusedEditable) {
-                        hasFocusedEditable = true
-                        FloatingButtonService.getInstance()?.onTextFieldFocused()
-                        Log.d("DictationService", "Editable field focused: ${source.className}")
-                    }
-                } else {
-                    if (hasFocusedEditable) {
-                        hasFocusedEditable = false
-                        FloatingButtonService.getInstance()?.onTextFieldFocusLost()
-                        Log.d("DictationService", "Focus left editable field")
-                    }
-                }
-            }
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                // Fires on significant navigation: home screen, app switch, new activity.
-                // Ask Android directly whether an editable field is still active.
-                if (hasFocusedEditable) {
-                    val activeFocus = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                    if (activeFocus == null || !activeFocus.isEditable) {
-                        hasFocusedEditable = false
-                        FloatingButtonService.getInstance()?.onTextFieldFocusLost()
-                        Log.d("DictationService", "Window changed, no editable focus — hiding button")
-                    }
-                }
+            AccessibilityEvent.TYPE_VIEW_FOCUSED,
+            AccessibilityEvent.TYPE_VIEW_CLICKED,
+            AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                checkFocusState(event)
             }
         }
+    }
+
+    private fun checkFocusState(event: AccessibilityEvent) {
+        val inputFocus = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        val source = event.source
+
+        val activeInput = when {
+            inputFocus != null && isEditableNode(inputFocus) -> inputFocus
+            source != null && source.isFocused && isEditableNode(source) -> source
+            else -> findEditableInTree(inputFocus)
+                ?: findEditableInTree(source)
+                ?: findEditableInTree(rootInActiveWindow)
+        }
+
+        if (activeInput != null && isEditableNode(activeInput)) {
+            @Suppress("DEPRECATION")
+            focusedNode = AccessibilityNodeInfo.obtain(activeInput)
+            if (!hasFocusedEditable) {
+                hasFocusedEditable = true
+                FloatingButtonService.getInstance()?.onTextFieldFocused()
+                Log.d("DictationService", "Editable field focused: ${activeInput.className}")
+            }
+        } else {
+            if (hasFocusedEditable) {
+                hasFocusedEditable = false
+                FloatingButtonService.getInstance()?.onTextFieldFocusLost()
+                Log.d("DictationService", "Focus left editable field")
+            }
+        }
+    }
+
+    private fun isEditableNode(node: AccessibilityNodeInfo?): Boolean {
+        if (node == null) return false
+        if (node.isEditable) return true
+        val className = node.className?.toString() ?: ""
+        if (className.contains("EditText", ignoreCase = true)) return true
+
+        // Check if node supports text input actions (Jetpack Compose / WebView / Custom inputs)
+        val actions = node.actionList
+        for (action in actions) {
+            if (action.id == AccessibilityNodeInfo.ACTION_SET_TEXT || action.id == AccessibilityNodeInfo.ACTION_PASTE) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun findEditableInTree(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (node.isFocused && isEditableNode(node)) return node
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findEditableInTree(child)
+            if (result != null) return result
+        }
+        return null
     }
 
     override fun onInterrupt() {}
@@ -79,15 +115,16 @@ class DictationAccessibilityService : AccessibilityService() {
         }
 
         // 2. Try to find the currently focused editable field
-        // Strategy: current focus -> tracked node -> root focus
+        // Strategy: current focus -> tracked node -> root focus -> tree search
         val targetNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             ?: focusedNode
             ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: findEditableInTree(rootInActiveWindow)
 
         Log.d("DictationService", "Target node found: ${targetNode != null}")
 
         targetNode?.let { node ->
-            if (node.isEditable) {
+            if (isEditableNode(node)) {
                 // Try PASTE first (inserts at cursor)
                 val pasteSuccess = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
                 Log.d("DictationService", "ACTION_PASTE result: $pasteSuccess")

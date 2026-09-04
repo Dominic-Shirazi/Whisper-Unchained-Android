@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeViewFocused|typeViewTextChanged|typeWindowStateChanged"
+    android:accessibilityEventTypes="typeViewFocused|typeViewClicked|typeViewTextChanged|typeWindowStateChanged|typeWindowContentChanged|typeViewTextSelectionChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
     android:canRetrieveWindowContent="true"
-    android:notificationTimeout="100" />
+    android:notificationTimeout="50" />

@@ -38,7 +38,7 @@ class ApiClient(private val context: Context) {
             .addFormDataPart(
                 "file",
                 file.name,
-                file.asRequestBody("audio/m4a".toMediaTypeOrNull())
+                file.asRequestBody("audio/wav".toMediaTypeOrNull())
             )
             .build()
 
