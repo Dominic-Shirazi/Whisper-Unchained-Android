@@ -5,4 +5,5 @@
     <string name="api_url_label">API URL:</string>
     <string name="save_settings">Save Settings</string>
     <string name="accessibility_reminder">Important: Please enable the WhisperRemote Accessibility Service in your device settings for dictation to work.</string>
+    <string name="enable_internal_audio">Enable Internal Audio Recording (YouTube/TikTok)</string>
 </resources>

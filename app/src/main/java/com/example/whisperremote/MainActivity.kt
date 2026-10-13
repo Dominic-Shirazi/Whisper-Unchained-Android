@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -20,6 +21,26 @@ class MainActivity : AppCompatActivity() {
     private lateinit var apiUrlEditText: EditText
     private val PREFS_NAME = "WhisperRemotePrefs"
     private val KEY_API_URL = "api_url"
+
+    private val mediaProjectionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            val service = FloatingButtonService.getInstance()
+            if (service != null) {
+                val success = service.setMediaProjectionData(result.resultCode, result.data!!)
+                if (success) {
+                    Toast.makeText(this, "Internal audio capture enabled!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Failed to enable internal audio capture", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(this, "Floating button service not running", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(this, "Internal audio capture permission declined", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -40,6 +61,7 @@ class MainActivity : AppCompatActivity() {
         apiUrlEditText = findViewById(R.id.apiUrlEditText)
         val saveButton = findViewById<Button>(R.id.saveButton)
         val openAccessibilityButton = findViewById<Button>(R.id.openAccessibilityButton)
+        val enableInternalAudioButton = findViewById<Button>(R.id.enableInternalAudioButton)
 
         // Load saved URL
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -59,6 +81,11 @@ class MainActivity : AppCompatActivity() {
         openAccessibilityButton.setOnClickListener {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             startActivity(intent)
+        }
+
+        enableInternalAudioButton.setOnClickListener {
+            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            mediaProjectionLauncher.launch(projectionManager.createScreenCaptureIntent())
         }
 
         checkPermissions()
