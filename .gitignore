@@ -57,3 +57,5 @@ captures/
 # OS
 .DS_Store
 Thumbs.db
+# Claude <-> Gemini relay messages (never committed)
+.relay/
