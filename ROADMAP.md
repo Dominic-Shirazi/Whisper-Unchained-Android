@@ -111,6 +111,34 @@ restarting the UI. Gaps to fix:
 * The Ollama edit model is pinned separately (`OLLAMA_EDIT_KEEP_ALIVE=-1`) and **stays in VRAM** after Pause. Pause should also unload it (`keep_alive: 0` request / `ollama stop`).
 * Pause/Resume should be soft (an `/unload` + lazy reload endpoint) so no UAC prompt is needed.
 
+### 2.8 Installer Plan (Dominic, 2026-11-10)
+There is **no installer yet**: today a new user needs Python, the right GPU libraries, and the scripts in
+`Open_Whisper_Flow/scripts/`. The installer should:
+
+* **Offer two paths up front:** *"Use recommended settings"* (one click, picks everything below automatically)
+  or *"Walk me through it"*, which steps through the same pages as the desktop Settings window
+  (Transcription, AI Editing, Hotkey, Phone, Startup), each with its plain-English intro. One source of truth:
+  the wizard writes the same `.env` the Settings window edits.
+* **Detect the GPU and recommend a model** (VRAM numbers from the Settings model picker):
+  * NVIDIA ≥ 3 GB free VRAM → `large-v3-turbo` (default); ≥ 5 GB and multilingual accuracy wanted → offer `large-v3`.
+  * NVIDIA < 3 GB → `small.en` (or `small` if a non-English language is chosen).
+  * No usable GPU → CPU with `small.en` + int8, and say plainly it will be slower.
+* **Install GPU support it needs:**
+  * NVIDIA: install the CUDA 12 cuBLAS + cuDNN 9 runtime wheels (`nvidia-cublas-cu12`, `nvidia-cudnn-cu12`) into
+    the venv instead of relying on a system-wide CUDA install (Head PC currently relies on the system one).
+  * AMD: CTranslate2 reportedly gained ROCm support in 4.7 (early 2026), but on Windows it needs AMD's ROCm wheels and
+    only covers RX 6000/7000 (RDNA 2/3). Treat as experimental; default AMD users to CPU unless they opt in.
+    Long-term alternative: a whisper.cpp (Vulkan) backend, which runs on AMD/Intel GPUs on Windows.
+* **Pre-download the chosen model** into `WHISPER_MODELS_DIR` before installing the service, so first start is fast.
+* **Install the service** (NSSM, port from `.env`), the tray listener at login, and the right-click menu, with the
+  server console window **hidden** (`API_VISIBLE=false`, now the default).
+* **Finish on the Phone page:** show the pairing QR and the app download links.
+
+**Play Store badge:** Google's official "Get it on Google Play" badge may be used to link to our own listing,
+unaltered and with the attribution line ("Google Play and the Google Play logo are trademarks of Google LLC").
+Add it to the desktop Settings / installer only once the listing is live; until then it stays a text link marked
+"coming soon".
+
 ---
 
 ## 3. Android App Architecture & Settings UI
