@@ -14,6 +14,14 @@ This document outlines the unified vision, architecture, and step-by-step roadma
 
 ## 2. Desktop Server & Installer ("Head PC") Specification
 
+> **Build on what exists — don't rebuild the wheel.** The Head PC server is the existing
+> [Open_Whisper_Flow](https://github.com/Dominic-Shirazi/Open_Whisper_Flow) repo (faster-whisper + FastAPI,
+> Windows service, tray listener, LLM voice-edit layer). Phase 2 extends it rather than starting a new server.
+> For plain transcription, [Speaches](https://github.com/speaches-ai/speaches) (formerly `faster-whisper-server`)
+> already provides an OpenAI-compatible faster-whisper server with model download and auto-unload. Our
+> differentiators are the dictation client, voice edit commands, and confidence filtering; any WhisperRemote
+> client should also work against Speaches, Groq, or OpenAI unchanged.
+
 When deploying on the Head PC, an interactive installer script (`setup_server.py` / `install.bat`) will guide the user through setup and automated configuration.
 
 ### 2.1 Hardware & Environment Inspection
@@ -54,6 +62,54 @@ The server will run via FastAPI / Uvicorn using `faster-whisper`:
   * `model` (optional): Target Whisper model.
 * **Authentication:** `Authorization: Bearer <API_KEY>` (if configured).
 * **Response:** Standard JSON `{"text": "Transcribed string..."}`.
+
+---
+
+### 2.4 Model Picker (Desktop Settings UI)
+A small picker in the desktop Settings window that lists the models, marks which are **already downloaded**
+(✓, from the Hugging Face cache the *service* uses — note the LocalSystem service has its own cache separate
+from the user's), downloads on demand with a progress bar, and switches the active model (with a warning that
+dictation is offline for the reload, ~2 min on first download).
+
+| Model | VRAM (approx, FP16) | CPU viable? | Languages | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| `tiny` / `tiny.en` | ~1 GB | Yes, fast | Multi / English | Lowest accuracy; fine for quick notes |
+| `base` / `base.en` | ~1 GB | Yes | Multi / English | |
+| `small` / `small.en` | ~2 GB | Yes, usable | Multi / English | Best CPU-only choice |
+| `medium` / `medium.en` | ~5 GB | Slow | Multi / English | Mostly superseded by turbo |
+| `large-v3-turbo` | ~3–4 GB | No | Multi | **Default.** Near large-v3 accuracy, much faster; cannot translate |
+| `distil-large-v3` | ~3–4 GB | No | English only | Very fast; English only |
+| `large-v3` | ~5–10 GB | No | Multi | Highest accuracy, slowest |
+
+* All Whisper models output **punctuation and capitalization natively**; that is not a differentiator between tiers.
+* INT8 roughly halves VRAM at a small accuracy cost; the picker should offer `compute_type` (float16 / int8_float16 / int8).
+* VRAM figures should be re-measured on real hardware before shipping (see the 2026-08 benchmark in Open_Whisper_Flow).
+
+### 2.5 Vocabulary Hints Across Providers
+Faster-whisper's `initial_prompt` ("suggested words") has equivalents elsewhere, so the Android/desktop hints field maps per provider:
+
+| Provider | Field | Notes |
+| :--- | :--- | :--- |
+| Self-hosted faster-whisper / Speaches | `prompt` (→ `initial_prompt`) | Same hallucination-loop risk; sanitizer applies |
+| OpenAI (`whisper-1`, `gpt-4o-transcribe`) | `prompt` | Style/vocabulary hint |
+| Groq (Whisper) | `prompt` | Limited to ~224 tokens |
+| Deepgram (Nova-3) | `keyterm` | Separate keyword-boost list, not a prompt |
+| AssemblyAI | `keyterms_prompt` | Keyword list |
+
+### 2.6 Desktop Listener Hotkey Options
+The listener is currently hard-wired to backtick (`` ` ``), which then has to delete the stray characters it typed.
+Add a hotkey picker to the Settings window:
+* **Presets:** `` ` `` (current), `Right Alt`, `Alt+Space`, `Ctrl+Alt+Space`, `F9`, `Pause/Break`, `Scroll Lock`, mouse side button (`XButton1`).
+* **Custom:** "Press a key combo…" capture field.
+* **Mode:** toggle (tap to start/stop, current) or push-to-talk (hold to record).
+* Prefer keys that type nothing (F-keys, Pause, Scroll Lock, Right Alt) so no cleanup backspaces are needed; warn on combos that clash with common apps (e.g. `Alt+Space` opens the window menu / PowerToys Run).
+
+### 2.7 "Free VRAM" Behavior
+Today the tray's **Pause API (Free VRAM)** runs `net stop FasterWhisperAPI`: the server process exits and the Whisper model
+is unloaded until **Resume API** is clicked (or the machine reboots and the service auto-starts). It does **not** depend on
+restarting the UI. Gaps to fix:
+* The Ollama edit model is pinned separately (`OLLAMA_EDIT_KEEP_ALIVE=-1`) and **stays in VRAM** after Pause. Pause should also unload it (`keep_alive: 0` request / `ollama stop`).
+* Pause/Resume should be soft (an `/unload` + lazy reload endpoint) so no UAC prompt is needed.
 
 ---
 
@@ -109,7 +165,28 @@ Whisper models frequently regurgitate initial prompt words at the end of audio w
 
 ---
 
+### 3.4 Connectivity & Tailscale-Down Detection
+**Problem:** Tailscale (set as Always-on VPN) periodically drops into an error state (red ⚠ triangle in the status bar).
+The floating button silently stops working, and the only fix is toggling Tailscale off/on.
+
+**Plan:**
+1. **Health check:** Ping the server's `/health` on record start, plus a lightweight check every few minutes while the button is shown (skip when screen is off to save battery).
+2. **Diagnose the cause** with `ConnectivityManager` / `NetworkCapabilities`:
+   * No network at all → "No internet connection."
+   * Network up, VPN transport missing or not validated → "Tailscale appears down."
+   * VPN up but server unreachable → "Head PC unreachable (asleep, or server stopped)."
+3. **Visible state on the button:** grey/red ring + small ⚠ badge instead of failing silently; tap shows the reason.
+4. **One-tap fix:** Notification/button action "Restart Tailscale". Tailscale Android exposes broadcast intents for automation
+   (`com.tailscale.ipn.DISCONNECT_VPN` / `CONNECT_VPN` to `com.tailscale.ipn/.IPNReceiver`, used by Tasker) — **verify on current
+   Tailscale builds**; fall back to opening the Tailscale app.
+5. **Don't lose the dictation:** If the server is unreachable after recording, keep the audio and auto-retry once the connection returns, then paste (or offer to copy).
+
+---
+
 ## 4. Play Store Compliance & Build Flavors
+
+> **Before the first Play upload:** change `applicationId` / `namespace` from `com.example.whisperremote` to a real
+> reverse-domain ID. Play rejects `com.example.*`, and the ID can never change after publishing.
 
 To prevent Google Play rejections related to sensitive permissions:
 
@@ -127,7 +204,7 @@ To prevent Google Play rejections related to sensitive permissions:
 
 | Phase | Component | Tasks |
 | :--- | :--- | :--- |
-| **Phase 1** | **Android Client Refactor** | • Upgrade `ApiClient.kt` to OpenAI `/v1/audio/transcriptions` standard.<br>• Add Settings UI presets, API key, model, and hints fields.<br>• Add client-side hint-loop sanitizer.<br>• Add `BootReceiver` for auto-start on device reboot. |
-| **Phase 2** | **Desktop Server ("Head PC")** | • Build `setup_server.py` installer with hardware detection.<br>• Implement `faster-whisper` + FastAPI server with optional API key.<br>• Add terminal QR-code generator for 1-click Android pairing. |
+| **Phase 1** | **Android Client Refactor** | • Upgrade `ApiClient.kt` to OpenAI `/v1/audio/transcriptions` standard.<br>• Add Settings UI presets, API key, model, and hints fields.<br>• Add client-side hint-loop sanitizer.<br>• Add `BootReceiver` for auto-start on device reboot.<br>• Add connectivity/Tailscale-down detection, button error state, and retry queue (§3.4). |
+| **Phase 2** | **Desktop Server ("Head PC")** | • Extend Open_Whisper_Flow: add `/v1/audio/transcriptions` + optional API key.<br>• Build `setup_server.py` installer with hardware detection.<br>• Add terminal QR-code generator for 1-click Android pairing.<br>• Settings UI: model picker (§2.4), hotkey picker (§2.6), Pause also unloads Ollama (§2.7). |
 | **Phase 3** | **Play Store & Dual Injection** | • Configure `play` vs `full` Gradle build flavors.<br>• Implement Clipboard fallback option.<br>• Prepare Google Play Data Safety declaration and Accessibility demo video. |
 | **Phase 4** | **On-Device Offline Engine** | • Add optional on-demand model download (Sherpa-ONNX / Whisper TFLite).<br>• Show battery/thermal warnings for on-device processing. |
