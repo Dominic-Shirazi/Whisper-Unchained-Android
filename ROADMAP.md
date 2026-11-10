@@ -176,9 +176,22 @@ The floating button silently stops working, and the only fix is toggling Tailsca
    * Network up, VPN transport missing or not validated → "Tailscale appears down."
    * VPN up but server unreachable → "Head PC unreachable (asleep, or server stopped)."
 3. **Visible state on the button:** grey/red ring + small ⚠ badge instead of failing silently; tap shows the reason.
-4. **One-tap fix:** Notification/button action "Restart Tailscale". Tailscale Android exposes broadcast intents for automation
-   (`com.tailscale.ipn.DISCONNECT_VPN` / `CONNECT_VPN` to `com.tailscale.ipn/.IPNReceiver`, used by Tasker) — **verify on current
-   Tailscale builds**; fall back to opening the Tailscale app.
+4. **Auto-restart Tailscale (with manual fallback):** Tailscale Android's exported `com.tailscale.ipn/.IPNReceiver` accepts
+   `com.tailscale.ipn.DISCONNECT_VPN` and `com.tailscale.ipn.CONNECT_VPN` broadcasts — the same "tap off, tap on" fix, done by the app.
+   *Verified present via `dumpsys package` on Tailscale 1.102.3 and 1.104.5 (2026-11-10).*
+   * **Trigger:** A validated non-VPN network exists (Wi-Fi/cellular has internet) **and** either the VPN transport is missing/unvalidated,
+     or the Tailscale VPN is up but `/health` fails.
+   * **Action:** Send `DISCONNECT_VPN`, wait ~1.5 s, send `CONNECT_VPN` (explicit component broadcast), then poll `/health` for ~10 s.
+   * **Guardrails:** At most one auto-restart per 5 minutes, max 2 attempts in a row. If `/health` still fails after a restart,
+     report "Head PC unreachable" instead of looping (the PC is likely asleep or the server stopped).
+   * **Setting:** "Auto-restart Tailscale when it stalls" toggle, default **on**. When off, or after the guardrail trips, show a
+     **"Restart Tailscale"** button on the error badge and in the notification that sends the same two broadcasts on tap.
+   * **Manifest:** Add `<queries><package android:name="com.tailscale.ipn"/></queries>` so the app can detect Tailscale is installed
+     (Android 11+ package visibility). If it isn't installed, skip all of this and just show the connectivity message.
+   * **Always-on VPN caveat:** With Always-on + "block connections without VPN", the off/on gap briefly blocks all traffic; this is
+     the same thing the manual toggle does. Test that Always-on doesn't fight the `DISCONNECT_VPN` (it may reconnect by itself, which is fine).
+   * **Play Store:** Uses no special permission — just a broadcast to another app. Fine for both `play` and `full` flavors.
+   * Fall back to opening the Tailscale app if the broadcasts have no effect.
 5. **Don't lose the dictation:** If the server is unreachable after recording, keep the audio and auto-retry once the connection returns, then paste (or offer to copy).
 
 ---
