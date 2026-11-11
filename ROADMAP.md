@@ -246,11 +246,44 @@ To prevent Google Play rejections related to sensitive permissions:
 
 ---
 
-## 5. Development Phases
+## 5. Development Phases (re-planned 2026-11-11 with Dominic)
 
-| Phase | Component | Tasks |
+Phases 1 and 2 are done (Android v1.0.3, server v0.9.6). Order from here: **split builds → UI makeover → on-device → Play Store.**
+
+| Version | What | Notes |
 | :--- | :--- | :--- |
-| **Phase 1** | **Android Client Refactor** | • Upgrade `ApiClient.kt` to OpenAI `/v1/audio/transcriptions` standard.<br>• Add Settings UI presets, API key, model, and hints fields.<br>• Add client-side hint-loop sanitizer.<br>• Add `BootReceiver` for auto-start on device reboot.<br>• Add connectivity/Tailscale-down detection, button error state, and retry queue (§3.4). |
-| **Phase 2** | **Desktop Server ("Head PC")** | • Extend Whisper-Unchained-Server: add `/v1/audio/transcriptions` + optional API key.<br>• Build `setup_server.py` installer with hardware detection.<br>• Add terminal QR-code generator for 1-click Android pairing.<br>• Settings UI: model picker (§2.4), hotkey picker (§2.6), Pause also unloads Ollama (§2.7). |
-| **Phase 3** | **Play Store & Dual Injection** | • Configure `play` vs `full` Gradle build flavors.<br>• Implement Clipboard fallback option.<br>• Prepare Google Play Data Safety declaration and Accessibility demo video. |
-| **Phase 4 (target v1.5)** | **On-Device Offline Engine** | • Add optional on-demand model download (Sherpa-ONNX / Whisper TFLite).<br>• Use it as an **offline mode** and as an **automatic fallback** when the PC or cloud service can't be reached (Dominic, 2026-11-11), so a dictation is never lost.<br>• Show battery/thermal warnings for on-device processing. |
+| **v1.1** | **Split `play` / `full` flavors** (§4.1) | `play` drops `FOREGROUND_SERVICE_MEDIA_PROJECTION` and the internal-audio switch. `full` keeps it, relabeled without brand names (e.g. "Transcribe audio playing on this phone"; phone calls can't be captured). Both keep the AccessibilityService: Wispr Flow ships on Play the same way, with a prominent disclosure (§5.3). **Open:** same app ID for both, or a `.full` suffix? With Play App Signing, Google re-signs the `play` build, so a GitHub `full` build can't update over it either way; a suffix lets both be installed side by side. |
+| **v1.2** | **UI makeover + first-run intro** (§5.1, §5.2) | Light and dark mode; the mic button keeps its brand color in both. |
+| **v1.5** | **On-device engine** (§5.4) | Offline mode + automatic fallback when the PC/cloud can't be reached, so a dictation is never lost. Measured on the S25 (SM-S931U) and Fold6 (SM-F956U) before committing. |
+| **v1.6** | **Play Store submission** | Data Safety form, accessibility declaration + demo video, listing, badge (§2.8). |
+
+Later / ideas for `full`: voice-edit **selected text in any app** ("prompt AI, make this professional"), hardware-button or shortcut start, per-app styles.
+
+### 5.1 UI makeover ("doesn't look AI-made")
+Research (2026-11-11) on what reads as AI-generated UI: an unchosen default accent (our teal), a border around every group, a tagline under the name, identical spacing everywhere, emoji or mixed icon sets, mismatched indicators. Direction: **stock Android done well, close to One UI**, not a One UI clone (the only One UI library is Views-based).
+* Drop the "Fast, private voice dictation" subtitle. Large title that collapses on scroll (`LargeTopAppBar`).
+* Colors: dynamic color (Material You) with a neutral fallback; one accent, used only for values, switches and the primary action.
+* Groups: rounded containers with **no borders or shadows** on a slightly different background (One UI: ~#F2F2F4 background, ~#FCFCFF groups, ~26dp radius, ~16dp between groups, hairline dividers inset to the text). Current value on the second line in the accent color. Helper text **between** groups. Split rows (label opens a subpage, switch toggles).
+* Icons: one consistent set (Material Symbols) on top-level rows only.
+* Tabs: `PrimaryTabRow` default indicator (sized to the label), or replace tabs with list → subpage.
+* Colour-blind rule: never show state by red vs. green alone.
+* Process: reference screenshots → `DESIGN.md` tokens → Compose previews rendered to PNG (Roborazzi) in light + dark → checklist review → Dominic approves the images before release. Library to consider: alorma/Compose-Settings (MIT).
+
+### 5.2 First-run intro (ideas from Wispr Flow, not a copy)
+* A **practice sandbox** in our own screen: a mock chat / email / list card; tap the field, tap the mic, speak, see the real transcription from the user's PC (also proves the connection). Ask for the **mic permission on that first tap**.
+* Ask for each permission when it's needed, one per screen, each with the concrete consequence: accessibility (short "what we read / what we never touch" card, then a visual step guide with mock One UI rows and "leave the shortcut off"), battery exemption and notifications (skippable).
+* Segmented progress bar; big headline + one line; one illustration; primary + secondary button at the bottom.
+* Our privacy story replaces their account/survey screens: no account, audio goes to your own PC.
+* Final "what to expect" screen.
+* Feature gaps seen in Wispr Flow worth adding: bubble size/opacity, show the bubble only while a text field is focused, never in password/card fields, custom dictionary (feeds the server's hotwords), snippets, per-app styles.
+
+### 5.3 Accessibility on Google Play
+Wispr Flow is on Play with an AccessibilityService for field detection and insertion, justified by "Android has no standard API to detect text-field focus or insert text into other apps", plus an in-app disclosure (why, what is read, what is never touched) before the system screen. Ours (F-14) follows the same pattern; recheck Google's current policy text before the v1.6 submission.
+
+### 5.4 On-device engine (research 2026-11-11, to be measured)
+* **Speech to text:** sherpa-onnx (Apache-2.0) with Parakeet TDT 0.6B INT8 (~465 MB, English roughly on par with large-v3-turbo; weights CC-BY-4.0) and Moonshine v2 as the fast/streaming option. kafkasl/phone-whisper (Apache-2.0) is a working reference for the sherpa-onnx wiring and model download.
+* **Cleanup LLM:** LiteRT-LM with Gemma 4 E4B (best small model in the PC bench: 9/10 trap tests) on the phone GPU; E2B is ~2.5x faster but missed "scratch that". Google's S26 Ultra numbers: E4B ~22 tok/s decode, E2B ~52 tok/s; multi-token prediction claims ~2.2x more.
+* **Latency is the problem** (a 100-word cleanup is ~150 output tokens). Ways to cut it: skip the LLM when the text has no fillers or correction words (most short dictations need nothing); E2B for light cleanup, E4B only for corrections/mean; NPU backends on Snapdragon; paste the raw text and offer the cleaned version only when it's ready.
+* **Not usable:** Gemini Nano (ML Kit GenAI) only runs while our app is in the foreground, which rules out dictating into other apps; the Fold6 isn't on its list. Samsung has no public Galaxy AI API.
+* **First step:** measure E2B/E4B with our real prompt (e.g. Google AI Edge Gallery) and Parakeet vs. turbo on Dominic's recordings, on the S25 and Fold6.
+* Fallback order: PC → on-device LLM → raw text.
