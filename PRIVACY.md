@@ -1,7 +1,7 @@
 # Privacy Policy: Whisper Unchained
 
 **Effective:** 2026-11-11 (draft, to be finalized before the Google Play release)
-**Developer:** Cyrus Studio (cyrus-studio.com) · **Contact:** [privacy contact email to be added]
+**Developer:** Cyrus Studio LLC (cyrus-studio.com) · **Contact:** [privacy contact email to be added]
 
 Whisper Unchained is a voice dictation app. It is free, open source, has no account, no ads, no analytics and no
 tracking. **We (the developer) do not run any server that receives your data, and we never see your voice or text.**
