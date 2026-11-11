@@ -127,7 +127,7 @@ class FloatingButtonService : Service() {
         StyleDimension(
             name = "Conciseness",
             values = listOf("off", "light", "strong"),
-            labels = listOf("Off", "Light", "Strong")
+            labels = listOf("Full length", "Shorter", "Shortest")
         ),
         StyleDimension(
             name = "Punctuation",
@@ -143,6 +143,10 @@ class FloatingButtonService : Service() {
     private var sessionTone = "neutral"
     private var hasUserModifiedPill = false
     private var pendingRetryStyleOverrides: StyleOverrides? = null
+
+    // Reason for edit: Pill auto-shrink state per contract F-8
+    private var isPillShrunk = false
+    private var pillShrinkRunnable: Runnable? = null
 
     // Style sheet overlay state
     private var sheetOverlayView: FrameLayout? = null
@@ -506,12 +510,14 @@ class FloatingButtonService : Service() {
                         initialTouchX = event.rawX
                         initialTouchY = event.rawY
                         isMoved = false
+                        expandPill()
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val dx = (event.rawX - initialTouchX).toInt()
                         val dy = (event.rawY - initialTouchY).toInt()
                         if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                            expandPill()
                             params.x = initialX + dx
                             val screenHeight = resources.displayMetrics.heightPixels
                             val viewHeight = if (container?.height ?: 0 > 0) container!!.height else dpToPx(60)
@@ -710,6 +716,7 @@ class FloatingButtonService : Service() {
             private var hasSwiped = false
 
             override fun onTouch(v: View, event: MotionEvent): Boolean {
+                expandPill()
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         startX = event.rawX
@@ -725,11 +732,13 @@ class FloatingButtonService : Service() {
                             if (Math.abs(dx) >= threshold || Math.abs(dy) >= threshold) {
                                 hasSwiped = true
                                 if (Math.abs(dx) >= Math.abs(dy)) {
-                                    // Horizontal: LEFT = do less, RIGHT = do more
+                                    // Reason for edit: Carousel ViewPager physics per F-8:
+                                    // Finger moves LEFT (dx < 0): row slides left, next option enters = "do more"
+                                    // Finger moves RIGHT (dx > 0): row slides right, prev option enters = "do less"
                                     if (dx < 0) {
-                                        stepStyleLess()
-                                    } else {
                                         stepStyleMore()
+                                    } else {
+                                        stepStyleLess()
                                     }
                                 } else {
                                     // Vertical: UP / DOWN = cycle style dimension (wrapping)
@@ -761,6 +770,50 @@ class FloatingButtonService : Service() {
         })
     }
 
+    // Reason for edit: Auto-shrink pill after 2s idle to 70% opacity & compact size per contract F-8
+    private fun schedulePillShrink() {
+        pillShrinkRunnable?.let { mainHandler.removeCallbacks(it) }
+        val runnable = Runnable {
+            if (isRecording && (state == ButtonState.RECORDING || state == ButtonState.RECORDING_NO_FOCUS) && !isSheetOpen) {
+                shrinkPill()
+            }
+        }
+        pillShrinkRunnable = runnable
+        mainHandler.postDelayed(runnable, 2000L)
+    }
+
+    private fun expandPill() {
+        pillShrinkRunnable?.let { mainHandler.removeCallbacks(it) }
+        if (isPillShrunk) {
+            isPillShrunk = false
+            stylePillView?.animate()
+                ?.alpha(1.0f)
+                ?.scaleX(1.0f)
+                ?.scaleY(1.0f)
+                ?.setDuration(150)
+                ?.start()
+            pillCategoryLabel?.visibility = View.VISIBLE
+            stylePillView?.setPadding(dpToPx(14), dpToPx(6), dpToPx(14), dpToPx(6))
+        }
+        if (isRecording && !isSheetOpen) {
+            schedulePillShrink()
+        }
+    }
+
+    private fun shrinkPill() {
+        if (!isPillShrunk && isRecording && !isSheetOpen) {
+            isPillShrunk = true
+            stylePillView?.animate()
+                ?.alpha(0.7f)
+                ?.scaleX(0.88f)
+                ?.scaleY(0.88f)
+                ?.setDuration(200)
+                ?.start()
+            pillCategoryLabel?.visibility = View.GONE
+            stylePillView?.setPadding(dpToPx(10), dpToPx(3), dpToPx(10), dpToPx(3))
+        }
+    }
+
     private fun getCurrentValue(): String {
         return when (currentDimensionIndex) {
             0 -> sessionRewrite
@@ -772,6 +825,7 @@ class FloatingButtonService : Service() {
 
     private fun setCurrentValue(value: String) {
         hasUserModifiedPill = true
+        expandPill()
         when (currentDimensionIndex) {
             0 -> sessionRewrite = value
             1 -> sessionShorten = value
@@ -793,9 +847,9 @@ class FloatingButtonService : Service() {
             val newIndex = currentIndex - 1
             setCurrentValue(dim.values[newIndex])
             triggerHapticTick()
-            animateValueChange(isRight = false)
+            animateValueChange(fingerMovedLeft = false)
         } else {
-            triggerLimitFeedback(isRight = false)
+            triggerLimitFeedback(fingerMovedLeft = false)
         }
     }
 
@@ -806,9 +860,9 @@ class FloatingButtonService : Service() {
             val newIndex = currentIndex + 1
             setCurrentValue(dim.values[newIndex])
             triggerHapticTick()
-            animateValueChange(isRight = true)
+            animateValueChange(fingerMovedLeft = true)
         } else {
-            triggerLimitFeedback(isRight = true)
+            triggerLimitFeedback(fingerMovedLeft = true)
         }
     }
 
@@ -859,7 +913,7 @@ class FloatingButtonService : Service() {
     private fun getAccessibilityDescription(): String {
         val dim = dimensions[currentDimensionIndex]
         val valueIndex = getCurrentIndexInDimension()
-        return "Cleanup style: ${dim.name}, ${dim.labels[valueIndex]}. Swipe left to do less, right to do more, up or down to switch style, or tap for full options."
+        return "Cleanup style: ${dim.name}, ${dim.labels[valueIndex]}. Swipe left to do more, right to do less, up or down to switch style, or tap for full options."
     }
 
     private fun triggerHapticTick() {
@@ -880,6 +934,7 @@ class FloatingButtonService : Service() {
 
     private fun animateDimensionChange(newDimensionIndex: Int, isUp: Boolean) {
         val content = pillContentContainer ?: return
+        expandPill()
         triggerHapticTick()
         val slideY = dpToPx(8).toFloat()
         val exitY = if (isUp) -slideY else slideY
@@ -905,18 +960,25 @@ class FloatingButtonService : Service() {
             .start()
     }
 
-    private fun animateValueChange(isRight: Boolean) {
+    // Reason for edit: Carousel label animation per F-8 (outgoing leaves with finger, incoming enters from opposite side)
+    private fun animateValueChange(fingerMovedLeft: Boolean) {
         val content = pillContentContainer ?: return
-        val nudgeX = if (isRight) dpToPx(6).toFloat() else -dpToPx(6).toFloat()
+        expandPill()
+        val slideDistance = dpToPx(16).toFloat()
+        val exitX = if (fingerMovedLeft) -slideDistance else slideDistance
+        val enterX = if (fingerMovedLeft) slideDistance else -slideDistance
+
         content.animate()
-            .translationX(nudgeX)
-            .setDuration(50)
+            .alpha(0f)
+            .translationX(exitX)
+            .setDuration(70)
             .withEndAction {
                 updatePillContent(animated = false)
-                content.translationX = -nudgeX / 2f
+                content.translationX = enterX
                 content.animate()
+                    .alpha(1f)
                     .translationX(0f)
-                    .setDuration(50)
+                    .setDuration(80)
                     .withEndAction {
                         announcePillChange()
                     }
@@ -925,9 +987,10 @@ class FloatingButtonService : Service() {
             .start()
     }
 
-    private fun triggerLimitFeedback(isRight: Boolean) {
+    private fun triggerLimitFeedback(fingerMovedLeft: Boolean) {
         val content = pillContentContainer ?: return
-        val bounceX = if (isRight) dpToPx(3).toFloat() else -dpToPx(3).toFloat()
+        expandPill()
+        val bounceX = if (fingerMovedLeft) -dpToPx(4).toFloat() else dpToPx(4).toFloat()
         content.animate()
             .translationX(bounceX)
             .setDuration(40)
@@ -993,14 +1056,7 @@ class FloatingButtonService : Service() {
         sheetOverlayView = overlay
 
         val dimView = View(this).apply {
-            setBackgroundColor(Color.parseColor("#9915171C"))
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                try {
-                    setRenderEffect(RenderEffect.createBlurEffect(18f, 18f, Shader.TileMode.CLAMP))
-                } catch (e: Exception) {
-                    // Fallback to dim background
-                }
-            }
+            setBackgroundColor(Color.parseColor("#4D15171C"))
             setOnClickListener {
                 closeStyleSheet()
             }
@@ -1045,9 +1101,23 @@ class FloatingButtonService : Service() {
             else
                 @Suppress("DEPRECATION")
                 WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_DIM_BEHIND,
             PixelFormat.TRANSLUCENT
-        )
+        ).apply {
+            dimAmount = 0.3f
+        }
+
+        // Reason for edit: Cross-window blur behind per contract F-8 item 3
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                if (windowManager.isCrossWindowBlurEnabled) {
+                    sheetParams.flags = sheetParams.flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
+                    sheetParams.blurBehindRadius = dpToPx(24)
+                }
+            } catch (e: Exception) {
+                Log.w("FloatingButtonService", "FLAG_BLUR_BEHIND not supported on this device/ROM", e)
+            }
+        }
 
         overlay.isFocusableInTouchMode = true
         overlay.requestFocus()
@@ -1144,6 +1214,9 @@ class FloatingButtonService : Service() {
                 currentSheetCard = null
                 currentDimView = null
                 sheetTimerView = null
+                if (isRecording) {
+                    expandPill()
+                }
                 onClosed?.invoke()
             }
             ?.start()
@@ -1256,23 +1329,25 @@ class FloatingButtonService : Service() {
             onSelect = { selected ->
                 sessionRewrite = selected
                 hasUserModifiedPill = true
+                expandPill()
                 triggerHapticTick()
                 updatePillContent()
                 buildStyleSheetCard(card)
             }
         )
 
-        // Row 2: Conciseness
+        // Row 2: Conciseness (Full length | Shorter | Shortest per F-8)
         buildOptionRow(
             container = rowsContainer,
             title = "Conciseness",
             values = listOf("off", "light", "strong"),
-            labels = listOf("Off", "Light", "Strong"),
+            labels = listOf("Full length", "Shorter", "Shortest"),
             selectedValue = sessionShorten,
             isEnabled = true,
             onSelect = { selected ->
                 sessionShorten = selected
                 hasUserModifiedPill = true
+                expandPill()
                 triggerHapticTick()
                 updatePillContent()
                 buildStyleSheetCard(card)
@@ -1290,19 +1365,32 @@ class FloatingButtonService : Service() {
             onSelect = { selected ->
                 sessionPunctuation = selected
                 hasUserModifiedPill = true
+                expandPill()
                 triggerHapticTick()
                 updatePillContent()
                 buildStyleSheetCard(card)
             }
         )
 
-        // Row 4: Tone (disabled if rewrite == "keep")
+        // Row 4: Tone (disabled if rewrite == "keep", includes "Mean" for Self-Hosted per F-8)
+        val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+        val toneValues = if (isSelfHosted) {
+            listOf("neutral", "professional", "casual", "friendly", "mean")
+        } else {
+            listOf("neutral", "professional", "casual", "friendly")
+        }
+        val toneLabels = if (isSelfHosted) {
+            listOf("My own tone", "Professional", "Casual", "Friendly", "Mean")
+        } else {
+            listOf("My own tone", "Professional", "Casual", "Friendly")
+        }
+
         val toneEnabled = sessionRewrite != "keep"
         buildOptionRow(
             container = rowsContainer,
             title = "Tone",
-            values = listOf("neutral", "professional", "casual", "friendly"),
-            labels = listOf("My own tone", "Professional", "Casual", "Friendly"),
+            values = toneValues,
+            labels = toneLabels,
             selectedValue = sessionTone,
             isEnabled = toneEnabled,
             note = if (!toneEnabled) "Tone requires Fix grammar or Polish" else null,
@@ -1310,6 +1398,7 @@ class FloatingButtonService : Service() {
                 if (toneEnabled) {
                     sessionTone = selected
                     hasUserModifiedPill = true
+                    expandPill()
                     triggerHapticTick()
                     buildStyleSheetCard(card)
                 }
@@ -1578,8 +1667,18 @@ class FloatingButtonService : Service() {
         sessionPunctuation = settingsRepository.cleanupPunctuation
         sessionTone = settingsRepository.cleanupTone
         hasUserModifiedPill = false
+
+        // Reason for edit: Full size at start per F-8 item 2, then auto-shrink after 2s
+        isPillShrunk = false
+        stylePillView?.alpha = 1.0f
+        stylePillView?.scaleX = 1.0f
+        stylePillView?.scaleY = 1.0f
+        pillCategoryLabel?.visibility = View.VISIBLE
+        stylePillView?.setPadding(dpToPx(14), dpToPx(6), dpToPx(14), dpToPx(6))
+
         updatePillContent(animated = false)
         ensureOverlayInBounds()
+        schedulePillShrink()
 
         val sampleRate = 16000
         val channelConfig = AudioFormat.CHANNEL_IN_MONO
@@ -1823,6 +1922,9 @@ class FloatingButtonService : Service() {
 
     private fun stopRecording() {
         isRecording = false
+        pillShrinkRunnable?.let { mainHandler.removeCallbacks(it) }
+        pillShrinkRunnable = null
+        isPillShrunk = false
         closeStyleSheet()
         releaseAudioFocus()
 

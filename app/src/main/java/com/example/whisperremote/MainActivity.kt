@@ -9,7 +9,7 @@
 
 package com.example.whisperremote
 
-// Reason for edit: Implemented 4 desktop-mirroring tabs (contracts/04-look-and-feel.md), model picker dropdown/read-only display, server/local name corrections, tone styling, and contextual test connection status per K-6.
+// Reason for edit: Updated Conciseness spinner wording to "Full length | Shorter | Shortest" per contract F-8.
 
 import android.Manifest
 import android.content.Context
@@ -236,9 +236,14 @@ class MainActivity : AppCompatActivity() {
             this, android.R.layout.simple_spinner_dropdown_item,
             listOf("neutral", "professional", "casual", "friendly")
         )
+        val shortenOptions = listOf(
+            SpinnerOption("off", "Full length"),
+            SpinnerOption("light", "Shorter"),
+            SpinnerOption("strong", "Shortest")
+        )
         cleanupShortenSpinner.adapter = ArrayAdapter(
             this, android.R.layout.simple_spinner_dropdown_item,
-            listOf("off", "light", "strong")
+            shortenOptions
         )
         cleanupEmojiSpinner.adapter = ArrayAdapter(
             this, android.R.layout.simple_spinner_dropdown_item,
@@ -403,10 +408,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    data class SpinnerOption(val value: String, val display: String) {
+        override fun toString(): String = display
+    }
+
     private fun setSpinnerToValue(spinner: Spinner, value: String) {
         val adapter = spinner.adapter ?: return
         for (i in 0 until adapter.count) {
-            if (adapter.getItem(i)?.toString() == value) {
+            val item = adapter.getItem(i)
+            val itemVal = if (item is SpinnerOption) item.value else item?.toString()
+            if (itemVal == value) {
                 spinner.setSelection(i)
                 break
             }
@@ -607,7 +618,9 @@ class MainActivity : AppCompatActivity() {
         cleanupShortenSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 if (isSpinnerInitializing) return
-                repository.cleanupShorten = parent?.getItemAtPosition(position) as? String ?: "off"
+                val item = parent?.getItemAtPosition(position)
+                val value = if (item is SpinnerOption) item.value else item?.toString() ?: "off"
+                repository.cleanupShorten = value
                 autoSaveSettings()
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}

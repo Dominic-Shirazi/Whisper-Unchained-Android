@@ -41,6 +41,17 @@ class StyleOverridesTest {
     }
 
     @Test
+    fun testStyleOverridesMeanTone() {
+        val overrides = StyleOverrides(
+            rewrite = "fix",
+            shorten = "off",
+            punctuation = "standard",
+            tone = "mean"
+        )
+        assertEquals("mean", overrides.tone)
+    }
+
+    @Test
     fun testStyleOverridesEquality() {
         val o1 = StyleOverrides("keep", "off", "standard", "neutral")
         val o2 = StyleOverrides("keep", "off", "standard", "neutral")

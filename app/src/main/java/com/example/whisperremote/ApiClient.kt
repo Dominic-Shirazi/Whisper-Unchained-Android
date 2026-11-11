@@ -148,16 +148,21 @@ class ApiClient(private val context: Context) {
             requestBodyBuilder.addFormDataPart("prompt", clamped)
         }
 
-        // Self-Hosted processing mode and cleanup overrides (contracts/01 §1 & contracts/02 §5)
+        // Self-Hosted processing mode and cleanup overrides (contracts/01 §1 & contracts/02 §5, F-8)
         if (repository.providerPreset == ProviderPreset.SELF_HOSTED) {
             if (styleOverrides != null) {
-                requestBodyBuilder.addFormDataPart("processing", "clean")
-                requestBodyBuilder.addFormDataPart("cleanup_punctuation", styleOverrides.punctuation)
-                requestBodyBuilder.addFormDataPart("cleanup_rewrite", styleOverrides.rewrite)
-                val tone = if (styleOverrides.rewrite == "keep") "neutral" else styleOverrides.tone
-                requestBodyBuilder.addFormDataPart("cleanup_tone", tone)
-                requestBodyBuilder.addFormDataPart("cleanup_shorten", styleOverrides.shorten)
-                requestBodyBuilder.addFormDataPart("cleanup_emoji", repository.cleanupEmoji)
+                if (styleOverrides.tone == "mean") {
+                    // Reason for edit: Support processing=mean per contract F-8 & K-9 (Head PC only)
+                    requestBodyBuilder.addFormDataPart("processing", "mean")
+                } else {
+                    requestBodyBuilder.addFormDataPart("processing", "clean")
+                    requestBodyBuilder.addFormDataPart("cleanup_punctuation", styleOverrides.punctuation)
+                    requestBodyBuilder.addFormDataPart("cleanup_rewrite", styleOverrides.rewrite)
+                    val tone = if (styleOverrides.rewrite == "keep") "neutral" else styleOverrides.tone
+                    requestBodyBuilder.addFormDataPart("cleanup_tone", tone)
+                    requestBodyBuilder.addFormDataPart("cleanup_shorten", styleOverrides.shorten)
+                    requestBodyBuilder.addFormDataPart("cleanup_emoji", repository.cleanupEmoji)
+                }
             } else if (repository.cleanupEnabled) {
                 requestBodyBuilder.addFormDataPart("processing", "clean")
                 requestBodyBuilder.addFormDataPart("cleanup_punctuation", repository.cleanupPunctuation)
