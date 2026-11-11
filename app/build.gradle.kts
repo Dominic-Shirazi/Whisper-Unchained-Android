@@ -1,6 +1,8 @@
 // This file defines build configuration and dependencies for the Whisper Remote Android application module (:app).
 // It configures compileSdk, minSdk, signingConfigs, build features (BuildConfig generation), and dependencies.
 
+// Reason for edit: Set applicationId = com.cyrus_studio.whisperunchained (reflecting cyrus-studio.com domain) per contract F-14.
+// Reason for edit: Set applicationId = com.cyrusstudio.whisperunchained, versionCode = 3, versionName = "1.0.0" per contract F-13.
 // Reason for edit: Enabled buildFeatures.buildConfig to expose BuildConfig.DEBUG for privacy log gating per contract F-9.
 
 import java.io.FileInputStream
@@ -27,11 +29,11 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.whisperremote"
+        applicationId = "com.cyrus_studio.whisperunchained"
         minSdk = 34
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -65,6 +67,10 @@ android {
     // Reason for edit: Expose BuildConfig.DEBUG for release log gating per contract F-9
     buildFeatures {
         buildConfig = true
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 }
 

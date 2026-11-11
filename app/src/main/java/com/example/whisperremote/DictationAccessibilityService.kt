@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Splice text at cursor with ACTION_SET_SELECTION restore (never clobbering field content), and prune unused event types per contract F-12.
 // Reason for edit: Gate dictated text log behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9.
 // Reason for edit: Updated product name to Whisper Unchained and added file documentation header.
 
@@ -13,6 +14,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -39,11 +41,9 @@ class DictationAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        // Reason for edit: Restricted to minimal focus and window events per contract F-12
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_FOCUSED,
-            AccessibilityEvent.TYPE_VIEW_CLICKED,
-            AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED,
-            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
                 checkFocusState(event)
@@ -144,18 +144,50 @@ class DictationAccessibilityService : AccessibilityService() {
                 Log.d("DictationService", "ACTION_PASTE result: $pasteSuccess")
 
                 if (!pasteSuccess) {
-                    // Fallback to SET_TEXT (replaces entire field content)
-                    val arguments = Bundle()
-                    arguments.putCharSequence(
-                        AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text
-                    )
-                    val setSuccess = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
-                    Log.d("DictationService", "ACTION_SET_TEXT result: $setSuccess")
+                    // Reason for edit: Safe cursor-aware insertion per contract F-12 (never overwrite field content).
+                    val isShowingHint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        node.isShowingHintText
+                    } else false
+
+                    val existingText = if (isShowingHint) "" else (node.text?.toString() ?: "")
+                    val selStart = node.textSelectionStart
+                    val selEnd = node.textSelectionEnd
+
+                    var inserted = false
+                    // Verify that text and selection boundaries can be read reliably
+                    if (selStart >= 0 && selEnd >= selStart && selEnd <= existingText.length) {
+                        val newText = existingText.substring(0, selStart) + text + existingText.substring(selEnd)
+                        val arguments = Bundle().apply {
+                            putCharSequence(
+                                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText
+                            )
+                        }
+                        val setSuccess = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+                        Log.d("DictationService", "ACTION_SET_TEXT (splice) result: $setSuccess")
+                        if (setSuccess) {
+                            inserted = true
+                            val newCursor = selStart + text.length
+                            val selArgs = Bundle().apply {
+                                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, newCursor)
+                                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newCursor)
+                            }
+                            node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selArgs)
+                        }
+                    }
+
+                    if (!inserted) {
+                        Log.w("DictationService", "Could not reliably splice text into field without data loss. Leaving on clipboard.")
+                        FloatingButtonService.getInstance()?.showTemporaryHint("Copied - long-press the box to paste")
+                    }
                 }
             } else {
                 Log.e("DictationService", "Node is not editable")
+                FloatingButtonService.getInstance()?.showTemporaryHint("Copied - long-press the box to paste")
             }
-        } ?: Log.e("DictationService", "No target node found for pasting")
+        } ?: run {
+            Log.e("DictationService", "No target node found for pasting")
+            FloatingButtonService.getInstance()?.showTemporaryHint("Copied - long-press the box to paste")
+        }
 
         // Notify FloatingButtonService that paste is done
         FloatingButtonService.getInstance()?.onPasteComplete(hasFocusedEditable)

@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Exposed showTemporaryHint for accessibility clipboard fallback hints per contract F-12.
 // Reason for edit: Added full-screen scrim (58% black fallback, animated) and experimental Samsung SemBlurInfo reflection per contract F-10.
 // Reason for edit: Fallback dim 0.45 with 0.96 scale entrance for devices without cross-window blur, FLAG_NOT_FOCUSABLE to prevent keyboard dismissal/jitter, and BuildConfig.DEBUG-gated transcript logging per contract F-9.
 // Reason for edit: Added recording style pill overlay with swipe gestures, haptic feedback, TalkBack actions, and per-dictation cleanup overrides per contract F-6.
@@ -243,7 +244,8 @@ class FloatingButtonService : Service() {
         mainHandler.postDelayed(runnable, 5000L)
     }
 
-    private fun showTemporaryHint(textToShow: String) {
+    // Reason for edit: Exposed for clipboard fallback notifications per contract F-12
+    fun showTemporaryHint(textToShow: String) {
         mainHandler.post {
             fadeHintRunnable?.let { mainHandler.removeCallbacks(it) }
             bottomHintLabel?.let { label ->

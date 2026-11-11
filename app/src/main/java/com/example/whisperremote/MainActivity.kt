@@ -9,6 +9,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Added server pairing confirmation dialog and Play-compliant prominent accessibility disclosure per contract F-12.
 // Reason for edit: Updated Conciseness spinner wording to "Full length | Shorter | Shortest" per contract F-8.
 
 import android.Manifest
@@ -658,12 +659,16 @@ class MainActivity : AppCompatActivity() {
             repository.injectionMode = if (checkedId == R.id.injectionClipboard) {
                 InjectionMode.CLIPBOARD
             } else {
+                if (DictationAccessibilityService.getInstance() == null) {
+                    showAccessibilityDisclosureDialog()
+                }
                 InjectionMode.ACCESSIBILITY
             }
         }
 
+        // Reason for edit: Show Play-compliant prominent disclosure dialog before opening accessibility settings per F-12
         openAccessibilitySettingsButton.setOnClickListener {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            showAccessibilityDisclosureDialog()
         }
 
         openOverlayPermissionButton.setOnClickListener {
@@ -873,11 +878,39 @@ class MainActivity : AppCompatActivity() {
             }
     }
 
+    private fun showAccessibilityDisclosureDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Accessibility Permission")
+            .setMessage(
+                "Whisper Unchained uses the Android Accessibility Service to:\n\n" +
+                "• Detect when an editable text box is focused so the floating dictation button can appear\n" +
+                "• Paste your transcribed dictation directly into the active text field\n\n" +
+                "What it does NOT do:\n" +
+                "• Does not read, monitor, log, or transmit screen content or keystrokes\n" +
+                "• Does not interact with other apps or personal data\n\n" +
+                "If you choose 'Not now', Clipboard Mode remains available without accessibility permissions."
+            )
+            .setPositiveButton("Continue") { _, _ ->
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+            .setNegativeButton("Not now", null)
+            .show()
+    }
+
     private fun handleImportedPayload(raw: String) {
-        val success = repository.importQrPayload(raw)
-        if (success) {
-            loadSettingsIntoUi()
-            Toast.makeText(this, "Pairing settings imported successfully!", Toast.LENGTH_SHORT).show()
+        // Reason for edit: Validate scheme http/https, non-empty host, /v1 path, and confirm server host before saving per F-12
+        val payload = repository.parseAndValidateQrPayload(raw)
+        if (payload != null) {
+            AlertDialog.Builder(this)
+                .setTitle("Confirm Server Pairing")
+                .setMessage("Send your dictation to ${payload.hostDisplay}?")
+                .setPositiveButton("Connect") { _, _ ->
+                    repository.applyQrPayload(payload)
+                    loadSettingsIntoUi()
+                    Toast.makeText(this, "Pairing settings imported successfully!", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         } else {
             AlertDialog.Builder(this)
                 .setTitle("Invalid Code")
