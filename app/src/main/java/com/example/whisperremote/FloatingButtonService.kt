@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Replaced stop button with large Done button and consumed scrim outside-taps via StyleSheetOverlayLayout per contract F-17.
 // Reason for edit: Added missing setup check on floating button tap with actionable one-tap fix overlay per contract F-16.
 // Reason for edit: Independent Mean tone and auto-promote to Fix grammar when selecting Professional/Casual/Friendly per contract F-15.
 // Reason for edit: Exposed showTemporaryHint for accessibility clipboard fallback hints per contract F-12.
@@ -1079,6 +1080,31 @@ class FloatingButtonService : Service() {
     // Spot reserved for Dominic's upcoming mean-mode contract update per F-7
     private val TONE_MEAN = "mean"
 
+    // Reason for edit: Intercept and fully consume all outside touches so they never reach the underlying app or text field per contract F-17
+    private class StyleSheetOverlayLayout(context: Context) : FrameLayout(context) {
+        var onOutsideTap: (() -> Unit)? = null
+        var cardView: View? = null
+
+        override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+            val card = cardView
+            if (card != null && card.isShown) {
+                val loc = IntArray(2)
+                card.getLocationOnScreen(loc)
+                val left = loc[0]
+                val top = loc[1]
+                val right = left + card.width
+                val bottom = top + card.height
+                if (ev.rawX >= left && ev.rawX <= right && ev.rawY >= top && ev.rawY <= bottom) {
+                    return super.dispatchTouchEvent(ev)
+                }
+            }
+            if (ev.action == MotionEvent.ACTION_UP) {
+                onOutsideTap?.invoke()
+            }
+            return true // Fully consumed outside card: protects underlying text box and cursor per contract F-17
+        }
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun openStyleSheet() {
         if (isSheetOpen || (state != ButtonState.RECORDING && state != ButtonState.RECORDING_NO_FOCUS)) {
@@ -1089,14 +1115,14 @@ class FloatingButtonService : Service() {
 
         val screenWidth = resources.displayMetrics.widthPixels
 
-        val overlay = FrameLayout(this)
-        sheetOverlayView = overlay
-
-        val dimView = View(this).apply {
-            setOnClickListener {
+        val overlay = StyleSheetOverlayLayout(this).apply {
+            this.onOutsideTap = {
                 closeStyleSheet()
             }
         }
+        sheetOverlayView = overlay
+
+        val dimView = View(this)
         currentDimView = dimView
         overlay.addView(dimView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -1136,6 +1162,7 @@ class FloatingButtonService : Service() {
             Gravity.CENTER
         )
         overlay.addView(card, cardLp)
+        overlay.cardView = card
 
         // Populate card contents
         buildStyleSheetCard(card)
@@ -1447,45 +1474,27 @@ class FloatingButtonService : Service() {
             }
         )
 
-        // Stop button
-        val stopBtn = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            val bg = GradientDrawable().apply {
+        // Large Done button (Contract F-17): closes sheet, recording continues
+        val doneBtn = Button(this).apply {
+            text = "Done"
+            textSize = 15f
+            setTextColor(Color.parseColor("#15171C"))
+            setTypeface(typeface, Typeface.BOLD)
+            val btnBg = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dpToPx(12).toFloat()
-                setColor(Color.parseColor("#D9694A"))
+                setColor(Color.parseColor("#2FB79A"))
             }
-            background = bg
-            val stopSquare = View(this@FloatingButtonService).apply {
-                val sqBg = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = dpToPx(2).toFloat()
-                    setColor(Color.WHITE)
-                }
-                background = sqBg
-            }
-            addView(stopSquare, LinearLayout.LayoutParams(dpToPx(10), dpToPx(10)).also {
-                it.marginEnd = dpToPx(8)
-            })
-            val stopText = TextView(this@FloatingButtonService).apply {
-                text = "Stop Recording & Send"
-                setTextColor(Color.WHITE)
-                textSize = 14f
-                setTypeface(typeface, Typeface.BOLD)
-            }
-            addView(stopText)
+            background = btnBg
             setOnClickListener {
-                closeStyleSheet(onClosed = {
-                    stopRecording()
-                })
+                closeStyleSheet()
             }
         }
-        card.addView(stopBtn, LinearLayout.LayoutParams(
+        card.addView(doneBtn, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
-            dpToPx(44)
+            dpToPx(46)
         ).also {
-            it.topMargin = dpToPx(14)
+            it.topMargin = dpToPx(16)
         })
     }
 
