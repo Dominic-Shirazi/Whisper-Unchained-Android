@@ -248,20 +248,17 @@ To prevent Google Play rejections related to sensitive permissions:
 
 ## 5. Development Phases (re-planned 2026-11-11 with Dominic)
 
-Phases 1 and 2 are done (Android v1.0.3, server v0.9.6). Order from here: **split builds → UI makeover → on-device → Play Store.**
+Phases 1 and 2 are done (Android v1.0.3, server v0.9.6).
+
+**Goal for V1: get the app ready for the Play Store** (permissions, disclosures, demo video, listing) with the current
+feature set, plus the split builds and the makeover. New features come after launch (§5.5).
 
 | Version | What | Notes |
 | :--- | :--- | :--- |
-| **v1.1** | **Split `play` / `full` flavors** (§4.1) | `play` drops `FOREGROUND_SERVICE_MEDIA_PROJECTION` and the internal-audio switch. `full` keeps it, relabeled without brand names (e.g. "Transcribe audio playing on this phone"; phone calls can't be captured). Both keep the AccessibilityService: Wispr Flow ships on Play the same way, with a prominent disclosure (§5.3). **Open:** same app ID for both, or a `.full` suffix? With Play App Signing, Google re-signs the `play` build, so a GitHub `full` build can't update over it either way; a suffix lets both be installed side by side. |
+| **v1.1** | **Split `play` / `full` flavors** (§4.1) | `play` = `com.cyrus_studio.whisperunchained`: drops `FOREGROUND_SERVICE_MEDIA_PROJECTION` and the internal-audio switch. `full` = `com.cyrus_studio.whisperunchained.full`, shown as "Whisper Unchained Full" (decided 2026-11-11; the suffix lets both sit side by side): keeps internal audio, relabeled without brand names (e.g. "Transcribe audio playing on this phone"; phone calls can't be captured). Both keep the AccessibilityService: Wispr Flow ships on Play the same way, with a prominent disclosure (§5.3). |
 | **v1.2** | **UI makeover + first-run intro** (§5.1, §5.2) | Light and dark mode; the mic button keeps its brand color in both. |
-| **v1.5** | **On-device engine** (§5.4) | Offline mode + automatic fallback when the PC/cloud can't be reached, so a dictation is never lost. Measured on the S25 (SM-S931U) and Fold6 (SM-F956U) before committing. |
-| **v1.6** | **Play Store submission** | Data Safety form, accessibility declaration + demo video, listing, badge (§2.8). |
-
-Feature requests (Dominic, 2026-11-11):
-* **Transcribe a file (desktop):** a "Transcribe file" button in the desktop app (not only the right-click menu): drag-and-drop or "Select file", audio or video, result in a text box with Copy / Save.
-* **Smart Replace (desktop + app):** a user list of spoken phrase → text, applied after transcription, broader than name corrections. Example: "enter my email" → `you@example.com`, so "let me give you my email enter my email" becomes "let me give you my email you@example.com". Same list on the server (so every client gets it) and in the app (for cloud mode); synced like the vocabulary.
-
-Later / ideas for `full`: voice-edit **selected text in any app** ("prompt AI, make this professional"), hardware-button or shortcut start, per-app styles.
+| **v1.3** | **Play Store submission** | Data Safety form, accessibility declaration + demo video, listing, badge (§2.8). |
+| **v1.5** | **On-device engine** (§5.4) | Offline mode + automatic fallback when the PC/cloud can't be reached. After launch (moved behind the Play submission 2026-11-11, since V1's goal is a Play-ready app; swap back if needed). |
 
 ### 5.1 UI makeover ("doesn't look AI-made")
 Research (2026-11-11) on what reads as AI-generated UI: an unchosen default accent (our teal), a border around every group, a tagline under the name, identical spacing everywhere, emoji or mixed icon sets, mismatched indicators. Direction: **stock Android done well, close to One UI**, not a One UI clone (the only One UI library is Views-based).
@@ -269,6 +266,9 @@ Research (2026-11-11) on what reads as AI-generated UI: an unchosen default acce
 * Colors: dynamic color (Material You) with a neutral fallback; one accent, used only for values, switches and the primary action.
 * Groups: rounded containers with **no borders or shadows** on a slightly different background (One UI: ~#F2F2F4 background, ~#FCFCFF groups, ~26dp radius, ~16dp between groups, hairline dividers inset to the text). Current value on the second line in the accent color. Helper text **between** groups. Split rows (label opens a subpage, switch toggles).
 * Icons: one consistent set (Material Symbols) on top-level rows only.
+* **Group by meaning, not just by screen** (One UI does this even in one long list: Connections + Connected devices together; Galaxy AI + Modes + Sounds + Notifications together; Display + Battery together). Each group answers one question ("where does my audio go?", "how does it type?", "how does it look?").
+* **Show only what matters for the current choice** (we already hide options until their switch is on; keep doing it). Example, Transcription > pairing page: **Scan pairing code** first, then **Test connection** right under it, then a collapsed **"Manual setup ⌄"** row that expands to the server/provider fields. Scan *or* fill in, never both.
+* Dark mode reference (One UI, Dominic's screenshots in `.tempUI`): pure black background, dark grey rounded groups, no borders, blue only for current values and switches, colored circle icons on the top-level page only, a "Looking for something else?" card at the bottom with related links.
 * Tabs: `PrimaryTabRow` default indicator (sized to the label), or replace tabs with list → subpage.
 * Colour-blind rule: never show state by red vs. green alone.
 * Process: reference screenshots → `DESIGN.md` tokens → Compose previews rendered to PNG (Roborazzi) in light + dark → checklist review → Dominic approves the images before release. Library to consider: alorma/Compose-Settings (MIT).
@@ -295,3 +295,32 @@ Wispr Flow is on Play with an AccessibilityService for field detection and inser
   * Qwen 3.5 4B Q4_0 on the GPU works and cleans correctly (scratch-that, no-wait, short and long clips): reading the prompt ~2.5 s (cacheable: the system prompt is the same every time), writing ~19 tok/s cool, dropping to ~12-16 tok/s as the phone heats up. A 30-word clip ≈ 2 s of writing; a 200-word clip ≈ 15 s.
   * Gemma 4 on llama.cpp's phone GPU path produces garbage, and on CPU it ignores "thinking off". Gemma 4 needs Google's LiteRT-LM to test fairly.
   * SpeakoFlow Mini (Qwen 3.5 0.8B fine-tuned for cleanup, Apache-2.0) is very fast but **deleted whole spoken sentences** and answered a dictated question in our PC tests; not safe even as a fallback. Its MIT rules layer (AbhishekBarali/dictation-cleanup-rules: fillers, numbers, dates, currency, no AI) is a good candidate for the instant no-model fallback.
+
+### 5.5 After launch: features, easiest first, grouped so related work ships together
+Competitor scan (2026-11-11): SpeakoFlow, Handy, OpenWhispr, Amical, VoiceTypr, superwhisper, Wispr Flow, Aqua Voice, Willow, MacWhisper.
+None lets a phone use your own PC's GPU (VoiceTypr shares a PC's transcription with other PCs on the LAN, desktop only;
+Amical's Android bubble uses Amical's paid cloud models, not your desktop). That stays our edge.
+**Not goals:** live text while you talk (our chunked Whisper doesn't stream well); meeting recording / notes / speaker labels.
+
+**Group A: desktop polish (small)**
+1. **Sharp text on the desktop.** The text looks pixelated next to e.g. the Claude app. Likely cause: Windows scales the windows as a picture. `settings_gui.py` sets only system-level DPI awareness (`SetProcessDpiAwareness(1)`); the wizard and other windows set none. Fix: per-monitor DPI awareness (2) in every window before Tk starts, Tk scaling to match, and a ClearType-friendly font (Segoe UI Variable). Verify on Head-PC's monitors.
+
+**Group B: "what you said, your way" (server text rules, shared by phone and desktop)**
+2. **Smart Replace**: spoken phrase → text ("enter my email" → `you@example.com`, so "let me give you my email enter my email" becomes "let me give you my email you@example.com"). One list on the server, synced to the app like the vocabulary (also used in the app's cloud mode). Broader version of name corrections.
+3. **Per-app styles**: e.g. casual in Messages, professional in Outlook. The desktop knows the foreground program, the phone knows the app's package name; each sends it and the server picks the style. Reuses the existing style presets.
+4. **Dictionary that learns from your corrections** (OpenWhispr does this, MIT: `src/utils/correctionLearner.js`): after a paste, watch the field briefly, diff what we pasted against what's there now (word-level LCS), keep swaps that look like mishearings (skip common words, words under 3 letters, unrelated words), and offer them for the vocabulary / name corrections. The Android accessibility service can already read the field; the desktop needs UI Automation. Suggest, don't silently add.
+
+**Group C: a "results" window on the desktop (one window, three uses)**
+5. **Transcribe a file**: a button in the desktop app (not only the right-click menu): drag-and-drop or "Select file", audio or video, result in a text box with Copy / Save.
+6. **Subtitles + translate to English** for files: SRT/VTT export (segments already have timestamps) and Whisper's built-in translate-to-English.
+7. **History**: search past dictations, paste or copy again, raw vs. cleaned side by side, re-run cleanup. The transcript log already has the data.
+
+**Group D: voice editing**
+8. **Hold-to-talk on the phone bubble** (long-press); the desktop already has hold mode.
+9. **Voice-edit selected text in any app**: highlight, hotkey/bubble, say "make this shorter". Reuses "prompt AI" (Aqua Voice and SpeakoFlow do this). `full` flavor on Android; desktop via copy-selection → edit → paste.
+
+**Group E: install and upkeep**
+10. **Auto-updates** with stable and beta channels, plus a **model manager** screen (§2.4).
+
+**Group F: reach (largest)**
+11. **PCs without an NVIDIA GPU**: CPU Parakeet (sherpa-onnx) or whisper.cpp with Vulkan for AMD/Intel. Our biggest install blocker (Handy and OpenWhispr already do this).
