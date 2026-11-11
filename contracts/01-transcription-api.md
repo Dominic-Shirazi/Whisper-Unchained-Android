@@ -128,10 +128,14 @@ providers have no such endpoint.
 
 **`GET /v1/vocabulary`** (auth like every `/v1` route):
 ```json
-{ "vocabulary": ["Qwen", "Ollama"], "from_name_corrections": ["Lesley", "Ame"], "chars": 25, "max_chars": 540 }
+{ "vocabulary": ["Qwen", "Ollama"], "from_name_corrections": ["Lesley", "Ame"],
+  "name_corrections": {"Leslie": "Lesley", "Emma": "Ame"}, "chars": 25, "max_chars": 540 }
 ```
 - `vocabulary`: the user's words. Show these as the editable-by-adding list.
-- `from_name_corrections`: hinted automatically from the server's name corrections; show read-only (or not at all).
+- `from_name_corrections`: hinted automatically from the server's name corrections. **Show them** (greyed, read-only,
+  labeled "from name corrections"): hiding them made Dominic think his words were missing (2026-11-10).
+- `name_corrections` (**added 2026-11-10**, additive): the full "heard as → write as" pairs, for a read-only
+  list on the phone's Words screen (contract 04). Edited only in the desktop Settings window.
 - `chars` / `max_chars`: how much of Whisper's hint space is used (~224 tokens ≈ 540 chars). Words past that are ignored by Whisper; warn when `chars` > `max_chars`.
 
 **`POST /v1/vocabulary`** `{"add": ["Kubernetes", "Tailscale"]}` → same body as GET plus `"added": [...]`
@@ -158,3 +162,29 @@ stays up; the speech model moves off the GPU.
 - App behavior: treat `paused` as **reachable** (no Tailscale-down state, no auto-restart of Tailscale). Show a calm "Paused on your PC"
   state on the button. On a 503 `server_paused`, keep the recording and offer retry (or retry automatically once `/health` is `ok`;
   `game` pauses end on their own when the game closes).
+
+## 10. Hint echo (hallucinated word list) · LIVE on the server (Open_Whisper_Flow, 2026-11-10)
+
+**What happens:** on a faint noise after the last word (stop beep, key release), Whisper can read the hint list
+back as speech, looping: *"…at the top of the page. Ollama, Lesley, Ame, Sara, Lesley, Ame, Sara, Lesley."*
+Seen in 7 of Dominic's dictations; replayed and confirmed it disappears with no hints. Cloud Whisper
+(`prompt` field) is prone to the same thing.
+
+**Self-hosted preset: the server removes it. The app must not trim anything** (a second, looser trim on the
+phone would only risk real words).
+
+**Cloud presets: the app removes it, with the same rule.** A segment (or, for text-only replies, the trailing run
+of words) is an echo only if **every** word in it is a hint word (case-insensitive, split on non-word characters),
+**and** at least one of:
+1. it ends more than 0.5 s past the audio's duration (needs `response_format=verbose_json` segments: OpenAI
+   `whisper-1` and Groq support it);
+2. it's faster than speech: more than 8 words per second of segment time (verbose_json only);
+3. one hint word appears 3 or more times in it (the list looping; this is the only test for text-only replies).
+
+For a text-only reply, the "trailing run" is the longest run of hint words at the very end (separated only by
+spaces and `,.;:!?`). Never remove a run that fails these tests, even a single hint word at the end:
+"Let's ask Ollama" and "Say hi to Sara" must paste unchanged. Server reference: `_is_hint_echo` in
+`api/whisper_api.py` (tests in `tests/test_v1_api.py`).
+
+The "leading recitation" trim (3+ hints in list order at the very start) can stay for cloud presets only.
+
