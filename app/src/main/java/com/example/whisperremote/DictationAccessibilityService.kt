@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Gate dictated text log behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9.
 // Reason for edit: Updated product name to Whisper Unchained and added file documentation header.
 
 import android.accessibilityservice.AccessibilityService
@@ -110,7 +111,12 @@ class DictationAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {}
 
     fun pasteText(text: String) {
-        Log.d("DictationService", "pasteText called with: $text")
+        // Reason for edit: Gate dictated text log behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9
+        if (BuildConfig.DEBUG) {
+            Log.d("DictationService", "pasteText called with: $text")
+        } else {
+            Log.d("DictationService", "pasteText called with ${text.length} chars")
+        }
 
         // 1. Always copy to clipboard as a reliable backup
         try {

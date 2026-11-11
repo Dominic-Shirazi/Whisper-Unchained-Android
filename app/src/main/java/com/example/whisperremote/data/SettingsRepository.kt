@@ -6,6 +6,7 @@
 
 package com.example.whisperremote.data
 
+// Reason for edit: Gate pref repair logs behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9.
 // Reason for edit: Encrypt only real secrets (api_key, cleanup_chat_key) and auto-repair/decrypt non-secret preferences (cleanup_punctuation, options, URLs) per Q-3.
 
 import android.content.Context
@@ -13,6 +14,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.example.whisperremote.BuildConfig
 import com.example.whisperremote.util.KeyStoreCryptoHelper
 import org.json.JSONObject
 
@@ -99,7 +101,9 @@ class SettingsRepository(context: Context) {
                 val decrypted = KeyStoreCryptoHelper.decrypt(value)
                 editor.putString(key, decrypted)
                 changed = true
-                Log.d(TAG, "Repaired accidentally encrypted non-secret key '$key' -> '$decrypted'")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Repaired accidentally encrypted non-secret key '$key' -> '$decrypted'")
+                }
             }
         }
         if (changed) {

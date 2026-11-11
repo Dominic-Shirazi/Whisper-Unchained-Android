@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Gate transcription response body behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9.
 // Reason for edit: Added per-dictation StyleOverrides support for style pill overrides per contract F-6 (contracts/01 §1 & contracts/02 §5).
 
 import android.content.Context
@@ -196,7 +197,12 @@ class ApiClient(private val context: Context) {
                 response.use {
                     val code = response.code
                     val rawBody = response.body?.string().orEmpty()
-                    Log.d("ApiClient", "Transcription response code: $code, body: $rawBody")
+                    // Reason for edit: Gate response body behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9
+                    if (BuildConfig.DEBUG) {
+                        Log.d("ApiClient", "Transcription response code: $code, body: $rawBody")
+                    } else {
+                        Log.d("ApiClient", "Transcription response code: $code, body length: ${rawBody.length}")
+                    }
 
                     when (code) {
                         200 -> {

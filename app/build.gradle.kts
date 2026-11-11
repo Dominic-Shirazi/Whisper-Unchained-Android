@@ -1,3 +1,8 @@
+// This file defines build configuration and dependencies for the Whisper Remote Android application module (:app).
+// It configures compileSdk, minSdk, signingConfigs, build features (BuildConfig generation), and dependencies.
+
+// Reason for edit: Enabled buildFeatures.buildConfig to expose BuildConfig.DEBUG for privacy log gating per contract F-9.
+
 import java.io.FileInputStream
 import java.util.Properties
 
@@ -55,6 +60,11 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    // Reason for edit: Expose BuildConfig.DEBUG for release log gating per contract F-9
+    buildFeatures {
+        buildConfig = true
     }
 }
 

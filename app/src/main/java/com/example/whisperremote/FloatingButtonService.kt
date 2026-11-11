@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Fallback dim 0.45 with 0.96 scale entrance for devices without cross-window blur, FLAG_NOT_FOCUSABLE to prevent keyboard dismissal/jitter, and BuildConfig.DEBUG-gated transcript logging per contract F-9.
 // Reason for edit: Added recording style pill overlay with swipe gestures, haptic feedback, TalkBack actions, and per-dictation cleanup overrides per contract F-6.
 
 import android.animation.Animator
@@ -1056,7 +1057,7 @@ class FloatingButtonService : Service() {
         sheetOverlayView = overlay
 
         val dimView = View(this).apply {
-            setBackgroundColor(Color.parseColor("#4D15171C"))
+            setBackgroundColor(Color.TRANSPARENT)
             setOnClickListener {
                 closeStyleSheet()
             }
@@ -1093,6 +1094,7 @@ class FloatingButtonService : Service() {
         // Populate card contents
         buildStyleSheetCard(card)
 
+        // Reason for edit: Use FLAG_NOT_FOCUSABLE to prevent keyboard dismissal/jitter and keep focus in target input field per F-9
         val sheetParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -1101,13 +1103,16 @@ class FloatingButtonService : Service() {
             else
                 @Suppress("DEPRECATION")
                 WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_DIM_BEHIND,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_DIM_BEHIND or
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-            dimAmount = 0.3f
+            // Reason for edit: Fallback dim 0.45 for devices without cross-window blur (e.g. Samsung One UI) per F-9
+            dimAmount = 0.45f
         }
 
-        // Reason for edit: Cross-window blur behind per contract F-8 item 3
+        // Reason for edit: Cross-window blur behind per contract F-8 item 3 / F-9
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             try {
                 if (windowManager.isCrossWindowBlurEnabled) {
@@ -1116,17 +1121,6 @@ class FloatingButtonService : Service() {
                 }
             } catch (e: Exception) {
                 Log.w("FloatingButtonService", "FLAG_BLUR_BEHIND not supported on this device/ROM", e)
-            }
-        }
-
-        overlay.isFocusableInTouchMode = true
-        overlay.requestFocus()
-        overlay.setOnKeyListener { _, keyCode, event ->
-            if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
-                closeStyleSheet()
-                true
-            } else {
-                false
             }
         }
 
@@ -1151,31 +1145,22 @@ class FloatingButtonService : Service() {
         }
         mainHandler.post(sheetTimerRunnable!!)
 
-        // Animate grow out of button
+        // Reason for edit: Scale in from 0.96 with fade for clean, deliberate presentation without layout shift per F-9
         card.post {
-            val buttonLoc = IntArray(2)
-            floatingButton?.getLocationOnScreen(buttonLoc)
-            val btnW = floatingButton?.width ?: dpToPx(50)
-            val btnH = floatingButton?.height ?: dpToPx(50)
-            val buttonCenterX = (buttonLoc[0] + btnW / 2).toFloat()
-            val buttonCenterY = (buttonLoc[1] + btnH / 2).toFloat()
+            card.pivotX = card.width / 2f
+            card.pivotY = card.height / 2f
 
-            val cardLoc = IntArray(2)
-            card.getLocationOnScreen(cardLoc)
-            card.pivotX = (buttonCenterX - cardLoc[0]).coerceIn(0f, card.width.toFloat())
-            card.pivotY = (buttonCenterY - cardLoc[1]).coerceIn(0f, card.height.toFloat())
-
-            card.scaleX = 0.2f
-            card.scaleY = 0.2f
+            card.scaleX = 0.96f
+            card.scaleY = 0.96f
             card.alpha = 0f
             dimView.alpha = 0f
 
-            dimView.animate().alpha(1f).setDuration(220).start()
+            dimView.animate().alpha(1f).setDuration(200).start()
             card.animate()
                 .scaleX(1f)
                 .scaleY(1f)
                 .alpha(1f)
-                .setDuration(220)
+                .setDuration(200)
                 .setInterpolator(DecelerateInterpolator())
                 .start()
         }
@@ -1197,12 +1182,13 @@ class FloatingButtonService : Service() {
         val card = currentSheetCard
         val dim = currentDimView
 
-        dim?.animate()?.alpha(0f)?.setDuration(180)?.start()
+        dim?.animate()?.alpha(0f)?.setDuration(160)?.start()
+        // Reason for edit: Scale out to 0.96 with fade per F-9
         card?.animate()
-            ?.scaleX(0.2f)
-            ?.scaleY(0.2f)
+            ?.scaleX(0.96f)
+            ?.scaleY(0.96f)
             ?.alpha(0f)
-            ?.setDuration(180)
+            ?.setDuration(160)
             ?.setInterpolator(AccelerateInterpolator())
             ?.withEndAction {
                 try {
@@ -1982,7 +1968,12 @@ class FloatingButtonService : Service() {
                     if (settingsRepository.providerPreset != ProviderPreset.SELF_HOSTED && settingsRepository.autoTrimHints) {
                         text = TranscriptSanitizer.sanitize(text, settingsRepository.promptHints)
                     }
-                    Log.d("FloatingButtonService", "Transcribed (sanitized): $text")
+                    // Reason for edit: Gate transcript logging behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9
+                    if (BuildConfig.DEBUG) {
+                        Log.d("FloatingButtonService", "Transcribed (sanitized): $text")
+                    } else {
+                        Log.d("FloatingButtonService", "Transcribed (sanitized): ${text.length} chars")
+                    }
                     mainHandler.post {
                         deliverTranscribedText(text)
                     }
