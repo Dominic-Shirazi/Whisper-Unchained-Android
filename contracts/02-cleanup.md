@@ -4,7 +4,7 @@
 
 Optional LLM pass over a finished transcript: removes fillers, applies self-corrections
 ("Tuesday, no wait, Wednesday"), turns spoken formatting into formatting, and follows a chosen
-style. **Off by default** (Dominic does not want every dictation through an LLM by default).
+style. **Default (2026-11-11, Dominic): on whenever an AI model is set up, off when none is** ("smart default"). PC: the setup wizard turns "Clean up every dictation" on when it finds an AI server. Phone paired with a PC: the switch starts out matching `/health` → `cleanup_always` until the user flips it. Phone on a cloud preset: on once an editor (chat) endpoint + key is configured, off otherwise.
 
 The same cleanup must come out of two places:
 
@@ -76,6 +76,7 @@ If the result is empty, use the original transcript.
 | :--- | :--- |
 | `processing` | `full` (default; cleanup only if the server's "always" setting is on), `raw`, or **`clean`** (cleanup for this request) |
 | `cleanup_punctuation`, `cleanup_rewrite`, `cleanup_tone` (v2), `cleanup_shorten`, `cleanup_emoji` | Optional per-request overrides of the server's defaults (Settings > AI Editing). Send the app's chosen style so phone and cloud results match. |
+| `cleanup` (**2026-11-11**) | Optional `on` / `off`: the phone's own cleanup switch, overriding the server's "Clean up every dictation" for this request (`processing=clean` still means on). Anything else is `400 invalid_cleanup_option`. |
 
 ## 6. Measured on Head PC (2026-11-10, Bonsai2 27B on ai-worker3, no-think)
 
