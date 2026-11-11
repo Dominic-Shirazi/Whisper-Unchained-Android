@@ -1,0 +1,120 @@
+{
+ "_comment": "Generated from the server's own functions (api/fillers.py remove_fillers, client/transcribe_client.py apply_name_corrections). The app's ports must produce exactly these outputs. Contract 05 §2.4.",
+ "fillers": [
+  {
+   "input": "I, um, think so.",
+   "output": "I think so."
+  },
+  {
+   "input": "Um, so the plan is set.",
+   "output": "So the plan is set."
+  },
+  {
+   "input": "It was uh fine.",
+   "output": "It was fine."
+  },
+  {
+   "input": "Yes, um.",
+   "output": "Yes."
+  },
+  {
+   "input": "Hmm... maybe later.",
+   "output": "Maybe later."
+  },
+  {
+   "input": "We could, uhh, wait. Umm, no.",
+   "output": "We could wait. No."
+  },
+  {
+   "input": "Um, I, uh, think, um, yes.",
+   "output": "I think yes."
+  },
+  {
+   "input": "uh-oh, the umbrella broke.",
+   "output": "uh-oh, the umbrella broke."
+  },
+  {
+   "input": "The UM team called.",
+   "output": "The UM team called."
+  },
+  {
+   "input": "I like, you know, the plan.",
+   "output": "I like, you know, the plan."
+  },
+  {
+   "input": "It's 5 mm wide.",
+   "output": "It's 5 mm wide."
+  },
+  {
+   "input": "Er, the ER was busy.",
+   "output": "Er, the ER was busy."
+  },
+  {
+   "input": "Nothing to remove here.",
+   "output": "Nothing to remove here."
+  },
+  {
+   "input": "um",
+   "output": ""
+  },
+  {
+   "input": "Well um, okay. Uh. Fine.",
+   "output": "Well okay. Fine."
+  },
+  {
+   "input": "So… um… yes",
+   "output": "So… yes"
+  },
+  {
+   "input": "We met at the hmm-ing bird cafe.",
+   "output": "We met at the hmm-ing bird cafe."
+  },
+  {
+   "input": "Wait... um, what?",
+   "output": "Wait... what?"
+  },
+  {
+   "input": "",
+   "output": ""
+  }
+ ],
+ "name_corrections": {
+  "corrections": {
+   "Leslie": "Lesley",
+   "telnix": "Telnyx",
+   "olama": "Ollama",
+   "C plus plus": "C++",
+   "st louis": "St. Louis"
+  },
+  "cases": [
+   {
+    "input": "leslie called about telnix.",
+    "output": "Lesley called about Telnyx."
+   },
+   {
+    "input": "LESLIE and Leslie's dog.",
+    "output": "Lesley and Lesley's dog."
+   },
+   {
+    "input": "Olama, olama! olamas",
+    "output": "Ollama, Ollama! olamas"
+   },
+   {
+    "input": "I write C plus plus daily.",
+    "output": "I write C++ daily."
+   },
+   {
+    "input": "Flying to st louis and St Louis.",
+    "output": "Flying to St. Louis and St. Louis."
+   },
+   {
+    "input": "Leslies are not Leslie.",
+    "output": "Leslies are not Lesley."
+   },
+   {
+    "input": "No names here.",
+    "output": "No names here."
+   }
+  ]
+ }
+}

@@ -58,7 +58,8 @@ No GPU or NPU needed. The Fold6 (8 Gen 3) should be somewhat slower; still well 
    - **Name corrections** ("heard as → write as", whole word, any case, literal), from the local list; for paired
      users, the PC's list cached from `GET /v1/vocabulary` so corrections still apply offline.
    - **Filler sounds** ("Remove filler sounds" switch, off by default): exactly the server rule (`api/fillers.py`):
-     only standalone um/umm/uh/uhh/hmm, never "like"/"you know". Port the function and its test cases.
+     only standalone um/umm/uh/uhh/hmm, never "like"/"you know". Port the function; the port must pass
+     every case in `contracts/05-text-rules-tests.json` (generated from the server code), as must the name-correction port.
    - If a cloud chat model is configured for cleanup, cleanup can run as today; otherwise the text is pasted as is.
    - No hint-echo trim needed (no prompt is sent to the model).
 5. **Vocabulary as hotwords (try it, keep if it helps):** sherpa-onnx transducers support contextual biasing
