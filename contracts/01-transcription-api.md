@@ -59,7 +59,10 @@ take up to ~10 s cold. Keep the client read timeout ≥ 60 s.
 ```json
 { "status": "ok", "api_version": 1, "model": "large-v3-turbo", "auth_required": true }
 ```
-- `status`: `ok`, or `error` if the Whisper model failed to load (transcription returns 503).
+- `status`: `ok`; `paused` when dictation is paused on the PC (see §9; **the server is reachable**, so show
+  "Paused on your PC", never "Tailscale down", and don't run the Tailscale restart); or `error` if the Whisper
+  model failed to load (transcription returns 503).
+- `paused_reason`: `user` (paused from the tray), `game` (game mode; resumes by itself), or `null`.
   There is **no `loading` state**: the server doesn't accept connections until the model is loaded, so
   "connection refused" for ~10–60 s after a start/resume is normal. Treat it like "unreachable" and retry.
 - `/health` stays fast while a transcription is running (the pipeline runs off the request thread),
@@ -95,6 +98,7 @@ OpenAI error shape on every `/v1/*` failure:
 | 400 | `missing_file`, `invalid_response_format`, `invalid_processing` | Client bug |
 | 401 | `invalid_api_key` | Show "API key rejected" |
 | 413 | `file_too_large` | Over 100 MB |
+| 503 | `server_paused` | Paused on the PC (§9). Keep the audio; show the message from the error; retry after `Retry-After` or when `/health` says `ok` |
 | 503 | `model_unavailable` | Model failed to load on the server. `Retry-After: 30` is set. Show "Server error" |
 | 500 | `server_error` | Keep the audio, offer retry (ROADMAP §3.4 step 5) |
 
@@ -142,3 +146,15 @@ providers have no such endpoint.
 - Cloud presets (Groq/OpenAI/...): keep a local list and send it as the `prompt` field, since there is no server list.
   The server-side list is not copied into the pairing QR (it would go stale).
 - Sending per-request `prompt` hints to the Head PC still works and is merged case-insensitively, but with the shared list it's no longer needed.
+
+## 9. Soft pause · LIVE (code; Open_Whisper_Flow, 2026-11-10)
+
+The PC can pause dictation to free its graphics card (from the tray, or automatically while a game runs). The server
+stays up; the speech model moves off the GPU.
+
+- `POST /v1/pause` `{"reason": "user" | "game"}` and `POST /v1/resume` exist for the desktop tray. **The app doesn't need to call them.**
+- While paused: `GET /health` → `"status": "paused"`, `"paused_reason": "user" | "game"`; transcription → `503 server_paused`
+  with a human message ("Dictation is paused on the PC (for gaming). Resume it from the tray icon.").
+- App behavior: treat `paused` as **reachable** (no Tailscale-down state, no auto-restart of Tailscale). Show a calm "Paused on your PC"
+  state on the button. On a 503 `server_paused`, keep the recording and offer retry (or retry automatically once `/health` is `ok`;
+  `game` pauses end on their own when the game closes).
