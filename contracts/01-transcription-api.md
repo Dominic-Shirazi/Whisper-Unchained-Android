@@ -80,7 +80,12 @@ OpenAI shape. **Needs auth when auth is on**, so the app's "Test connection" but
 
 ## 4. Auth · LIVE (code)
 
-- Off by default. On when the server's `.env` has `WHISPER_API_KEY=<key>`.
+- **On by default for new installs** (2026-11-10): the setup wizard creates a key, and the pairing QR carries it.
+  On when the server's `.env` has `WHISPER_API_KEY=<key>` and `WHISPER_API_KEY_REQUIRED` isn't `false`.
+- The user can switch "Require the key" off (Settings > Phone) while keeping the key saved. Then the server
+  accepts requests with or without it, and `/health` says `"auth_required": false`. **The app keeps its key and
+  keeps sending it** regardless, so switching back on needs no re-pairing.
+- Requests that carry a browser `Origin` header are refused (`403 origin_not_allowed`). OkHttp sends none; don't add one.
 - Client sends `Authorization: Bearer <key>` (the standard OpenAI header).
 - When on, **every route except `GET /health`** requires it, legacy routes included.
 - Wrong/missing key → `401` (see errors). The app should show "API key rejected", not "server unreachable".
