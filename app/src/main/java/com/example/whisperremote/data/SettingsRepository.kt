@@ -1,18 +1,19 @@
-// This file manages persistent configuration for WhisperRemote.
+// This file manages persistent configuration for Whisper Unchained.
 // It is called by MainActivity, FloatingButtonService, and ApiClient.
-// Inputs: User inputs from Settings UI or QR code scan, backed by hardware-backed EncryptedSharedPreferences ("WhisperRemoteSecurePrefs").
+// Inputs: User inputs from Settings UI or QR code scan, backed by hardware-backed KeyStore AES-256-GCM encryption.
 // Outputs: Provider settings (base URL, API key, model, prompt hints), behavioral flags (auto-trim, boot start, Tailscale auto-restart), and injection mode.
 // It resolves endpoints according to the OpenAI standard (/v1/audio/transcriptions, /health, /v1/models) and migrates legacy URLs cleanly.
 
 package com.example.whisperremote.data
 
-// Reason for edit: Upgraded to hardware-backed EncryptedSharedPreferences (AES-256-GCM via Android KeyStore) with transparent legacy migration for maximum security at rest.
+// Reason for edit: Migrated from deprecated androidx.security:security-crypto to direct Android KeyStore AES-256-GCM cipher helper per F-4, with transparent one-time migration.
 
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.example.whisperremote.util.KeyStoreCryptoHelper
 import org.json.JSONObject
 
 enum class InjectionMode {
@@ -48,71 +49,91 @@ enum class ChatProviderPreset(val displayName: String, val defaultUrl: String, v
 
 class SettingsRepository(context: Context) {
 
-    private val prefs: SharedPreferences
+    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
     val isHardwareEncrypted: Boolean
+        get() = KeyStoreCryptoHelper.isHardwareAvailable()
 
     init {
-        var encrypted: SharedPreferences? = null
+        migrateFromEncryptedSharedPreferences(context)
+        migrateFromLegacyPlaintext(context)
+    }
+
+    private fun putEncryptedString(key: String, value: String) {
+        val cipher = KeyStoreCryptoHelper.encrypt(value)
+        prefs.edit().putString(key, cipher).apply()
+    }
+
+    private fun getEncryptedString(key: String, defaultValue: String = ""): String {
+        val raw = prefs.getString(key, null) ?: return defaultValue
+        return KeyStoreCryptoHelper.decrypt(raw)
+    }
+
+    private fun migrateFromEncryptedSharedPreferences(context: Context) {
         try {
             val masterKey = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
 
-            encrypted = EncryptedSharedPreferences.create(
+            val encPrefs = EncryptedSharedPreferences.create(
                 context,
-                SECURE_PREFS_NAME,
+                "WhisperRemoteSecurePrefs",
                 masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
-            Log.d(TAG, "Hardware-backed EncryptedSharedPreferences initialized successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize EncryptedSharedPreferences; falling back to private prefs", e)
-        }
-
-        if (encrypted != null) {
-            prefs = encrypted
-            isHardwareEncrypted = true
-            migrateLegacyPrefs(context, encrypted)
-        } else {
-            prefs = context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
-            isHardwareEncrypted = false
-        }
-    }
-
-    private fun migrateLegacyPrefs(context: Context, target: SharedPreferences) {
-        try {
-            val legacy = context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
-            val all = legacy.all
+            val all = encPrefs.all
             if (all.isNotEmpty()) {
-                Log.d(TAG, "Migrating ${all.size} legacy plaintext preferences to encrypted storage")
-                val editor = target.edit()
+                Log.d(TAG, "Migrating ${all.size} items from EncryptedSharedPreferences to direct Android KeyStore")
                 for ((key, value) in all) {
-                    if (!target.contains(key) && value != null) {
+                    if (!prefs.contains(key) && value != null) {
                         when (value) {
-                            is String -> editor.putString(key, value)
-                            is Boolean -> editor.putBoolean(key, value)
-                            is Int -> editor.putInt(key, value)
-                            is Long -> editor.putLong(key, value)
-                            is Float -> editor.putFloat(key, value)
-                            is Set<*> -> @Suppress("UNCHECKED_CAST") editor.putStringSet(key, value as Set<String>)
+                            is String -> putEncryptedString(key, value)
+                            is Boolean -> prefs.edit().putBoolean(key, value).apply()
+                            is Int -> prefs.edit().putInt(key, value).apply()
+                            is Long -> prefs.edit().putLong(key, value).apply()
+                            is Float -> prefs.edit().putFloat(key, value).apply()
+                            is Set<*> -> @Suppress("UNCHECKED_CAST") prefs.edit().putStringSet(key, value as Set<String>).apply()
                         }
                     }
                 }
-                editor.apply()
-                // Clear plaintext legacy preferences to remove unencrypted keys from disk
-                legacy.edit().clear().apply()
-                Log.d(TAG, "Legacy preferences migrated and plaintext file sanitized")
+                encPrefs.edit().clear().apply()
+                Log.d(TAG, "Migration from EncryptedSharedPreferences complete and old file cleared")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to migrate legacy preferences cleanly", e)
+        } catch (e: Throwable) {
+            // No legacy EncryptedSharedPreferences or already migrated
+        }
+    }
+
+    private fun migrateFromLegacyPlaintext(context: Context) {
+        try {
+            val legacy = context.getSharedPreferences("WhisperRemotePrefs", Context.MODE_PRIVATE)
+            val all = legacy.all
+            if (all.isNotEmpty()) {
+                Log.d(TAG, "Migrating ${all.size} items from legacy plaintext to direct Android KeyStore")
+                for ((key, value) in all) {
+                    if (!prefs.contains(key) && value != null) {
+                        when (value) {
+                            is String -> putEncryptedString(key, value)
+                            is Boolean -> prefs.edit().putBoolean(key, value).apply()
+                            is Int -> prefs.edit().putInt(key, value).apply()
+                            is Long -> prefs.edit().putLong(key, value).apply()
+                            is Float -> prefs.edit().putFloat(key, value).apply()
+                            is Set<*> -> @Suppress("UNCHECKED_CAST") prefs.edit().putStringSet(key, value as Set<String>).apply()
+                        }
+                    }
+                }
+                legacy.edit().clear().apply()
+                Log.d(TAG, "Legacy plaintext preferences migrated and file cleared")
+            }
+        } catch (e: Throwable) {
+            // Ignore
         }
     }
 
     companion object {
         private const val TAG = "SettingsRepository"
-        private const val LEGACY_PREFS_NAME = "WhisperRemotePrefs"
-        private const val SECURE_PREFS_NAME = "WhisperRemoteSecurePrefs"
+        private const val PREFS_NAME = "WhisperUnchainedPrefs"
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_LEGACY_API_URL = "api_url"
         private const val KEY_API_KEY = "api_key"
@@ -135,15 +156,13 @@ class SettingsRepository(context: Context) {
      */
     var baseUrl: String
         get() {
-            val savedBase = prefs.getString(KEY_BASE_URL, null)
-            // If user saved a real URL and it's not the fake placeholder
-            if (!savedBase.isNullOrBlank() && !savedBase.contains("100.x.y.z") && !savedBase.contains("your-server-ip")) {
+            val savedBase = getEncryptedString(KEY_BASE_URL, "")
+            if (savedBase.isNotBlank() && !savedBase.contains("100.x.y.z") && !savedBase.contains("your-server-ip")) {
                 return savedBase.trimEnd('/')
             }
 
-            // Check if legacy "api_url" has a real user-entered URL
-            val legacy = prefs.getString(KEY_LEGACY_API_URL, null)
-            if (!legacy.isNullOrBlank() && !legacy.contains("your-server-ip") && !legacy.contains("100.x.y.z")) {
+            val legacy = getEncryptedString(KEY_LEGACY_API_URL, "")
+            if (legacy.isNotBlank() && !legacy.contains("your-server-ip") && !legacy.contains("100.x.y.z")) {
                 val cleaned = if (legacy.endsWith("/transcribe")) {
                     legacy.removeSuffix("/transcribe") + "/v1"
                 } else if (!legacy.endsWith("/v1")) {
@@ -155,28 +174,25 @@ class SettingsRepository(context: Context) {
                 return cleaned.trimEnd('/')
             }
 
-            // Return whatever was saved if valid, else empty string
-            return if (!savedBase.isNullOrBlank() && !savedBase.contains("100.x.y.z") && !savedBase.contains("your-server-ip")) savedBase.trimEnd('/') else ""
+            return if (savedBase.isNotBlank() && !savedBase.contains("100.x.y.z") && !savedBase.contains("your-server-ip")) savedBase.trimEnd('/') else ""
         }
         set(value) {
             val clean = value.trim().trimEnd('/')
-            prefs.edit()
-                .putString(KEY_BASE_URL, clean)
-                .putString(KEY_LEGACY_API_URL, clean)
-                .apply()
+            putEncryptedString(KEY_BASE_URL, clean)
+            putEncryptedString(KEY_LEGACY_API_URL, clean)
         }
 
     var apiKey: String
-        get() = prefs.getString(KEY_API_KEY, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_API_KEY, value.trim()).apply()
+        get() = getEncryptedString(KEY_API_KEY, "")
+        set(value) = putEncryptedString(KEY_API_KEY, value.trim())
 
     var modelName: String
-        get() = prefs.getString(KEY_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL
-        set(value) = prefs.edit().putString(KEY_MODEL, value.trim()).apply()
+        get() = getEncryptedString(KEY_MODEL, DEFAULT_MODEL).ifBlank { DEFAULT_MODEL }
+        set(value) = putEncryptedString(KEY_MODEL, value.trim())
 
     var promptHints: String
-        get() = prefs.getString(KEY_PROMPT_HINTS, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_PROMPT_HINTS, value.trim()).apply()
+        get() = getEncryptedString(KEY_PROMPT_HINTS, "")
+        set(value) = putEncryptedString(KEY_PROMPT_HINTS, value.trim())
 
     var autoTrimHints: Boolean
         get() = prefs.getBoolean(KEY_AUTO_TRIM_HINTS, true)
@@ -239,16 +255,16 @@ class SettingsRepository(context: Context) {
         set(value) = prefs.edit().putString("cleanup_emoji", value).apply()
 
     var cleanupChatUrl: String
-        get() = prefs.getString("cleanup_chat_url", "https://api.openai.com/v1/chat/completions") ?: "https://api.openai.com/v1/chat/completions"
-        set(value) = prefs.edit().putString("cleanup_chat_url", value.trim()).apply()
+        get() = getEncryptedString("cleanup_chat_url", "https://api.openai.com/v1/chat/completions")
+        set(value) = putEncryptedString("cleanup_chat_url", value.trim())
 
     var cleanupChatKey: String
-        get() = prefs.getString("cleanup_chat_key", "") ?: ""
-        set(value) = prefs.edit().putString("cleanup_chat_key", value.trim()).apply()
+        get() = getEncryptedString("cleanup_chat_key", "")
+        set(value) = putEncryptedString("cleanup_chat_key", value.trim())
 
     var cleanupChatModel: String
-        get() = prefs.getString("cleanup_chat_model", "gpt-4o-mini") ?: "gpt-4o-mini"
-        set(value) = prefs.edit().putString("cleanup_chat_model", value.trim()).apply()
+        get() = getEncryptedString("cleanup_chat_model", "gpt-4o-mini").ifBlank { "gpt-4o-mini" }
+        set(value) = putEncryptedString("cleanup_chat_model", value.trim())
 
     var cleanupChatPreset: ChatProviderPreset
         get() {
@@ -316,8 +332,8 @@ class SettingsRepository(context: Context) {
 
     // Reason for edit: Added local name corrections for cloud presets per contracts/04 §6
     var localNameCorrections: String
-        get() = prefs.getString("local_name_corrections", "") ?: ""
-        set(value) = prefs.edit().putString("local_name_corrections", value.trim()).apply()
+        get() = getEncryptedString("local_name_corrections", "")
+        set(value) = putEncryptedString("local_name_corrections", value.trim())
 
     fun queueVocabularyAddition(word: String) {
         val clean = word.trim()
