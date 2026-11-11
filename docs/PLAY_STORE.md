@@ -4,9 +4,9 @@ Everything Play asks for, with our answers drafted. Researched 2026-11-11 from G
 re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 drafted · ⬜ to do.
 
 ## 0. Long lead items (start now)
-- ⬜ **Closed test: at least 12 testers opted in for 14 days in a row** before Play lets a new personal account apply for
-  production ([source](https://support.google.com/googleplay/android-developer/answer/14151465)). Aim for 15–20 people
-  (a dropout resets the count). Dominic to line up testers (Google accounts) now; the test can start with v1.2.
+- ✅ **Closed-test requirement doesn't apply:** the 12-testers-for-14-days rule is only for *personal* accounts created
+  after 13 Nov 2023 ([source](https://support.google.com/googleplay/android-developer/answer/14151465)). We publish
+  under **Cyrus Studio LLC's organization account** (EIN + D-U-N-S verified). A short internal test is still wise.
 - ⬜ Public developer **contact email** (Play shows it; also the privacy contact). Use a project address, not a personal one.
 - ⬜ **Privacy policy URL**: `PRIVACY.md` (🟡 drafted) published at a stable public URL (GitHub Pages or the repo file),
   and linked inside the app (About page).
