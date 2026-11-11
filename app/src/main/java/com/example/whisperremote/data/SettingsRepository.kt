@@ -1,14 +1,18 @@
 // This file manages persistent configuration for WhisperRemote.
 // It is called by MainActivity, FloatingButtonService, and ApiClient.
-// Inputs: User inputs from Settings UI or QR code scan, backed by SharedPreferences ("WhisperRemotePrefs").
+// Inputs: User inputs from Settings UI or QR code scan, backed by hardware-backed EncryptedSharedPreferences ("WhisperRemoteSecurePrefs").
 // Outputs: Provider settings (base URL, API key, model, prompt hints), behavioral flags (auto-trim, boot start, Tailscale auto-restart), and injection mode.
 // It resolves endpoints according to the OpenAI standard (/v1/audio/transcriptions, /health, /v1/models) and migrates legacy URLs cleanly.
 
 package com.example.whisperremote.data
 
+// Reason for edit: Upgraded to hardware-backed EncryptedSharedPreferences (AES-256-GCM via Android KeyStore) with transparent legacy migration for maximum security at rest.
+
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import org.json.JSONObject
 
 enum class InjectionMode {
@@ -44,10 +48,71 @@ enum class ChatProviderPreset(val displayName: String, val defaultUrl: String, v
 
 class SettingsRepository(context: Context) {
 
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences
+    val isHardwareEncrypted: Boolean
+
+    init {
+        var encrypted: SharedPreferences? = null
+        try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+
+            encrypted = EncryptedSharedPreferences.create(
+                context,
+                SECURE_PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+            Log.d(TAG, "Hardware-backed EncryptedSharedPreferences initialized successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize EncryptedSharedPreferences; falling back to private prefs", e)
+        }
+
+        if (encrypted != null) {
+            prefs = encrypted
+            isHardwareEncrypted = true
+            migrateLegacyPrefs(context, encrypted)
+        } else {
+            prefs = context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
+            isHardwareEncrypted = false
+        }
+    }
+
+    private fun migrateLegacyPrefs(context: Context, target: SharedPreferences) {
+        try {
+            val legacy = context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
+            val all = legacy.all
+            if (all.isNotEmpty()) {
+                Log.d(TAG, "Migrating ${all.size} legacy plaintext preferences to encrypted storage")
+                val editor = target.edit()
+                for ((key, value) in all) {
+                    if (!target.contains(key) && value != null) {
+                        when (value) {
+                            is String -> editor.putString(key, value)
+                            is Boolean -> editor.putBoolean(key, value)
+                            is Int -> editor.putInt(key, value)
+                            is Long -> editor.putLong(key, value)
+                            is Float -> editor.putFloat(key, value)
+                            is Set<*> -> @Suppress("UNCHECKED_CAST") editor.putStringSet(key, value as Set<String>)
+                        }
+                    }
+                }
+                editor.apply()
+                // Clear plaintext legacy preferences to remove unencrypted keys from disk
+                legacy.edit().clear().apply()
+                Log.d(TAG, "Legacy preferences migrated and plaintext file sanitized")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to migrate legacy preferences cleanly", e)
+        }
+    }
 
     companion object {
-        private const val PREFS_NAME = "WhisperRemotePrefs"
+        private const val TAG = "SettingsRepository"
+        private const val LEGACY_PREFS_NAME = "WhisperRemotePrefs"
+        private const val SECURE_PREFS_NAME = "WhisperRemoteSecurePrefs"
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_LEGACY_API_URL = "api_url"
         private const val KEY_API_KEY = "api_key"

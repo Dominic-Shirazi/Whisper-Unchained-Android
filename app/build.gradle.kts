@@ -39,6 +39,8 @@ dependencies {
     implementation(libs.okhttp)
     // Updated to match new dependency: Google Play Services Code Scanner for camera QR code pairing
     implementation(libs.play.services.code.scanner)
+    // Updated to match new dependency: AndroidX Security Crypto for hardware-backed EncryptedSharedPreferences
+    implementation(libs.androidx.security.crypto)
     testImplementation(libs.junit)
     // Updated to match new dependency: org.json for JVM unit testing of JSON parsing
     testImplementation("org.json:json:20240303")
