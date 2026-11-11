@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Reason for edit: Adopted Teal #2FB79A shared palette and dark ground palette per contracts/04-look-and-feel.md (K-6). -->
+<resources>
+    <!-- Whisper Unchained Desktop & Mobile Shared Palette -->
+    <color name="oneui_primary">#2FB79A</color>
+    <color name="oneui_primary_dark">#248F78</color>
+    <color name="oneui_primary_light">#1D3D36</color>
+    <color name="oneui_primary_pressed">#3ACFAF</color>
+
+    <!-- Surfaces & Backgrounds -->
+    <color name="oneui_bg">#15171C</color>
+    <color name="oneui_card_bg">#1B1E25</color>
+    <color name="oneui_card_surface">#1B1E25</color>
+    <color name="oneui_raised">#222731</color>
+    <color name="oneui_card_stroke">#2B313C</color>
+    <color name="oneui_border">#2B313C</color>
+
+    <!-- Typography -->
+    <color name="oneui_text_primary">#E7E9EC</color>
+    <color name="oneui_text_secondary">#868E9C</color>
+    <color name="oneui_text_hint">#5B6370</color>
+
+    <!-- Statuses (accessible with text indicators for red/green color blindness) -->
+    <color name="oneui_success">#2FB79A</color>
+    <color name="oneui_warning">#D9A441</color>
+    <color name="oneui_danger">#D9694A</color>
+    <color name="oneui_divider">#2B313C</color>
+
+    <!-- Fallbacks -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>

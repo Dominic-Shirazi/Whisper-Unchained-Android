@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Reason for edit: Samsung One UI styled rounded card background (22dp radius with subtle stroke) -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/oneui_card_bg" />
+    <corners android:radius="22dp" />
+    <stroke
+        android:width="1dp"
+        android:color="@color/oneui_card_stroke" />
+</shape>

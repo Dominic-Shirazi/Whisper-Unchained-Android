@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Reason for edit: Redesigned with Teal #2FB79A shared palette, Raised input backgrounds, and 4 desktop-mirroring tabs (Transcription, Words & Triggers, AI Editing, Phone) per contracts/04-look-and-feel.md (K-6). -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/mainScrollView"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/oneui_bg"
     android:fillViewport="true"
     android:fitsSystemWindows="true">
 
@@ -10,75 +13,1058 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingStart="24dp"
-        android:paddingEnd="24dp"
-        android:paddingTop="48dp"
-        android:paddingBottom="24dp">
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:paddingTop="36dp"
+        android:paddingBottom="48dp">
 
-        <ImageView
-            android:layout_width="110dp"
-            android:layout_height="110dp"
-            android:layout_gravity="center"
-            android:src="@drawable/whisper_remote"
-            android:layout_marginTop="24dp"
-            android:layout_marginBottom="24dp"/>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/settings_title"
-            android:textSize="24sp"
-            android:textStyle="bold"
-            android:layout_gravity="center"
-            android:layout_marginBottom="32dp"/>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/api_url_label"
-            android:textSize="16sp"/>
-
-        <EditText
-            android:id="@+id/apiUrlEditText"
+        <!-- Header: Logo + App Name + Subtitle -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="http://your-server-ip:5000/transcribe"
-            android:inputType="textUri"
-            android:layout_marginBottom="24dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="20dp">
 
-        <Button
-            android:id="@+id/saveButton"
+            <ImageView
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@drawable/whisper_remote"
+                android:layout_marginEnd="14dp"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/app_name"
+                    android:textSize="26sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_primary"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/app_subtitle"
+                    android:textSize="13sp"
+                    android:textColor="@color/oneui_text_secondary"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 4 Desktop-Mirroring Navigation Tabs: Transcription | Words & Triggers | AI Editing | Phone -->
+        <com.google.android.material.tabs.TabLayout
+            android:id="@+id/settingsTabLayout"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:layout_marginBottom="18dp"
+            android:background="@drawable/oneui_card_bg"
+            app:tabIndicatorColor="@color/oneui_primary"
+            app:tabIndicatorHeight="3dp"
+            app:tabSelectedTextColor="@color/oneui_primary"
+            app:tabTextColor="@color/oneui_text_secondary"
+            app:tabMode="scrollable"
+            app:tabGravity="fill" />
+
+        <!-- ============================================================== -->
+        <!-- TAB 1: TRANSCRIPTION                                           -->
+        <!-- ============================================================== -->
+        <LinearLayout
+            android:id="@+id/tabTranscriptionContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/save_settings"
-            android:layout_marginBottom="32dp"/>
+            android:orientation="vertical"
+            android:visibility="visible">
 
-        <TextView
+            <!-- Top Hero Card: Scan Pairing Code -->
+            <LinearLayout
+                android:id="@+id/scanPairingHeroCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/oneui_hero_card_bg"
+                android:padding="18dp"
+                android:layout_marginBottom="14dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:gravity="center"
+                        android:text="📷"
+                        android:textSize="20sp"
+                        android:background="@drawable/oneui_card_bg"
+                        android:layout_marginEnd="12dp"/>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/scan_pairing_hero_title"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/oneui_primary"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/scan_pairing_hero_subtitle"
+                            android:textSize="12sp"
+                            android:textColor="@color/oneui_text_secondary"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="end|center_vertical"
+                    android:layout_marginTop="12dp">
+
+                    <Button
+                        android:id="@+id/pasteCodeManuallyButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:text="@string/paste_code_manually"
+                        android:textAllCaps="false"
+                        android:textSize="13sp"
+                        android:textColor="@color/oneui_primary"
+                        android:background="@drawable/oneui_card_bg"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"/>
+
+                    <Button
+                        android:id="@+id/scanNowButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="42dp"
+                        android:text="@string/scan_now_button"
+                        android:textAllCaps="false"
+                        android:textStyle="bold"
+                        android:textSize="14sp"
+                        android:textColor="@color/oneui_bg"
+                        android:backgroundTint="@color/oneui_primary"
+                        app:cornerRadius="21dp"
+                        android:paddingStart="20dp"
+                        android:paddingEnd="20dp"
+                        android:elevation="2dp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Transcription Provider & Endpoint Card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/oneui_card_bg"
+                android:padding="20dp"
+                android:layout_marginBottom="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="SERVER &amp; PROVIDER"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_primary"
+                    android:letterSpacing="0.08"
+                    android:layout_marginBottom="16dp"/>
+
+                <!-- Preset Selector -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/provider_preset_label"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_text_primary"/>
+
+                <Spinner
+                    android:id="@+id/providerSpinner"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="6dp"
+                    android:layout_marginBottom="16dp"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"/>
+
+                <!-- Server Endpoint -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/api_url_label"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_text_primary"/>
+
+                <EditText
+                    android:id="@+id/apiUrlEditText"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="6dp"
+                    android:hint="http://100.x.y.z:5000/v1"
+                    android:inputType="textUri"
+                    android:textSize="14sp"
+                    android:textColor="@color/oneui_text_primary"
+                    android:textColorHint="@color/oneui_text_hint"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/helper_endpoint"
+                    android:textSize="11sp"
+                    android:textColor="@color/oneui_text_secondary"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="16dp"/>
+
+                <!-- API Key -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/api_key_label"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_text_primary"/>
+
+                <EditText
+                    android:id="@+id/apiKeyEditText"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="6dp"
+                    android:hint="Optional (wr_sec_...)"
+                    android:inputType="textPassword"
+                    android:textSize="14sp"
+                    android:textColor="@color/oneui_text_primary"
+                    android:textColorHint="@color/oneui_text_hint"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/helper_api_key"
+                    android:textSize="11sp"
+                    android:textColor="@color/oneui_text_secondary"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="16dp"/>
+
+                <!-- Model Selection (contracts/04 §4) -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/model_name_label"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_text_primary"/>
+
+                <!-- Self-Hosted read-only card -->
+                <LinearLayout
+                    android:id="@+id/selfHostedModelContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:padding="14dp"
+                    android:layout_marginTop="6dp"
+                    android:layout_marginBottom="16dp"
+                    android:visibility="visible">
+
+                    <TextView
+                        android:id="@+id/selfHostedModelTextView"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Your PC runs large-v3-turbo"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/oneui_text_primary"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/self_hosted_model_note"
+                        android:textSize="11sp"
+                        android:textColor="@color/oneui_text_secondary"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <!-- Cloud Presets Model Picker Spinner -->
+                <Spinner
+                    android:id="@+id/cloudModelSpinner"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="6dp"
+                    android:layout_marginBottom="6dp"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:visibility="gone"/>
+
+                <!-- Custom Model Free Text Input -->
+                <EditText
+                    android:id="@+id/modelNameEditText"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="4dp"
+                    android:hint="e.g. large-v3-turbo"
+                    android:inputType="text"
+                    android:textSize="14sp"
+                    android:textColor="@color/oneui_text_primary"
+                    android:textColorHint="@color/oneui_text_hint"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:visibility="gone"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/helper_model"
+                    android:textSize="11sp"
+                    android:textColor="@color/oneui_text_secondary"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="20dp"/>
+
+                <!-- Test Connection Button -->
+                <Button
+                    android:id="@+id/testConnectionButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="50dp"
+                    android:text="@string/test_connection"
+                    android:textAllCaps="false"
+                    android:textStyle="bold"
+                    android:textSize="15sp"
+                    android:textColor="@color/oneui_primary"
+                    android:backgroundTint="@color/oneui_card_surface"
+                    app:strokeColor="@color/oneui_primary"
+                    app:strokeWidth="1.5dp"
+                    app:cornerRadius="25dp"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ============================================================== -->
+        <!-- TAB 2: WORDS & TRIGGERS                                        -->
+        <!-- ============================================================== -->
+        <LinearLayout
+            android:id="@+id/tabWordsTriggersContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/accessibility_reminder"
-            android:textColor="#FF0000"
-            android:textStyle="italic"
-            android:gravity="center"
-            android:layout_marginTop="16dp"/>
+            android:orientation="vertical"
+            android:visibility="gone">
 
-        <Button
-            android:id="@+id/openAccessibilityButton"
-            android:layout_width="wrap_content"
+            <!-- Vocabulary Card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/oneui_card_bg"
+                android:padding="20dp"
+                android:layout_marginBottom="14dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="14dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/shared_vocabulary_label"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/oneui_primary"
+                        android:letterSpacing="0.08"/>
+
+                    <TextView
+                        android:id="@+id/vocabBudgetTextView"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0 / 540 characters"
+                        android:textSize="11sp"
+                        android:textColor="@color/oneui_text_secondary"/>
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/prompt_hints_label"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_text_primary"/>
+
+                <EditText
+                    android:id="@+id/promptHintsEditText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="54dp"
+                    android:layout_marginTop="6dp"
+                    android:hint="@string/prompt_hints_hint"
+                    android:inputType="textMultiLine"
+                    android:gravity="top|start"
+                    android:textSize="14sp"
+                    android:textColor="@color/oneui_text_primary"
+                    android:textColorHint="@color/oneui_text_hint"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:padding="12dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/helper_hints"
+                    android:textSize="11sp"
+                    android:textColor="@color/oneui_text_secondary"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="14dp"/>
+
+                <!-- From Name Corrections (Server List, Read-Only, contracts/01 §8) -->
+                <LinearLayout
+                    android:id="@+id/fromNameCorrectionsContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:padding="12dp"
+                    android:layout_marginBottom="14dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/from_name_corrections_label"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/oneui_text_secondary"/>
+
+                    <TextView
+                        android:id="@+id/fromNameCorrectionsTextView"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="12sp"
+                        android:textColor="@color/oneui_text_secondary"
+                        android:layout_marginTop="4dp"/>
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/syncVocabButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:text="@string/sync_vocabulary_button"
+                    android:textAllCaps="false"
+                    android:textSize="14sp"
+                    android:textColor="@color/oneui_primary"
+                    android:backgroundTint="@color/oneui_card_surface"
+                    app:strokeColor="@color/oneui_primary"
+                    app:strokeWidth="1.5dp"
+                    app:cornerRadius="23dp"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+            </LinearLayout>
+
+            <!-- Name Corrections Card (Heard as -> Write as, contracts/04 §6) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/oneui_card_bg"
+                android:padding="20dp"
+                android:layout_marginBottom="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/name_corrections_title"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_primary"
+                    android:letterSpacing="0.08"
+                    android:layout_marginBottom="10dp"/>
+
+                <!-- Self-Hosted read-only view -->
+                <TextView
+                    android:id="@+id/selfHostedCorrectionsTextView"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:padding="12dp"
+                    android:text="None configured"
+                    android:textSize="13sp"
+                    android:textColor="@color/oneui_text_secondary"
+                    android:visibility="visible"/>
+
+                <TextView
+                    android:id="@+id/selfHostedCorrectionsNote"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/name_corrections_self_hosted_note"
+                    android:textSize="11sp"
+                    android:textColor="@color/oneui_text_secondary"
+                    android:layout_marginTop="4dp"
+                    android:visibility="visible"/>
+
+                <!-- Cloud presets editable input -->
+                <EditText
+                    android:id="@+id/localNameCorrectionsEditText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="54dp"
+                    android:hint="Leslie: Lesley\nEmma: Ame"
+                    android:inputType="textMultiLine"
+                    android:gravity="top|start"
+                    android:textSize="13sp"
+                    android:textColor="@color/oneui_text_primary"
+                    android:textColorHint="@color/oneui_text_hint"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:padding="12dp"
+                    android:visibility="gone"/>
+            </LinearLayout>
+
+            <!-- Voice Edit Trigger Card (contracts/04 §6 & contracts/03) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/oneui_card_bg"
+                android:padding="20dp"
+                android:layout_marginBottom="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/trigger_words_title"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_primary"
+                    android:letterSpacing="0.08"
+                    android:layout_marginBottom="8dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/trigger_words_phrase"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_text_primary"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/trigger_words_desc"
+                    android:textSize="12sp"
+                    android:textColor="@color/oneui_text_secondary"
+                    android:layout_marginTop="4dp"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ============================================================== -->
+        <!-- TAB 3: AI EDITING                                              -->
+        <!-- ============================================================== -->
+        <LinearLayout
+            android:id="@+id/tabAiEditingContainer"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:text="Open Accessibility Settings"
-            android:visibility="visible"
-            android:layout_marginTop="8dp"/>
+            android:orientation="vertical"
+            android:visibility="gone">
 
-        <Button
-            android:id="@+id/enableInternalAudioButton"
-            android:layout_width="wrap_content"
+            <!-- AI Cleanup Card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/oneui_card_bg"
+                android:padding="20dp"
+                android:layout_marginBottom="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/cleanup_title"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_primary"
+                    android:letterSpacing="0.08"
+                    android:layout_marginBottom="14dp"/>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/cleanupSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/cleanup_switch_label"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_text_primary"
+                    app:thumbTint="@color/oneui_primary"
+                    app:trackTint="@color/oneui_border"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/cleanup_explanation"
+                    android:textSize="11sp"
+                    android:textColor="@color/oneui_text_secondary"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="16dp"/>
+
+                <!-- Style settings layout (visible when cleanup is enabled) -->
+                <LinearLayout
+                    android:id="@+id/cleanupStylesLayout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="visible">
+
+                    <!-- Punctuation -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/cleanup_punctuation_title"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/oneui_text_primary"/>
+
+                    <Spinner
+                        android:id="@+id/cleanupPunctuationSpinner"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginBottom="12dp"
+                        android:background="@drawable/oneui_raised_bg"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"/>
+
+                    <!-- Grammar & Rewrite -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/cleanup_rewrite_title"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/oneui_text_primary"/>
+
+                    <Spinner
+                        android:id="@+id/cleanupRewriteSpinner"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginBottom="12dp"
+                        android:background="@drawable/oneui_raised_bg"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"/>
+
+                    <!-- Tone (contracts/02 v2: neutral, professional, casual, friendly; disabled when rewrite == keep) -->
+                    <LinearLayout
+                        android:id="@+id/cleanupToneContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/cleanup_tone_title"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/oneui_text_primary"/>
+
+                        <Spinner
+                            android:id="@+id/cleanupToneSpinner"
+                            android:layout_width="match_parent"
+                            android:layout_height="44dp"
+                            android:layout_marginTop="4dp"
+                            android:layout_marginBottom="12dp"
+                            android:background="@drawable/oneui_raised_bg"
+                            android:paddingStart="12dp"
+                            android:paddingEnd="12dp"/>
+                    </LinearLayout>
+
+                    <!-- Shorten -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/cleanup_shorten_title"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/oneui_text_primary"/>
+
+                    <Spinner
+                        android:id="@+id/cleanupShortenSpinner"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginBottom="12dp"
+                        android:background="@drawable/oneui_raised_bg"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"/>
+
+                    <!-- Emoji -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/cleanup_emoji_title"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/oneui_text_primary"/>
+
+                    <Spinner
+                        android:id="@+id/cleanupEmojiSpinner"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginBottom="12dp"
+                        android:background="@drawable/oneui_raised_bg"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Cloud LLM Configuration Card (Only displayed for Cloud presets) -->
+            <LinearLayout
+                android:id="@+id/cloudLlmCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/oneui_card_bg"
+                android:padding="20dp"
+                android:layout_marginBottom="16dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/cloud_llm_title"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_primary"
+                    android:letterSpacing="0.08"
+                    android:layout_marginBottom="6dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/cloud_llm_explanation"
+                    android:textSize="11sp"
+                    android:textColor="@color/oneui_text_secondary"
+                    android:layout_marginBottom="16dp"/>
+
+                <!-- Chat Preset Selector -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chat_preset_label"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_text_primary"/>
+
+                <Spinner
+                    android:id="@+id/chatPresetSpinner"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="14dp"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"/>
+
+                <!-- Chat Endpoint URL -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chat_url_label"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_text_primary"/>
+
+                <EditText
+                    android:id="@+id/chatUrlEditText"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="4dp"
+                    android:hint="https://api.openai.com/v1/chat/completions"
+                    android:inputType="textUri"
+                    android:textSize="13sp"
+                    android:textColor="@color/oneui_text_primary"
+                    android:textColorHint="@color/oneui_text_hint"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="OpenAI-compatible chat completion endpoint"
+                    android:textSize="11sp"
+                    android:textColor="@color/oneui_text_secondary"
+                    android:layout_marginTop="3dp"
+                    android:layout_marginBottom="14dp"/>
+
+                <!-- Chat API Key -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chat_key_label"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_text_primary"/>
+
+                <EditText
+                    android:id="@+id/chatKeyEditText"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="4dp"
+                    android:hint="API Key (Bearer ...)"
+                    android:inputType="textPassword"
+                    android:textSize="13sp"
+                    android:textColor="@color/oneui_text_primary"
+                    android:textColorHint="@color/oneui_text_hint"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Required for OpenAI / Groq / OpenRouter cloud chat"
+                    android:textSize="11sp"
+                    android:textColor="@color/oneui_text_secondary"
+                    android:layout_marginTop="3dp"
+                    android:layout_marginBottom="14dp"/>
+
+                <!-- Chat Model Name -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chat_model_label"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_text_primary"/>
+
+                <EditText
+                    android:id="@+id/chatModelEditText"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="4dp"
+                    android:hint="gpt-4o-mini / llama-3.3-70b-versatile"
+                    android:inputType="text"
+                    android:textSize="13sp"
+                    android:textColor="@color/oneui_text_primary"
+                    android:textColorHint="@color/oneui_text_hint"
+                    android:background="@drawable/oneui_raised_bg"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ============================================================== -->
+        <!-- TAB 4: PHONE (PERMISSIONS & SYSTEM SHORTCUTS)                  -->
+        <!-- ============================================================== -->
+        <LinearLayout
+            android:id="@+id/tabPhoneContainer"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:text="@string/enable_internal_audio"
-            android:visibility="visible"
-            android:layout_marginTop="12dp"/>
+            android:orientation="vertical"
+            android:visibility="gone">
 
+            <!-- Text Injection Mode Card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/oneui_card_bg"
+                android:padding="20dp"
+                android:layout_marginBottom="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/injection_mode_label"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_primary"
+                    android:letterSpacing="0.08"
+                    android:layout_marginBottom="14dp"/>
+
+                <RadioGroup
+                    android:id="@+id/injectionModeRadioGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <RadioButton
+                        android:id="@+id/injectionAccessibility"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/injection_accessibility"
+                        android:textSize="14sp"
+                        android:textColor="@color/oneui_text_primary"
+                        android:paddingStart="8dp"/>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/accessibility_reminder"
+                        android:textSize="11sp"
+                        android:textColor="@color/oneui_text_secondary"
+                        android:layout_marginStart="32dp"
+                        android:layout_marginTop="2dp"
+                        android:layout_marginBottom="10dp"/>
+
+                    <!-- Contextual Accessibility Settings Button right beside the option -->
+                    <Button
+                        android:id="@+id/openAccessibilitySettingsButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginStart="32dp"
+                        android:layout_marginBottom="16dp"
+                        android:text="@string/open_accessibility_button"
+                        android:textAllCaps="false"
+                        android:textSize="13sp"
+                        android:textColor="@color/oneui_primary"
+                        android:backgroundTint="@color/oneui_card_surface"
+                        app:strokeColor="@color/oneui_primary"
+                        app:strokeWidth="1.5dp"
+                        app:cornerRadius="24dp"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+
+                    <RadioButton
+                        android:id="@+id/injectionClipboard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/injection_clipboard"
+                        android:textSize="14sp"
+                        android:textColor="@color/oneui_text_primary"
+                        android:paddingStart="8dp"/>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Copies transcription to clipboard without needing accessibility permissions."
+                        android:textSize="11sp"
+                        android:textColor="@color/oneui_text_secondary"
+                        android:layout_marginStart="32dp"
+                        android:layout_marginTop="2dp"/>
+                </RadioGroup>
+            </LinearLayout>
+
+            <!-- Permissions & Overlay Card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/oneui_card_bg"
+                android:padding="20dp"
+                android:layout_marginBottom="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/permissions_shortcuts_title"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_primary"
+                    android:letterSpacing="0.08"
+                    android:layout_marginBottom="16dp"/>
+
+                <Button
+                    android:id="@+id/openOverlayPermissionButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="50dp"
+                    android:layout_marginBottom="12dp"
+                    android:text="@string/open_overlay_button"
+                    android:textAllCaps="false"
+                    android:textSize="14sp"
+                    android:textColor="@color/oneui_primary"
+                    android:backgroundTint="@color/oneui_card_surface"
+                    app:strokeColor="@color/oneui_primary"
+                    app:strokeWidth="1.5dp"
+                    app:cornerRadius="25dp"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+
+                <Button
+                    android:id="@+id/enableInternalAudioButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="50dp"
+                    android:text="@string/enable_internal_audio_button"
+                    android:textAllCaps="false"
+                    android:textSize="14sp"
+                    android:textColor="@color/oneui_primary"
+                    android:backgroundTint="@color/oneui_card_surface"
+                    app:strokeColor="@color/oneui_primary"
+                    app:strokeWidth="1.5dp"
+                    app:cornerRadius="25dp"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+            </LinearLayout>
+
+            <!-- Behavior & Background Connectivity Card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/oneui_card_bg"
+                android:padding="20dp"
+                android:layout_marginBottom="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/behavior_label"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/oneui_primary"
+                    android:letterSpacing="0.08"
+                    android:layout_marginBottom="16dp"/>
+
+                <!-- Auto-Trim Hints -->
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/autoTrimHintsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/hint_echo_trim_label"
+                    android:textSize="14sp"
+                    android:textColor="@color/oneui_text_primary"
+                    app:thumbTint="@color/oneui_primary"
+                    app:trackTint="@color/oneui_border"
+                    android:layout_marginBottom="14dp"/>
+
+                <!-- Start on Boot -->
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/startOnBootSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/start_on_boot_label"
+                    android:textSize="14sp"
+                    android:textColor="@color/oneui_text_primary"
+                    app:thumbTint="@color/oneui_primary"
+                    app:trackTint="@color/oneui_border"
+                    android:layout_marginBottom="14dp"/>
+
+                <!-- Tailscale Auto-Restart -->
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/autoRestartTailscaleSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/auto_restart_tailscale_label"
+                    android:textSize="14sp"
+                    android:textColor="@color/oneui_text_primary"
+                    app:thumbTint="@color/oneui_primary"
+                    app:trackTint="@color/oneui_border"/>
+            </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

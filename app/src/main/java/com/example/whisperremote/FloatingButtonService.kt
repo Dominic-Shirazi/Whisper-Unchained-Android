@@ -1,4 +1,12 @@
+// This file provides the persistent floating microphone overlay and recording coordinator for Whisper Unchained.
+// It is called by MainActivity or BootReceiver when starting the dictation service.
+// Inputs: Audio captured from microphone or internal media projection, user touch interactions on the floating button.
+// Outputs: Audio WAV files sent to ApiClient for transcription, resulting text routed to Accessibility Service or Clipboard.
+// It manages floating button states (IDLE, RECORDING, PROCESSING, HIDDEN), soft pause recovery, Tailscale auto-recovery, and prompt-loop sanitization.
+
 package com.example.whisperremote
+
+// Reason for edit: Added soft pause handling (retaining audio, status 'paused' recovery polling without Tailscale resets) and updated name to Whisper Unchained per contract K-4.
 
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
@@ -8,11 +16,19 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.widget.Toast
+import com.example.whisperremote.data.InjectionMode
+import com.example.whisperremote.data.ProviderPreset
+import com.example.whisperremote.data.SettingsRepository
+import com.example.whisperremote.net.TailscaleManager
+import com.example.whisperremote.util.TranscriptSanitizer
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioFormat
@@ -86,6 +102,8 @@ class FloatingButtonService : Service() {
     private var automaticGainControl: AutomaticGainControl? = null
     private var audioFile: File? = null
     private lateinit var apiClient: ApiClient
+    private lateinit var settingsRepository: SettingsRepository
+    private lateinit var tailscaleManager: TailscaleManager
 
     private var audioFocusRequest: AudioFocusRequest? = null
     private var currentAudioSource = ActiveAudioSource.MIC
@@ -102,6 +120,60 @@ class FloatingButtonService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val CHANNEL_ID = "FloatingButtonServiceChannel"
     private var fadeHintRunnable: Runnable? = null
+
+    // Reason for edit: Variables and helpers for soft pause recovery per contract K-4
+    private var pendingRetryAudioFile: File? = null
+    private var pollResumeAttempts = 0
+    private var pollResumeRunnable: Runnable? = null
+
+    private fun stopPollingForResume() {
+        pollResumeRunnable?.let { mainHandler.removeCallbacks(it) }
+        pollResumeRunnable = null
+        pollResumeAttempts = 0
+    }
+
+    private fun startPollingForResume() {
+        stopPollingForResume()
+        val runnable = object : Runnable {
+            override fun run() {
+                val fileToRetry = pendingRetryAudioFile
+                if (fileToRetry == null || !fileToRetry.exists()) {
+                    stopPollingForResume()
+                    return
+                }
+                if (pollResumeAttempts >= 60) { // Stop polling after 5 minutes of inactivity
+                    stopPollingForResume()
+                    return
+                }
+                pollResumeAttempts++
+                apiClient.checkHealth { health ->
+                    when (health) {
+                        is HealthResult.Ok -> {
+                            mainHandler.post {
+                                val retryFile = pendingRetryAudioFile
+                                pendingRetryAudioFile = null
+                                stopPollingForResume()
+                                if (retryFile != null && retryFile.exists()) {
+                                    showTemporaryHint("PC resumed - transcribing...")
+                                    processAudioFile(retryFile)
+                                }
+                            }
+                        }
+                        is HealthResult.Paused -> {
+                            // Still paused; continue polling quietly every 5s
+                            mainHandler.postDelayed(this, 5000L)
+                        }
+                        else -> {
+                            // Temporary network drop or model reload; continue polling quietly
+                            mainHandler.postDelayed(this, 5000L)
+                        }
+                    }
+                }
+            }
+        }
+        pollResumeRunnable = runnable
+        mainHandler.postDelayed(runnable, 5000L)
+    }
 
     private fun showTemporaryHint(textToShow: String) {
         mainHandler.post {
@@ -181,6 +253,8 @@ class FloatingButtonService : Service() {
         super.onCreate()
         instance = this
         apiClient = ApiClient(this)
+        settingsRepository = SettingsRepository(this)
+        tailscaleManager = TailscaleManager(this)
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         audioManager.registerAudioPlaybackCallback(audioPlaybackCallback, mainHandler)
 
@@ -518,6 +592,8 @@ class FloatingButtonService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun startRecording() {
+        stopPollingForResume()
+        pendingRetryAudioFile = null
         audioFile = File(externalCacheDir, "recording.wav")
         pauseActiveMedia()
 
@@ -781,21 +857,129 @@ class FloatingButtonService : Service() {
         recordingThread = null
 
         releaseAudioResources()
+        audioFile?.let { file ->
+            processAudioFile(file)
+        } ?: run {
+            setState(ButtonState.HIDDEN)
+        }
+    }
+
+    private fun processAudioFile(file: File) {
+        if (!file.exists() || file.length() <= 44) {
+            setState(ButtonState.HIDDEN)
+            return
+        }
+
         setState(ButtonState.PROCESSING)
 
-        audioFile?.let { file ->
-            if (file.exists() && file.length() > 44) {
-                apiClient.transcribe(file) { transcribedText ->
-                    if (transcribedText != null) {
-                        Log.d("FloatingButtonService", "Transcribed: $transcribedText")
-                        mainHandler.post {
-                            DictationAccessibilityService.getInstance()?.pasteText(transcribedText)
-                        }
-                    } else {
-                        mainHandler.post { setState(ButtonState.HIDDEN) }
+        apiClient.transcribeDetailed(file) { result ->
+            when (result) {
+                is TranscriptionResult.Success -> {
+                    pendingRetryAudioFile = null
+                    stopPollingForResume()
+                    var text = result.text
+                    // Reason for edit: Only sanitize hints on cloud presets; self-hosted server removes hint echo directly per contracts/01 §10
+                    if (settingsRepository.providerPreset != ProviderPreset.SELF_HOSTED && settingsRepository.autoTrimHints) {
+                        text = TranscriptSanitizer.sanitize(text, settingsRepository.promptHints)
+                    }
+                    Log.d("FloatingButtonService", "Transcribed (sanitized): $text")
+                    mainHandler.post {
+                        deliverTranscribedText(text)
                     }
                 }
+                is TranscriptionResult.Empty -> {
+                    pendingRetryAudioFile = null
+                    stopPollingForResume()
+                    Log.d("FloatingButtonService", "Transcription returned empty/silence")
+                    mainHandler.post {
+                        showTemporaryHint("No speech detected")
+                        setState(ButtonState.HIDDEN)
+                    }
+                }
+                is TranscriptionResult.ServerPaused -> {
+                    Log.i("FloatingButtonService", "Server paused: ${result.message}")
+                    // Per contract K-4: treat 'paused' as REACHABLE (no Tailscale restart). Keep recording and start polling for resume.
+                    pendingRetryAudioFile = file
+                    mainHandler.post {
+                        showTemporaryHint("Paused on your PC")
+                        Toast.makeText(applicationContext, result.message.ifBlank { "Dictation is paused on your PC" }, Toast.LENGTH_LONG).show()
+                        setState(ButtonState.IDLE)
+                        startPollingForResume()
+                    }
+                }
+                is TranscriptionResult.ModelUnavailable -> {
+                    pendingRetryAudioFile = null
+                    stopPollingForResume()
+                    Log.w("FloatingButtonService", "Model loading; retry after ${result.retryAfterSeconds}s")
+                    mainHandler.post {
+                        showTemporaryHint("Model loading (${result.retryAfterSeconds}s)")
+                        setState(ButtonState.HIDDEN)
+                    }
+                }
+                is TranscriptionResult.AuthError -> {
+                    pendingRetryAudioFile = null
+                    stopPollingForResume()
+                    Log.e("FloatingButtonService", "API key rejected: ${result.message}")
+                    mainHandler.post {
+                        showTemporaryHint("API key rejected")
+                        setState(ButtonState.HIDDEN)
+                    }
+                }
+                is TranscriptionResult.NetworkError -> {
+                    pendingRetryAudioFile = null
+                    stopPollingForResume()
+                    Log.e("FloatingButtonService", "Network failure: ${result.error.message}")
+                    if (settingsRepository.autoRestartTailscale && tailscaleManager.isTailscaleInstalled()) {
+                        tailscaleManager.restartTailscaleIfAllowed()
+                    }
+                    mainHandler.post {
+                        showTemporaryHint("Connection failed")
+                        setState(ButtonState.HIDDEN)
+                    }
+                }
+                is TranscriptionResult.ServerError -> {
+                    pendingRetryAudioFile = null
+                    stopPollingForResume()
+                    Log.e("FloatingButtonService", "Server error ${result.code}: ${result.message}")
+                    mainHandler.post {
+                        showTemporaryHint("Server error ${result.code}")
+                        setState(ButtonState.HIDDEN)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun deliverTranscribedText(text: String) {
+        if (text.isBlank()) {
+            setState(ButtonState.HIDDEN)
+            return
+        }
+
+        if (settingsRepository.injectionMode == InjectionMode.CLIPBOARD) {
+            try {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("Whisper Unchained", text)
+                clipboard.setPrimaryClip(clip)
+                showTemporaryHint("Copied to clipboard")
+            } catch (e: Exception) {
+                Log.e("FloatingButtonService", "Clipboard copy error", e)
+            }
+            setState(ButtonState.HIDDEN)
+        } else {
+            val accessibilityService = DictationAccessibilityService.getInstance()
+            if (accessibilityService != null) {
+                accessibilityService.pasteText(text)
             } else {
+                // Fallback to clipboard if accessibility service is not active
+                try {
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clip = ClipData.newPlainText("Whisper Unchained", text)
+                    clipboard.setPrimaryClip(clip)
+                    showTemporaryHint("Copied (Accessibility off)")
+                } catch (e: Exception) {
+                    Log.e("FloatingButtonService", "Fallback clipboard copy error", e)
+                }
                 setState(ButtonState.HIDDEN)
             }
         }
@@ -827,7 +1011,7 @@ class FloatingButtonService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID, "WhisperRemote Service", NotificationManager.IMPORTANCE_LOW
+                CHANNEL_ID, "Whisper Unchained Service", NotificationManager.IMPORTANCE_LOW
             )
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
@@ -835,7 +1019,7 @@ class FloatingButtonService : Service() {
 
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("WhisperRemote")
+            .setContentTitle("Whisper Unchained")
             .setContentText("Listening...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
@@ -844,6 +1028,8 @@ class FloatingButtonService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         instance = null
+        stopPollingForResume()
+        pendingRetryAudioFile = null
         snapAnimator?.cancel()
         snapAnimator = null
 

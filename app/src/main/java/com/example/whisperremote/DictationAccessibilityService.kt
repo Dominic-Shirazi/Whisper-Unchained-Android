@@ -1,4 +1,12 @@
+// This file provides the Android Accessibility Service for Whisper Unchained.
+// It is activated by the user in Android Accessibility settings and monitored by FloatingButtonService.
+// Inputs: AccessibilityEvents (view focus, window state changes) detecting editable text fields.
+// Outputs: Injects transcribed text directly into focused text fields using ACTION_PASTE or ACTION_SET_TEXT, with clipboard fallback.
+// It detects focused input nodes and signals FloatingButtonService to show/hide the floating dictation button.
+
 package com.example.whisperremote
+
+// Reason for edit: Updated product name to Whisper Unchained and added file documentation header.
 
 import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
@@ -107,7 +115,7 @@ class DictationAccessibilityService : AccessibilityService() {
         // 1. Always copy to clipboard as a reliable backup
         try {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            val clip = ClipData.newPlainText("WhisperRemote", text)
+            val clip = ClipData.newPlainText("Whisper Unchained", text)
             clipboard.setPrimaryClip(clip)
             Log.d("DictationService", "Copied to clipboard")
         } catch (e: Exception) {

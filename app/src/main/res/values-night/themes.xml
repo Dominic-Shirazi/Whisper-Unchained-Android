@@ -1,16 +1,22 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Theme.WhisperRemote" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
-        <!-- Primary brand color. -->
-        <item name="colorPrimary">@color/purple_200</item>
-        <item name="colorPrimaryVariant">@color/purple_700</item>
-        <item name="colorOnPrimary">@color/black</item>
-        <!-- Secondary brand color. -->
-        <item name="colorSecondary">@color/teal_200</item>
-        <item name="colorSecondaryVariant">@color/teal_200</item>
-        <item name="colorOnSecondary">@color/black</item>
-        <!-- Status bar color. -->
-        <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
-        <!-- Customize your theme here. -->
+    <!-- Reason for edit: Samsung One UI styled dark mode theme -->
+    <style name="Theme.WhisperRemote" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Brand colors -->
+        <item name="colorPrimary">@color/oneui_primary</item>
+        <item name="colorPrimaryVariant">@color/oneui_primary_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/oneui_primary</item>
+        <item name="colorSecondaryVariant">@color/oneui_primary_dark</item>
+        <item name="colorOnSecondary">@color/white</item>
+
+        <!-- Background & Surface -->
+        <item name="android:windowBackground">@color/oneui_bg</item>
+        <item name="colorSurface">@color/oneui_card_bg</item>
+        <item name="colorOnSurface">@color/oneui_text_primary</item>
+
+        <!-- Status & Navigation Bar -->
+        <item name="android:statusBarColor">@color/oneui_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@color/oneui_bg</item>
     </style>
 </resources>

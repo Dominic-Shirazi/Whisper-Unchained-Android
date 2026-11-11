@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Reason for edit: Input field background matching desktop Raised #222731 per contracts/04-look-and-feel.md (K-6) -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/oneui_raised" />
+    <corners android:radius="14dp" />
+    <stroke
+        android:width="1dp"
+        android:color="@color/oneui_border" />
+</shape>

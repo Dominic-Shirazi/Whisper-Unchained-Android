@@ -1,9 +1,82 @@
 <resources>
-    <string name="app_name">WhisperRemote</string>
-    <string name="accessibility_service_label">WhisperRemote Dictation</string>
-    <string name="settings_title">WhisperRemote Settings</string>
-    <string name="api_url_label">API URL:</string>
+    <!-- Reason for edit: Renamed product to Whisper Unchained per user decision / contract K-4 -->
+    <string name="app_name">Whisper Unchained</string>
+    <string name="app_subtitle">Fast, private voice dictation</string>
+    <string name="accessibility_service_label">Whisper Unchained Dictation</string>
+    <string name="settings_title">Whisper Unchained</string>
+    <string name="api_url_label">Server Endpoint (/v1)</string>
     <string name="save_settings">Save Settings</string>
-    <string name="accessibility_reminder">Important: Please enable the WhisperRemote Accessibility Service in your device settings for dictation to work.</string>
-    <string name="enable_internal_audio">Enable Internal Audio Recording (YouTube/TikTok)</string>
+    <string name="accessibility_reminder">Enable Whisper Unchained in Accessibility Settings to allow automatic text pasting into active fields.</string>
+    <string name="enable_internal_audio">Internal Audio Recording (YouTube/TikTok)</string>
+
+    <string name="scan_pairing_hero_title">Scan Pairing Code</string>
+    <string name="scan_pairing_hero_subtitle">Point camera at QR code in desktop installer or settings</string>
+    <!-- Reason for edit: Added Scan Now button string per user request -->
+    <string name="scan_now_button">Scan Now</string>
+    <string name="paste_code_manually">Paste Code Manually</string>
+    <string name="or_configure_manually">— or configure manually —</string>
+
+    <string name="provider_preset_label">Provider Preset</string>
+    <string name="preset_self_hosted">Self-Hosted</string>
+    <string name="preset_groq">Groq Cloud</string>
+    <string name="preset_openai">OpenAI / OpenRouter</string>
+    <string name="preset_custom">Custom Endpoint</string>
+
+    <string name="api_key_label">API Key</string>
+    <string name="model_name_label">Model Name</string>
+    <string name="prompt_hints_label">Vocabulary Hints</string>
+    <string name="prompt_hints_hint">e.g. Lesley, Kubernetes, Whisper Unchained</string>
+    <string name="auto_trim_hints_label">Auto-trim trailing hint hallucinations</string>
+    <string name="injection_mode_label">Text Injection Mode</string>
+    <string name="injection_accessibility">Accessibility Service (Auto-paste)</string>
+    <string name="injection_clipboard">Clipboard Chip (1-tap paste on keyboard)</string>
+    <string name="behavior_label">Behavior &amp; Connectivity</string>
+    <string name="start_on_boot_label">Start floating button on phone reboot</string>
+    <string name="auto_restart_tailscale_label">Auto-restart Tailscale when it stalls</string>
+    <string name="test_connection">Test Connection</string>
+
+    <string name="helper_endpoint">OpenAI-compatible /v1 URL (e.g. http://100.x.y.z:5000/v1 via Tailscale)</string>
+    <string name="helper_api_key">Optional for self-hosted unless WHISPER_API_KEY is set</string>
+    <string name="helper_model">Whisper model identifier (e.g. large-v3-turbo)</string>
+    <string name="helper_hints">Words to boost recognition for names or jargon</string>
+
+    <!-- Reason for edit: Added system permission shortcut labels -->
+    <string name="permissions_shortcuts_title">PERMISSIONS &amp; SYSTEM SHORTCUTS</string>
+    <string name="open_accessibility_button">Open Accessibility Settings</string>
+    <string name="open_overlay_button">Open \"Appear on Top\" Permission</string>
+    <string name="enable_internal_audio_button">Internal Audio Recording (YouTube / TikTok)</string>
+
+    <!-- Reason for edit: Renamed tabs to mirror desktop sections per contracts/04-look-and-feel.md (K-6) -->
+    <string name="tab_transcription">Transcription</string>
+    <string name="tab_words_triggers">Words &amp; Triggers</string>
+    <string name="tab_ai_editing">AI Editing</string>
+    <string name="tab_phone">Phone</string>
+
+    <string name="shared_vocabulary_label">Vocabulary</string>
+    <string name="sync_vocabulary_button">Sync with Desktop Server</string>
+    <string name="char_budget_format">%1$d / %2$d characters</string>
+    <string name="from_name_corrections_label">From Name Corrections (Server):</string>
+    <string name="name_corrections_title">Heard as → Write as Corrections</string>
+    <string name="name_corrections_self_hosted_note">Viewed from desktop server. Edit in desktop Settings.</string>
+    <string name="trigger_words_title">Voice Edit Trigger</string>
+    <string name="trigger_words_phrase">Say \"prompt AI\" followed by an instruction</string>
+    <string name="trigger_words_desc">Example: \"The meeting is at noon. Prompt AI, make this formal.\" Applies edits to your spoken text on the fly.</string>
+    <string name="hint_echo_trim_label">Remove word list echo when Whisper reads it back</string>
+    <string name="self_hosted_model_note">Change model in Settings on your desktop PC</string>
+
+    <string name="cleanup_title">AI Dictation Cleanup</string>
+    <string name="cleanup_switch_label">Enable AI Dictation Cleanup</string>
+    <string name="cleanup_explanation">Cleans stutters, adds punctuation, formats numbers, and applies grammar rules using an LLM.</string>
+    <string name="cleanup_punctuation_title">Punctuation</string>
+    <string name="cleanup_rewrite_title">Grammar &amp; Flow</string>
+    <string name="cleanup_shorten_title">Conciseness</string>
+    <string name="cleanup_emoji_title">Emoji</string>
+    <string name="cleanup_tone_title">Tone</string>
+
+    <string name="cloud_llm_title">Language Model for Edits</string>
+    <string name="cloud_llm_explanation">Cloud Whisper transcription requires an OpenAI-compatible chat endpoint to run dictation cleanup (OpenAI, Groq, OpenRouter, or Ollama over Tailscale).</string>
+    <string name="chat_preset_label">LLM Provider Preset</string>
+    <string name="chat_url_label">Chat Endpoint (/v1/chat/completions)</string>
+    <string name="chat_key_label">Chat API Key</string>
+    <string name="chat_model_label">Chat Model</string>
 </resources>

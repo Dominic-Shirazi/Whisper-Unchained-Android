@@ -9,6 +9,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Updated for ROADMAP Phase 1: auto-start on reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Updated for ROADMAP §3.4: Tailscale package visibility on Android 11+ -->
+    <queries>
+        <package android:name="com.tailscale.ipn" />
+    </queries>
 
     <application
         android:allowBackup="true"
@@ -35,6 +42,16 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone|mediaProjection" />
+
+        <!-- Updated for ROADMAP Phase 1: auto-start floating button on device reboot -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".DictationAccessibilityService"
