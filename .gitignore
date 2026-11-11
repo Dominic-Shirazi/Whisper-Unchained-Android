@@ -63,3 +63,4 @@ Thumbs.db
 # Dom's reference screenshots (local only)
 /.tempUI/
 *RELEASE_KEY_BACKUP*
+/app/screenshots/
