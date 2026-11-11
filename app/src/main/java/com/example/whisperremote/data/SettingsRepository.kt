@@ -1,12 +1,12 @@
 // This file manages persistent configuration for Whisper Unchained.
 // It is called by MainActivity, FloatingButtonService, and ApiClient.
-// Inputs: User inputs from Settings UI or QR code scan, backed by hardware-backed KeyStore AES-256-GCM encryption.
+// Inputs: User inputs from Settings UI or QR code scan, with sensitive credentials (API keys) protected by hardware-backed KeyStore AES-256-GCM.
 // Outputs: Provider settings (base URL, API key, model, prompt hints), behavioral flags (auto-trim, boot start, Tailscale auto-restart), and injection mode.
 // It resolves endpoints according to the OpenAI standard (/v1/audio/transcriptions, /health, /v1/models) and migrates legacy URLs cleanly.
 
 package com.example.whisperremote.data
 
-// Reason for edit: Migrated from deprecated androidx.security:security-crypto to direct Android KeyStore AES-256-GCM cipher helper per F-4, with transparent one-time migration.
+// Reason for edit: Encrypt only real secrets (api_key, cleanup_chat_key) and auto-repair/decrypt non-secret preferences (cleanup_punctuation, options, URLs) per Q-3.
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -57,16 +57,54 @@ class SettingsRepository(context: Context) {
     init {
         migrateFromEncryptedSharedPreferences(context)
         migrateFromLegacyPlaintext(context)
+        repairCiphertextInPlaintextPrefs()
     }
 
-    private fun putEncryptedString(key: String, value: String) {
-        val cipher = KeyStoreCryptoHelper.encrypt(value)
+    private fun putSecretString(key: String, value: String) {
+        val cipher = if (value.isNotBlank()) KeyStoreCryptoHelper.encrypt(value) else ""
         prefs.edit().putString(key, cipher).apply()
     }
 
-    private fun getEncryptedString(key: String, defaultValue: String = ""): String {
+    private fun getSecretString(key: String, defaultValue: String = ""): String {
         val raw = prefs.getString(key, null) ?: return defaultValue
+        if (raw.isBlank()) return defaultValue
         return KeyStoreCryptoHelper.decrypt(raw)
+    }
+
+    private fun putPlainString(key: String, value: String) {
+        prefs.edit().putString(key, value).apply()
+    }
+
+    private fun getPlainString(key: String, defaultValue: String = ""): String {
+        val raw = prefs.getString(key, null) ?: return defaultValue
+        return if (raw.startsWith("enc:v1:")) {
+            val decrypted = KeyStoreCryptoHelper.decrypt(raw)
+            prefs.edit().putString(key, decrypted).apply()
+            decrypted
+        } else {
+            raw
+        }
+    }
+
+    /**
+     * Repairs any non-secret preferences that were accidentally stored as "enc:v1:..."
+     * during the initial migration pass. Idempotent and runs on startup.
+     */
+    private fun repairCiphertextInPlaintextPrefs() {
+        val all = prefs.all
+        val editor = prefs.edit()
+        var changed = false
+        for ((key, value) in all) {
+            if (key !in SECRET_KEYS && value is String && value.startsWith("enc:v1:")) {
+                val decrypted = KeyStoreCryptoHelper.decrypt(value)
+                editor.putString(key, decrypted)
+                changed = true
+                Log.d(TAG, "Repaired accidentally encrypted non-secret key '$key' -> '$decrypted'")
+            }
+        }
+        if (changed) {
+            editor.apply()
+        }
     }
 
     private fun migrateFromEncryptedSharedPreferences(context: Context) {
@@ -86,14 +124,21 @@ class SettingsRepository(context: Context) {
             if (all.isNotEmpty()) {
                 Log.d(TAG, "Migrating ${all.size} items from EncryptedSharedPreferences to direct Android KeyStore")
                 for ((key, value) in all) {
-                    if (!prefs.contains(key) && value != null) {
-                        when (value) {
-                            is String -> putEncryptedString(key, value)
-                            is Boolean -> prefs.edit().putBoolean(key, value).apply()
-                            is Int -> prefs.edit().putInt(key, value).apply()
-                            is Long -> prefs.edit().putLong(key, value).apply()
-                            is Float -> prefs.edit().putFloat(key, value).apply()
-                            is Set<*> -> @Suppress("UNCHECKED_CAST") prefs.edit().putStringSet(key, value as Set<String>).apply()
+                    if (value != null) {
+                        if (key in SECRET_KEYS) {
+                            if (value is String) putSecretString(key, value)
+                        } else {
+                            when (value) {
+                                is String -> {
+                                    val plain = if (value.startsWith("enc:v1:")) KeyStoreCryptoHelper.decrypt(value) else value
+                                    putPlainString(key, plain)
+                                }
+                                is Boolean -> prefs.edit().putBoolean(key, value).apply()
+                                is Int -> prefs.edit().putInt(key, value).apply()
+                                is Long -> prefs.edit().putLong(key, value).apply()
+                                is Float -> prefs.edit().putFloat(key, value).apply()
+                                is Set<*> -> @Suppress("UNCHECKED_CAST") prefs.edit().putStringSet(key, value as Set<String>).apply()
+                            }
                         }
                     }
                 }
@@ -113,13 +158,17 @@ class SettingsRepository(context: Context) {
                 Log.d(TAG, "Migrating ${all.size} items from legacy plaintext to direct Android KeyStore")
                 for ((key, value) in all) {
                     if (!prefs.contains(key) && value != null) {
-                        when (value) {
-                            is String -> putEncryptedString(key, value)
-                            is Boolean -> prefs.edit().putBoolean(key, value).apply()
-                            is Int -> prefs.edit().putInt(key, value).apply()
-                            is Long -> prefs.edit().putLong(key, value).apply()
-                            is Float -> prefs.edit().putFloat(key, value).apply()
-                            is Set<*> -> @Suppress("UNCHECKED_CAST") prefs.edit().putStringSet(key, value as Set<String>).apply()
+                        if (key in SECRET_KEYS) {
+                            if (value is String) putSecretString(key, value)
+                        } else {
+                            when (value) {
+                                is String -> putPlainString(key, value)
+                                is Boolean -> prefs.edit().putBoolean(key, value).apply()
+                                is Int -> prefs.edit().putInt(key, value).apply()
+                                is Long -> prefs.edit().putLong(key, value).apply()
+                                is Float -> prefs.edit().putFloat(key, value).apply()
+                                is Set<*> -> @Suppress("UNCHECKED_CAST") prefs.edit().putStringSet(key, value as Set<String>).apply()
+                            }
                         }
                     }
                 }
@@ -147,6 +196,8 @@ class SettingsRepository(context: Context) {
         private const val KEY_PROCESSING_MODE = "processing_mode"
 
         const val DEFAULT_MODEL = "large-v3-turbo"
+
+        val SECRET_KEYS = setOf(KEY_API_KEY, "cleanup_chat_key")
     }
 
     /**
@@ -156,12 +207,12 @@ class SettingsRepository(context: Context) {
      */
     var baseUrl: String
         get() {
-            val savedBase = getEncryptedString(KEY_BASE_URL, "")
+            val savedBase = getPlainString(KEY_BASE_URL, "")
             if (savedBase.isNotBlank() && !savedBase.contains("100.x.y.z") && !savedBase.contains("your-server-ip")) {
                 return savedBase.trimEnd('/')
             }
 
-            val legacy = getEncryptedString(KEY_LEGACY_API_URL, "")
+            val legacy = getPlainString(KEY_LEGACY_API_URL, "")
             if (legacy.isNotBlank() && !legacy.contains("your-server-ip") && !legacy.contains("100.x.y.z")) {
                 val cleaned = if (legacy.endsWith("/transcribe")) {
                     legacy.removeSuffix("/transcribe") + "/v1"
@@ -178,21 +229,21 @@ class SettingsRepository(context: Context) {
         }
         set(value) {
             val clean = value.trim().trimEnd('/')
-            putEncryptedString(KEY_BASE_URL, clean)
-            putEncryptedString(KEY_LEGACY_API_URL, clean)
+            putPlainString(KEY_BASE_URL, clean)
+            putPlainString(KEY_LEGACY_API_URL, clean)
         }
 
     var apiKey: String
-        get() = getEncryptedString(KEY_API_KEY, "")
-        set(value) = putEncryptedString(KEY_API_KEY, value.trim())
+        get() = getSecretString(KEY_API_KEY, "")
+        set(value) = putSecretString(KEY_API_KEY, value.trim())
 
     var modelName: String
-        get() = getEncryptedString(KEY_MODEL, DEFAULT_MODEL).ifBlank { DEFAULT_MODEL }
-        set(value) = putEncryptedString(KEY_MODEL, value.trim())
+        get() = getPlainString(KEY_MODEL, DEFAULT_MODEL).ifBlank { DEFAULT_MODEL }
+        set(value) = putPlainString(KEY_MODEL, value.trim())
 
     var promptHints: String
-        get() = getEncryptedString(KEY_PROMPT_HINTS, "")
-        set(value) = putEncryptedString(KEY_PROMPT_HINTS, value.trim())
+        get() = getPlainString(KEY_PROMPT_HINTS, "")
+        set(value) = putPlainString(KEY_PROMPT_HINTS, value.trim())
 
     var autoTrimHints: Boolean
         get() = prefs.getBoolean(KEY_AUTO_TRIM_HINTS, true)
@@ -200,14 +251,14 @@ class SettingsRepository(context: Context) {
 
     var injectionMode: InjectionMode
         get() {
-            val name = prefs.getString(KEY_INJECTION_MODE, InjectionMode.ACCESSIBILITY.name)
+            val name = getPlainString(KEY_INJECTION_MODE, InjectionMode.ACCESSIBILITY.name)
             return try {
-                InjectionMode.valueOf(name ?: InjectionMode.ACCESSIBILITY.name)
+                InjectionMode.valueOf(name)
             } catch (e: Exception) {
                 InjectionMode.ACCESSIBILITY
             }
         }
-        set(value) = prefs.edit().putString(KEY_INJECTION_MODE, value.name).apply()
+        set(value) = putPlainString(KEY_INJECTION_MODE, value.name)
 
     var startOnBoot: Boolean
         get() = prefs.getBoolean(KEY_START_ON_BOOT, true)
@@ -219,14 +270,14 @@ class SettingsRepository(context: Context) {
 
     var providerPreset: ProviderPreset
         get() {
-            val name = prefs.getString(KEY_PRESET, ProviderPreset.SELF_HOSTED.name)
+            val name = getPlainString(KEY_PRESET, ProviderPreset.SELF_HOSTED.name)
             return ProviderPreset.fromLegacy(name)
         }
-        set(value) = prefs.edit().putString(KEY_PRESET, value.name).apply()
+        set(value) = putPlainString(KEY_PRESET, value.name)
 
     var processingMode: String
-        get() = prefs.getString(KEY_PROCESSING_MODE, "full") ?: "full"
-        set(value) = prefs.edit().putString(KEY_PROCESSING_MODE, value).apply()
+        get() = getPlainString(KEY_PROCESSING_MODE, "full").ifBlank { "full" }
+        set(value) = putPlainString(KEY_PROCESSING_MODE, value)
 
     // Reason for edit: Added dictation cleanup style and endpoint preferences per contracts/02-cleanup.md
     var cleanupEnabled: Boolean
@@ -234,44 +285,44 @@ class SettingsRepository(context: Context) {
         set(value) = prefs.edit().putBoolean("cleanup_enabled", value).apply()
 
     var cleanupPunctuation: String
-        get() = prefs.getString("cleanup_punctuation", "standard") ?: "standard"
-        set(value) = prefs.edit().putString("cleanup_punctuation", value).apply()
+        get() = getPlainString("cleanup_punctuation", "standard").ifBlank { "standard" }
+        set(value) = putPlainString("cleanup_punctuation", value)
 
     var cleanupRewrite: String
-        get() = prefs.getString("cleanup_rewrite", "keep") ?: "keep"
-        set(value) = prefs.edit().putString("cleanup_rewrite", value).apply()
+        get() = getPlainString("cleanup_rewrite", "keep").ifBlank { "keep" }
+        set(value) = putPlainString("cleanup_rewrite", value)
 
     // Reason for edit: Added cleanup_tone per contracts/02-cleanup.md v2 (K-5)
     var cleanupTone: String
-        get() = prefs.getString("cleanup_tone", "neutral") ?: "neutral"
-        set(value) = prefs.edit().putString("cleanup_tone", value).apply()
+        get() = getPlainString("cleanup_tone", "neutral").ifBlank { "neutral" }
+        set(value) = putPlainString("cleanup_tone", value)
 
     var cleanupShorten: String
-        get() = prefs.getString("cleanup_shorten", "off") ?: "off"
-        set(value) = prefs.edit().putString("cleanup_shorten", value).apply()
+        get() = getPlainString("cleanup_shorten", "off").ifBlank { "off" }
+        set(value) = putPlainString("cleanup_shorten", value)
 
     var cleanupEmoji: String
-        get() = prefs.getString("cleanup_emoji", "off") ?: "off"
-        set(value) = prefs.edit().putString("cleanup_emoji", value).apply()
+        get() = getPlainString("cleanup_emoji", "off").ifBlank { "off" }
+        set(value) = putPlainString("cleanup_emoji", value)
 
     var cleanupChatUrl: String
-        get() = getEncryptedString("cleanup_chat_url", "https://api.openai.com/v1/chat/completions")
-        set(value) = putEncryptedString("cleanup_chat_url", value.trim())
+        get() = getPlainString("cleanup_chat_url", "https://api.openai.com/v1/chat/completions")
+        set(value) = putPlainString("cleanup_chat_url", value.trim())
 
     var cleanupChatKey: String
-        get() = getEncryptedString("cleanup_chat_key", "")
-        set(value) = putEncryptedString("cleanup_chat_key", value.trim())
+        get() = getSecretString("cleanup_chat_key", "")
+        set(value) = putSecretString("cleanup_chat_key", value.trim())
 
     var cleanupChatModel: String
-        get() = getEncryptedString("cleanup_chat_model", "gpt-4o-mini").ifBlank { "gpt-4o-mini" }
-        set(value) = putEncryptedString("cleanup_chat_model", value.trim())
+        get() = getPlainString("cleanup_chat_model", "gpt-4o-mini").ifBlank { "gpt-4o-mini" }
+        set(value) = putPlainString("cleanup_chat_model", value.trim())
 
     var cleanupChatPreset: ChatProviderPreset
         get() {
-            val name = prefs.getString("cleanup_chat_preset", ChatProviderPreset.OPENROUTER_OPENAI.name)
+            val name = getPlainString("cleanup_chat_preset", ChatProviderPreset.OPENROUTER_OPENAI.name)
             return ChatProviderPreset.values().find { it.name == name } ?: ChatProviderPreset.OPENROUTER_OPENAI
         }
-        set(value) = prefs.edit().putString("cleanup_chat_preset", value.name).apply()
+        set(value) = putPlainString("cleanup_chat_preset", value.name)
 
     /**
      * Resolves the full URL for POST /v1/audio/transcriptions
@@ -332,8 +383,8 @@ class SettingsRepository(context: Context) {
 
     // Reason for edit: Added local name corrections for cloud presets per contracts/04 §6
     var localNameCorrections: String
-        get() = getEncryptedString("local_name_corrections", "")
-        set(value) = putEncryptedString("local_name_corrections", value.trim())
+        get() = getPlainString("local_name_corrections", "")
+        set(value) = putPlainString("local_name_corrections", value.trim())
 
     fun queueVocabularyAddition(word: String) {
         val clean = word.trim()

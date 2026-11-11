@@ -921,7 +921,9 @@ class FloatingButtonService : Service() {
                     stopPollingForResume()
                     Log.e("FloatingButtonService", "API key rejected: ${result.message}")
                     mainHandler.post {
+                        val msg = result.message.ifBlank { "API key rejected (401)" }
                         showTemporaryHint("API key rejected")
+                        Toast.makeText(applicationContext, "PC rejected request: $msg", Toast.LENGTH_LONG).show()
                         setState(ButtonState.HIDDEN)
                     }
                 }
@@ -934,6 +936,7 @@ class FloatingButtonService : Service() {
                     }
                     mainHandler.post {
                         showTemporaryHint("Connection failed")
+                        Toast.makeText(applicationContext, "Connection failed: ${result.error.localizedMessage ?: "Cannot reach server"}", Toast.LENGTH_LONG).show()
                         setState(ButtonState.HIDDEN)
                     }
                 }
@@ -942,7 +945,9 @@ class FloatingButtonService : Service() {
                     stopPollingForResume()
                     Log.e("FloatingButtonService", "Server error ${result.code}: ${result.message}")
                     mainHandler.post {
-                        showTemporaryHint("Server error ${result.code}")
+                        val errorText = result.message.ifBlank { "Server error ${result.code}" }
+                        showTemporaryHint("Error ${result.code}")
+                        Toast.makeText(applicationContext, "PC rejected request (${result.code}): $errorText", Toast.LENGTH_LONG).show()
                         setState(ButtonState.HIDDEN)
                     }
                 }

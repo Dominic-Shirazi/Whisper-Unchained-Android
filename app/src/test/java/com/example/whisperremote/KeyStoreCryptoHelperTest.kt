@@ -35,4 +35,11 @@ class KeyStoreCryptoHelperTest {
         val decrypted = KeyStoreCryptoHelper.decrypt(secret)
         assertEquals(secret, decrypted)
     }
+
+    @Test
+    fun testMigratedCleanupPunctuationReadsBackAsStandard() {
+        val plain = "standard"
+        val decrypted = KeyStoreCryptoHelper.decrypt(plain)
+        assertEquals("standard", decrypted)
+    }
 }
