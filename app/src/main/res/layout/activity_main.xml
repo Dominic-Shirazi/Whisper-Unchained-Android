@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Reason for edit: Added first-run setup checklist card with live status and reopen link per contract F-16. -->
 <!-- Reason for edit: Redesigned with Teal #2FB79A shared palette, Raised input backgrounds, and 4 desktop-mirroring tabs (Transcription, Words & Triggers, AI Editing, Phone) per contracts/04-look-and-feel.md (K-6). -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -78,6 +79,391 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:visibility="visible">
+
+            <!-- Reopen Setup Checklist Link (shown when all 4 steps are complete) -->
+            <TextView
+                android:id="@+id/reopenSetupCardLink"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="⚙️ Setup checklist"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="@color/oneui_primary"
+                android:paddingTop="2dp"
+                android:paddingBottom="8dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:layout_marginBottom="8dp"
+                android:visibility="gone" />
+
+            <!-- First-run Setup Checklist Card (Contracts F-16) -->
+            <LinearLayout
+                android:id="@+id/setupChecklistCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/oneui_hero_card_bg"
+                android:padding="18dp"
+                android:layout_marginBottom="14dp"
+                android:visibility="visible">
+
+                <!-- Header: Icon + Title + Subtitle -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:gravity="center"
+                        android:text="✨"
+                        android:textSize="18sp"
+                        android:background="@drawable/oneui_card_bg"
+                        android:layout_marginEnd="12dp" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Set up Whisper Unchained"
+                            android:textSize="17sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/oneui_primary" />
+
+                        <TextView
+                            android:id="@+id/setupProgressSubtitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Complete these 4 steps to start dictating"
+                            android:textSize="12sp"
+                            android:textColor="@color/oneui_text_secondary" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/oneui_divider"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginBottom="12dp" />
+
+                <!-- Step 1: Allow Microphone -->
+                <LinearLayout
+                    android:id="@+id/setupStep1Row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="12dp">
+
+                    <TextView
+                        android:id="@+id/setupStep1Icon"
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:gravity="center"
+                        android:text="1"
+                        android:textStyle="bold"
+                        android:textSize="13sp"
+                        android:textColor="@color/oneui_primary"
+                        android:background="@drawable/oneui_card_bg"
+                        android:layout_marginEnd="10dp" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Allow the microphone"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/oneui_text_primary" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Captures your spoken words"
+                            android:textSize="11sp"
+                            android:textColor="@color/oneui_text_secondary" />
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/setupStep1ActionBtn"
+                        style="@style/Widget.AppCompat.Button.Colored"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="Allow"
+                        android:textSize="12sp"
+                        android:backgroundTint="@color/oneui_primary"
+                        android:textColor="@color/oneui_bg" />
+
+                    <TextView
+                        android:id="@+id/setupStep1DoneBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="✓ Done"
+                        android:textStyle="bold"
+                        android:textSize="13sp"
+                        android:textColor="@color/oneui_primary"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <!-- Step 2: Connect -->
+                <LinearLayout
+                    android:id="@+id/setupStep2Row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginBottom="12dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/setupStep2Icon"
+                            android:layout_width="28dp"
+                            android:layout_height="28dp"
+                            android:gravity="center"
+                            android:text="2"
+                            android:textStyle="bold"
+                            android:textSize="13sp"
+                            android:textColor="@color/oneui_primary"
+                            android:background="@drawable/oneui_card_bg"
+                            android:layout_marginEnd="10dp" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Connect"
+                                android:textSize="14sp"
+                                android:textStyle="bold"
+                                android:textColor="@color/oneui_text_primary" />
+
+                            <TextView
+                                android:id="@+id/setupStep2Subtitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Pair with PC or select a cloud provider"
+                                android:textSize="11sp"
+                                android:textColor="@color/oneui_text_secondary" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/setupStep2DoneBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="✓ Done"
+                            android:textStyle="bold"
+                            android:textSize="13sp"
+                            android:textColor="@color/oneui_primary"
+                            android:visibility="gone" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/setupStep2ActionsContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginStart="38dp"
+                        android:layout_marginTop="6dp">
+
+                        <Button
+                            android:id="@+id/setupStep2ScanBtn"
+                            style="@style/Widget.AppCompat.Button.Colored"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="Scan pairing code"
+                            android:textSize="12sp"
+                            android:backgroundTint="@color/oneui_primary"
+                            android:textColor="@color/oneui_bg" />
+
+                        <Button
+                            android:id="@+id/setupStep2CloudBtn"
+                            style="@style/Widget.AppCompat.Button.Borderless"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="Use cloud instead"
+                            android:textSize="12sp"
+                            android:textColor="@color/oneui_primary"
+                            android:layout_marginStart="6dp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Step 3: Allow "appear on top" -->
+                <LinearLayout
+                    android:id="@+id/setupStep3Row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="12dp">
+
+                    <TextView
+                        android:id="@+id/setupStep3Icon"
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:gravity="center"
+                        android:text="3"
+                        android:textStyle="bold"
+                        android:textSize="13sp"
+                        android:textColor="@color/oneui_primary"
+                        android:background="@drawable/oneui_card_bg"
+                        android:layout_marginEnd="10dp" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Allow &quot;appear on top&quot;"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/oneui_text_primary" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Displays the floating mic over other apps"
+                            android:textSize="11sp"
+                            android:textColor="@color/oneui_text_secondary" />
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/setupStep3ActionBtn"
+                        style="@style/Widget.AppCompat.Button.Colored"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="Allow"
+                        android:textSize="12sp"
+                        android:backgroundTint="@color/oneui_primary"
+                        android:textColor="@color/oneui_bg" />
+
+                    <TextView
+                        android:id="@+id/setupStep3DoneBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="✓ Done"
+                        android:textStyle="bold"
+                        android:textSize="13sp"
+                        android:textColor="@color/oneui_primary"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <!-- Step 4: Paste into text boxes -->
+                <LinearLayout
+                    android:id="@+id/setupStep4Row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/setupStep4Icon"
+                            android:layout_width="28dp"
+                            android:layout_height="28dp"
+                            android:gravity="center"
+                            android:text="4"
+                            android:textStyle="bold"
+                            android:textSize="13sp"
+                            android:textColor="@color/oneui_primary"
+                            android:background="@drawable/oneui_card_bg"
+                            android:layout_marginEnd="10dp" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Paste into text boxes"
+                                android:textSize="14sp"
+                                android:textStyle="bold"
+                                android:textColor="@color/oneui_text_primary" />
+
+                            <TextView
+                                android:id="@+id/setupStep4Subtitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Auto-paste via Accessibility or Clipboard chip"
+                                android:textSize="11sp"
+                                android:textColor="@color/oneui_text_secondary" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/setupStep4DoneBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="✓ Done"
+                            android:textStyle="bold"
+                            android:textSize="13sp"
+                            android:textColor="@color/oneui_primary"
+                            android:visibility="gone" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/setupStep4ActionsContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginStart="38dp"
+                        android:layout_marginTop="6dp">
+
+                        <Button
+                            android:id="@+id/setupStep4AccessibilityBtn"
+                            style="@style/Widget.AppCompat.Button.Colored"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="Enable"
+                            android:textSize="12sp"
+                            android:backgroundTint="@color/oneui_primary"
+                            android:textColor="@color/oneui_bg" />
+
+                        <Button
+                            android:id="@+id/setupStep4ClipboardBtn"
+                            style="@style/Widget.AppCompat.Button.Borderless"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="or use clipboard chip instead"
+                            android:textSize="12sp"
+                            android:textColor="@color/oneui_primary"
+                            android:layout_marginStart="6dp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+            </LinearLayout>
 
             <!-- Top Hero Card: Scan Pairing Code -->
             <LinearLayout
@@ -615,12 +1001,23 @@
                     app:trackTint="@color/oneui_border"/>
 
                 <TextView
+                    android:id="@+id/cleanupSmartDefaultNote"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Following your PC's setting"
+                    android:textSize="11sp"
+                    android:textStyle="italic"
+                    android:textColor="@color/oneui_primary"
+                    android:layout_marginTop="2dp"
+                    android:layout_marginBottom="4dp"/>
+
+                <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/cleanup_explanation"
                     android:textSize="11sp"
                     android:textColor="@color/oneui_text_secondary"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="2dp"
                     android:layout_marginBottom="16dp"/>
 
                 <!-- Style settings layout (visible when cleanup is enabled) -->

@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Added cleanup form field and cleanup_always parsing from /health per contract K-10.
 // Reason for edit: Gate transcription response body behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9.
 // Reason for edit: Added per-dictation StyleOverrides support for style pill overrides per contract F-6 (contracts/01 §1 & contracts/02 §5).
 
@@ -47,8 +48,8 @@ data class StyleOverrides(
 )
 
 sealed class HealthResult {
-    data class Ok(val model: String?, val authRequired: Boolean) : HealthResult()
-    data class Paused(val reason: String?, val model: String?, val authRequired: Boolean) : HealthResult()
+    data class Ok(val model: String?, val authRequired: Boolean, val cleanupAlways: Boolean? = null) : HealthResult()
+    data class Paused(val reason: String?, val model: String?, val authRequired: Boolean, val cleanupAlways: Boolean? = null) : HealthResult()
     data class ServiceError(val message: String) : HealthResult()
     data class Unreachable(val error: Throwable) : HealthResult()
 
@@ -164,16 +165,22 @@ class ApiClient(private val context: Context) {
                     requestBodyBuilder.addFormDataPart("cleanup_shorten", styleOverrides.shorten)
                     requestBodyBuilder.addFormDataPart("cleanup_emoji", repository.cleanupEmoji)
                 }
-            } else if (repository.cleanupEnabled) {
-                requestBodyBuilder.addFormDataPart("processing", "clean")
-                requestBodyBuilder.addFormDataPart("cleanup_punctuation", repository.cleanupPunctuation)
-                requestBodyBuilder.addFormDataPart("cleanup_rewrite", repository.cleanupRewrite)
-                val tone = if (repository.cleanupRewrite == "keep") "neutral" else repository.cleanupTone
-                requestBodyBuilder.addFormDataPart("cleanup_tone", tone)
-                requestBodyBuilder.addFormDataPart("cleanup_shorten", repository.cleanupShorten)
-                requestBodyBuilder.addFormDataPart("cleanup_emoji", repository.cleanupEmoji)
             } else {
-                requestBodyBuilder.addFormDataPart("processing", repository.processingMode)
+                // Reason for edit: If user explicitly set cleanup switch, send cleanup=on or cleanup=off per contract K-10
+                if (repository.cleanupUserSet) {
+                    requestBodyBuilder.addFormDataPart("cleanup", if (repository.cleanupEnabled) "on" else "off")
+                }
+                if (repository.cleanupEnabled) {
+                    requestBodyBuilder.addFormDataPart("processing", "clean")
+                    requestBodyBuilder.addFormDataPart("cleanup_punctuation", repository.cleanupPunctuation)
+                    requestBodyBuilder.addFormDataPart("cleanup_rewrite", repository.cleanupRewrite)
+                    val tone = if (repository.cleanupRewrite == "keep") "neutral" else repository.cleanupTone
+                    requestBodyBuilder.addFormDataPart("cleanup_tone", tone)
+                    requestBodyBuilder.addFormDataPart("cleanup_shorten", repository.cleanupShorten)
+                    requestBodyBuilder.addFormDataPart("cleanup_emoji", repository.cleanupEmoji)
+                } else {
+                    requestBodyBuilder.addFormDataPart("processing", repository.processingMode)
+                }
             }
         }
 
@@ -299,14 +306,15 @@ class ApiClient(private val context: Context) {
                         val status = json.optString("status", "")
                         val model = if (json.has("model") && !json.isNull("model")) json.getString("model") else null
                         val authRequired = json.optBoolean("auth_required", false)
+                        val cleanupAlways = if (json.has("cleanup_always")) json.optBoolean("cleanup_always") else null
 
                         if (status.equals("ok", ignoreCase = true)) {
-                            callback(HealthResult.Ok(model, authRequired))
+                            callback(HealthResult.Ok(model, authRequired, cleanupAlways))
                         } else if (status.equals("paused", ignoreCase = true)) {
                             val pausedReason = if (json.has("paused_reason") && !json.isNull("paused_reason")) {
                                 json.getString("paused_reason")
                             } else null
-                            callback(HealthResult.Paused(pausedReason, model, authRequired))
+                            callback(HealthResult.Paused(pausedReason, model, authRequired, cleanupAlways))
                         } else {
                             callback(HealthResult.ServiceError("Server status: $status"))
                         }

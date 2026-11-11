@@ -6,6 +6,7 @@
 
 package com.example.whisperremote.data
 
+// Reason for edit: Added isServerVerified and isSetupDismissedManually tracking for setup checklist per contract F-16.
 // Reason for edit: Added QrPayload validation (scheme http/https, non-empty host, /v1 suffix) and host confirmation support per contract F-12.
 // Reason for edit: Gate pref repair logs behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9.
 // Reason for edit: Encrypt only real secrets (api_key, cleanup_chat_key) and auto-repair/decrypt non-secret preferences (cleanup_punctuation, options, URLs) per Q-3.
@@ -349,6 +350,15 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_AUTO_RESTART_TAILSCALE, true)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_RESTART_TAILSCALE, value).apply()
 
+    // Reason for edit: Track whether connection has been tested/verified for setup checklist per contract F-16
+    var isServerVerified: Boolean
+        get() = prefs.getBoolean("server_verified", false)
+        set(value) = prefs.edit().putBoolean("server_verified", value).apply()
+
+    var isSetupDismissedManually: Boolean
+        get() = prefs.getBoolean("setup_dismissed_manually", false)
+        set(value) = prefs.edit().putBoolean("setup_dismissed_manually", value).apply()
+
     var providerPreset: ProviderPreset
         get() {
             val name = getPlainString(KEY_PRESET, ProviderPreset.SELF_HOSTED.name)
@@ -364,6 +374,23 @@ class SettingsRepository(context: Context) {
     var cleanupEnabled: Boolean
         get() = prefs.getBoolean("cleanup_enabled", false)
         set(value) = prefs.edit().putBoolean("cleanup_enabled", value).apply()
+
+    // Reason for edit: Track whether user explicitly toggled cleanup switch per contract K-10
+    var cleanupUserSet: Boolean
+        get() = prefs.getBoolean("cleanup_user_set", false)
+        set(value) = prefs.edit().putBoolean("cleanup_user_set", value).apply()
+
+    fun syncSmartCleanupDefault(cleanupAlwaysFromServer: Boolean? = null) {
+        if (cleanupUserSet) return
+        if (providerPreset == ProviderPreset.SELF_HOSTED) {
+            if (cleanupAlwaysFromServer != null) {
+                cleanupEnabled = cleanupAlwaysFromServer
+            }
+        } else {
+            val hasChatModel = cleanupChatUrl.isNotBlank() && cleanupChatKey.isNotBlank()
+            cleanupEnabled = hasChatModel
+        }
+    }
 
     var cleanupPunctuation: String
         get() = getPlainString("cleanup_punctuation", "standard").ifBlank { "standard" }
@@ -496,6 +523,7 @@ class SettingsRepository(context: Context) {
         payload.apiKey?.let { apiKey = it }
         payload.model?.let { modelName = it }
         providerPreset = ProviderPreset.SELF_HOSTED
+        isServerVerified = true
     }
 
     /**

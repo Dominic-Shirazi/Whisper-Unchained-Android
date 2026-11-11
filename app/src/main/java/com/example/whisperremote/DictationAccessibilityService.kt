@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Added isEnabled helper checking Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES per contract F-16.
 // Reason for edit: Splice text at cursor with ACTION_SET_SELECTION restore (never clobbering field content), and prune unused event types per contract F-12.
 // Reason for edit: Gate dictated text log behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9.
 // Reason for edit: Updated product name to Whisper Unchained and added file documentation header.
@@ -13,9 +14,12 @@ package com.example.whisperremote
 import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ComponentName
 import android.content.Context
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.text.TextUtils
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -28,6 +32,32 @@ class DictationAccessibilityService : AccessibilityService() {
         fun getInstance(): DictationAccessibilityService? {
             Log.d("DictationService", "Getting instance: ${instance != null}")
             return instance
+        }
+
+        // Reason for edit: Detect enabled status via Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES per contract F-16
+        fun isEnabled(context: Context): Boolean {
+            if (instance != null) return true
+            return try {
+                val expectedComponent = ComponentName(context, DictationAccessibilityService::class.java).flattenToString()
+                val enabledServices = Settings.Secure.getString(
+                    context.contentResolver,
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+                ) ?: return false
+                val colonSplitter = TextUtils.SimpleStringSplitter(':')
+                colonSplitter.setString(enabledServices)
+                while (colonSplitter.hasNext()) {
+                    val componentName = colonSplitter.next()
+                    if (componentName.equals(expectedComponent, ignoreCase = true) ||
+                        componentName.contains(context.packageName + "/" + DictationAccessibilityService::class.java.name) ||
+                        componentName.contains("DictationAccessibilityService", ignoreCase = true)
+                    ) {
+                        return true
+                    }
+                }
+                false
+            } catch (e: Exception) {
+                false
+            }
         }
     }
 

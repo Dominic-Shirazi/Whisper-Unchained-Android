@@ -32,6 +32,14 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 ## Key Features
 
 - **Standard OpenAI API (`/v1/audio/transcriptions`)**: Interoperable across Self-Hosted, Speaches, Groq, OpenRouter, and custom endpoints.
+- **First-Run Setup Checklist (Contract F-16)**:
+  - 4-step live checklist card at the top of the app guiding users through Microphone permission, PC/Cloud connection, "Appear on top" overlay permission, and Accessibility/Clipboard text injection.
+  - Live checkmarks with explicit "Done" text (color-blind accessible), auto-hiding when all steps are completed, and a subtle "Setup" reopen link.
+  - Proactive tap protection: tapping the floating button when a prerequisite is missing presents an in-place prompt with a one-tap direct fix (grant permission, open settings, or switch to clipboard mode).
+- **Smart AI Cleanup Default (Contract K-10)**:
+  - Intelligently sets AI Cleanup default based on server or model capability (matching desktop `/health -> cleanup_always` on Self-Hosted, or default ON when cloud editor key is configured).
+  - Clear contextual explanation note below the switch ("Following your PC's setting" / "On because an AI model is set up" / "Off: no AI model set up yet").
+  - Explicit per-dictation `cleanup=on` or `cleanup=off` sent once the user manually chooses a preference.
 - **Provider Presets**: Instant configuration for Self-Hosted (Faster-Whisper / Speaches), Groq Cloud (`whisper-large-v3-turbo`), OpenAI / OpenRouter (`whisper-1`, `gpt-4o-mini-transcribe`), and Custom Endpoints.
 - **Soft Pause Support**: Seamlessly detects when the desktop PC soft-pauses dictation (for gaming or manual user pause). The app treats the server as reachable (preventing false Tailscale drops), retains the recorded audio, and automatically transcribes and pastes once the desktop PC resumes.
 - **Camera QR Code Scanner**: Integrated Google Code Scanner for point-and-scan camera onboarding directly from the desktop installer or settings QR code, with zero camera permissions needed in the app manifest (plus manual paste fallback).

@@ -9,6 +9,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Added first-run setup checklist card with live status and reopen link per contract F-16.
 // Reason for edit: Added server pairing confirmation dialog and Play-compliant prominent accessibility disclosure per contract F-12.
 // Reason for edit: Updated Conciseness spinner wording to "Full length | Shorter | Shortest" per contract F-8.
 
@@ -53,6 +54,25 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tabAiEditingContainer: View
     private lateinit var tabPhoneContainer: View
 
+    // First-run Setup Checklist Views (Contract F-16)
+    private lateinit var setupChecklistCard: View
+    private lateinit var reopenSetupCardLink: TextView
+    private lateinit var setupProgressSubtitle: TextView
+    private lateinit var setupStep1ActionBtn: Button
+    private lateinit var setupStep1DoneBadge: TextView
+    private lateinit var setupStep2Subtitle: TextView
+    private lateinit var setupStep2DoneBadge: TextView
+    private lateinit var setupStep2ActionsContainer: View
+    private lateinit var setupStep2ScanBtn: Button
+    private lateinit var setupStep2CloudBtn: Button
+    private lateinit var setupStep3ActionBtn: Button
+    private lateinit var setupStep3DoneBadge: TextView
+    private lateinit var setupStep4Subtitle: TextView
+    private lateinit var setupStep4DoneBadge: TextView
+    private lateinit var setupStep4ActionsContainer: View
+    private lateinit var setupStep4AccessibilityBtn: Button
+    private lateinit var setupStep4ClipboardBtn: Button
+
     // Tab 1: Transcription Views
     private lateinit var providerSpinner: Spinner
     private lateinit var apiUrlEditText: EditText
@@ -75,6 +95,7 @@ class MainActivity : AppCompatActivity() {
 
     // Tab 3: AI Editing Views
     private lateinit var cleanupSwitch: SwitchMaterial
+    private lateinit var cleanupSmartDefaultNote: TextView
     private lateinit var cleanupStylesLayout: View
     private lateinit var cleanupPunctuationSpinner: Spinner
     private lateinit var cleanupRewriteSpinner: Spinner
@@ -145,6 +166,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             Toast.makeText(this, "Microphone & Notification permissions required", Toast.LENGTH_SHORT).show()
         }
+        updateSetupChecklist()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -159,6 +181,12 @@ class MainActivity : AppCompatActivity() {
         loadSettingsIntoUi()
         setupListeners()
         checkPermissions()
+        updateSetupChecklist()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateSetupChecklist()
     }
 
     override fun onPause() {
@@ -173,6 +201,25 @@ class MainActivity : AppCompatActivity() {
         tabWordsTriggersContainer = findViewById(R.id.tabWordsTriggersContainer)
         tabAiEditingContainer = findViewById(R.id.tabAiEditingContainer)
         tabPhoneContainer = findViewById(R.id.tabPhoneContainer)
+
+        // Setup Checklist Views (Contract F-16)
+        setupChecklistCard = findViewById(R.id.setupChecklistCard)
+        reopenSetupCardLink = findViewById(R.id.reopenSetupCardLink)
+        setupProgressSubtitle = findViewById(R.id.setupProgressSubtitle)
+        setupStep1ActionBtn = findViewById(R.id.setupStep1ActionBtn)
+        setupStep1DoneBadge = findViewById(R.id.setupStep1DoneBadge)
+        setupStep2Subtitle = findViewById(R.id.setupStep2Subtitle)
+        setupStep2DoneBadge = findViewById(R.id.setupStep2DoneBadge)
+        setupStep2ActionsContainer = findViewById(R.id.setupStep2ActionsContainer)
+        setupStep2ScanBtn = findViewById(R.id.setupStep2ScanBtn)
+        setupStep2CloudBtn = findViewById(R.id.setupStep2CloudBtn)
+        setupStep3ActionBtn = findViewById(R.id.setupStep3ActionBtn)
+        setupStep3DoneBadge = findViewById(R.id.setupStep3DoneBadge)
+        setupStep4Subtitle = findViewById(R.id.setupStep4Subtitle)
+        setupStep4DoneBadge = findViewById(R.id.setupStep4DoneBadge)
+        setupStep4ActionsContainer = findViewById(R.id.setupStep4ActionsContainer)
+        setupStep4AccessibilityBtn = findViewById(R.id.setupStep4AccessibilityBtn)
+        setupStep4ClipboardBtn = findViewById(R.id.setupStep4ClipboardBtn)
 
         // Tab 1 Views (Transcription)
         providerSpinner = findViewById(R.id.providerSpinner)
@@ -196,6 +243,7 @@ class MainActivity : AppCompatActivity() {
 
         // Tab 3 Views (AI Editing)
         cleanupSwitch = findViewById(R.id.cleanupSwitch)
+        cleanupSmartDefaultNote = findViewById(R.id.cleanupSmartDefaultNote)
         cleanupStylesLayout = findViewById(R.id.cleanupStylesLayout)
         cleanupPunctuationSpinner = findViewById(R.id.cleanupPunctuationSpinner)
         cleanupRewriteSpinner = findViewById(R.id.cleanupRewriteSpinner)
@@ -317,8 +365,10 @@ class MainActivity : AppCompatActivity() {
         localNameCorrectionsEditText.setText(repository.localNameCorrections)
 
         // Tab 3 Settings
+        repository.syncSmartCleanupDefault()
         cleanupSwitch.isChecked = repository.cleanupEnabled
         cleanupStylesLayout.visibility = if (repository.cleanupEnabled) View.VISIBLE else View.GONE
+        updateSmartCleanupNote()
 
         setSpinnerToValue(cleanupPunctuationSpinner, repository.cleanupPunctuation)
         setSpinnerToValue(cleanupRewriteSpinner, repository.cleanupRewrite)
@@ -514,6 +564,49 @@ class MainActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
+        // Setup Checklist Listeners (Contract F-16)
+        reopenSetupCardLink.setOnClickListener {
+            repository.isSetupDismissedManually = true
+            setupChecklistCard.visibility = View.VISIBLE
+            reopenSetupCardLink.visibility = View.GONE
+        }
+
+        setupStep1ActionBtn.setOnClickListener {
+            requestPermissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+        }
+
+        setupStep2ScanBtn.setOnClickListener { launchQrScanner() }
+
+        setupStep2CloudBtn.setOnClickListener {
+            val groqIndex = ProviderPreset.values().indexOf(ProviderPreset.GROQ)
+            if (groqIndex >= 0) {
+                providerSpinner.setSelection(groqIndex)
+            }
+            repository.providerPreset = ProviderPreset.GROQ
+            loadSettingsIntoUi()
+            updateSetupChecklist()
+            Toast.makeText(this, "Switched to Groq Cloud preset", Toast.LENGTH_SHORT).show()
+        }
+
+        setupStep3ActionBtn.setOnClickListener {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(intent)
+        }
+
+        setupStep4AccessibilityBtn.setOnClickListener {
+            showAccessibilityDisclosureDialog()
+        }
+
+        setupStep4ClipboardBtn.setOnClickListener {
+            repository.injectionMode = InjectionMode.CLIPBOARD
+            injectionClipboard.isChecked = true
+            updateSetupChecklist()
+            Toast.makeText(this, "Switched to Clipboard Mode", Toast.LENGTH_SHORT).show()
+        }
+
         // Top Hero Card & Scan Now Pill Button
         findViewById<View>(R.id.scanPairingHeroCard).setOnClickListener { launchQrScanner() }
         findViewById<Button>(R.id.scanNowButton).setOnClickListener { launchQrScanner() }
@@ -531,6 +624,16 @@ class MainActivity : AppCompatActivity() {
                                 val model = result.model ?: "large-v3-turbo"
                                 selfHostedModelTextView.text = "Your PC runs $model"
                                 repository.modelName = model
+                                repository.isServerVerified = true
+                                result.cleanupAlways?.let { always ->
+                                    if (!repository.cleanupUserSet) {
+                                        repository.cleanupEnabled = always
+                                        cleanupSwitch.isChecked = always
+                                        cleanupStylesLayout.visibility = if (always) View.VISIBLE else View.GONE
+                                        updateSmartCleanupNote()
+                                    }
+                                }
+                                updateSetupChecklist()
                                 AlertDialog.Builder(this)
                                     .setTitle("Connected")
                                     .setMessage("Connected: your PC runs $model")
@@ -540,6 +643,16 @@ class MainActivity : AppCompatActivity() {
                             is HealthResult.Paused -> {
                                 val reason = result.reason
                                 val msg = if (!reason.isNullOrBlank()) "Paused on your PC ($reason)" else "Paused on your PC"
+                                repository.isServerVerified = true
+                                result.cleanupAlways?.let { always ->
+                                    if (!repository.cleanupUserSet) {
+                                        repository.cleanupEnabled = always
+                                        cleanupSwitch.isChecked = always
+                                        cleanupStylesLayout.visibility = if (always) View.VISIBLE else View.GONE
+                                        updateSmartCleanupNote()
+                                    }
+                                }
+                                updateSetupChecklist()
                                 AlertDialog.Builder(this)
                                     .setTitle("Server Paused")
                                     .setMessage(msg)
@@ -566,6 +679,10 @@ class MainActivity : AppCompatActivity() {
             } else {
                 apiClient.testConnection { success, message ->
                     runOnUiThread {
+                        if (success) {
+                            repository.isServerVerified = true
+                            updateSetupChecklist()
+                        }
                         AlertDialog.Builder(this)
                             .setTitle(if (success) "Connection Successful" else "Connection Failed")
                             .setMessage(message)
@@ -584,9 +701,12 @@ class MainActivity : AppCompatActivity() {
 
         // Tab 3 Listeners (AI Editing)
         cleanupSwitch.setOnCheckedChangeListener { _, isChecked ->
+            repository.cleanupUserSet = true
             repository.cleanupEnabled = isChecked
             cleanupStylesLayout.visibility = if (isChecked) View.VISIBLE else View.GONE
             updateDynamicVisibility()
+            updateSmartCleanupNote()
+            autoSaveSettings()
         }
 
         cleanupPunctuationSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -659,11 +779,13 @@ class MainActivity : AppCompatActivity() {
             repository.injectionMode = if (checkedId == R.id.injectionClipboard) {
                 InjectionMode.CLIPBOARD
             } else {
-                if (DictationAccessibilityService.getInstance() == null) {
+                if (DictationAccessibilityService.getInstance() == null && !DictationAccessibilityService.isEnabled(this)) {
                     showAccessibilityDisclosureDialog()
                 }
                 InjectionMode.ACCESSIBILITY
             }
+            updateSetupChecklist()
+            autoSaveSettings()
         }
 
         // Reason for edit: Show Play-compliant prominent disclosure dialog before opening accessibility settings per F-12
@@ -697,10 +819,27 @@ class MainActivity : AppCompatActivity() {
      */
     private fun fetchSelfHostedDetails(showToast: Boolean = false) {
         apiClient.checkHealth { health ->
-            if (health is HealthResult.Ok && !health.model.isNullOrBlank()) {
-                runOnUiThread {
+            runOnUiThread {
+                if (health is HealthResult.Ok && !health.model.isNullOrBlank()) {
                     selfHostedModelTextView.text = "Your PC runs ${health.model}"
                     repository.modelName = health.model
+                }
+                if (health is HealthResult.Ok || health is HealthResult.Paused) {
+                    val cleanupAlways = when (health) {
+                        is HealthResult.Ok -> health.cleanupAlways
+                        is HealthResult.Paused -> health.cleanupAlways
+                        else -> null
+                    }
+                    cleanupAlways?.let { always ->
+                        if (!repository.cleanupUserSet) {
+                            repository.cleanupEnabled = always
+                            cleanupSwitch.isChecked = always
+                            cleanupStylesLayout.visibility = if (always) View.VISIBLE else View.GONE
+                            updateSmartCleanupNote()
+                        }
+                    }
+                    repository.isServerVerified = true
+                    updateSetupChecklist()
                 }
             }
         }
@@ -906,7 +1045,9 @@ class MainActivity : AppCompatActivity() {
                 .setMessage("Send your dictation to ${payload.hostDisplay}?")
                 .setPositiveButton("Connect") { _, _ ->
                     repository.applyQrPayload(payload)
+                    repository.isServerVerified = true
                     loadSettingsIntoUi()
+                    updateSetupChecklist()
                     Toast.makeText(this, "Pairing settings imported successfully!", Toast.LENGTH_SHORT).show()
                 }
                 .setNegativeButton("Cancel", null)
@@ -977,5 +1118,107 @@ class MainActivity : AppCompatActivity() {
             startService(intent)
         }
         if (autoFinish) finish()
+    }
+
+    // Reason for edit: Update setup checklist card live with checkmark and 'Done' text per contract F-16
+    private fun updateSetupChecklist() {
+        val micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (micGranted) {
+            setupStep1ActionBtn.visibility = View.GONE
+            setupStep1DoneBadge.visibility = View.VISIBLE
+        } else {
+            setupStep1ActionBtn.visibility = View.VISIBLE
+            setupStep1DoneBadge.visibility = View.GONE
+        }
+
+        val isSelfHosted = repository.providerPreset == ProviderPreset.SELF_HOSTED
+        val isCustom = repository.providerPreset == ProviderPreset.CUSTOM
+        val hasUrl = repository.baseUrl.isNotBlank() && !repository.baseUrl.contains("example.com")
+        val hasKey = repository.apiKey.isNotBlank()
+
+        val step2Done = if (isSelfHosted || isCustom) {
+            hasUrl && repository.isServerVerified
+        } else {
+            hasKey
+        }
+
+        if (step2Done) {
+            setupStep2ActionsContainer.visibility = View.GONE
+            setupStep2DoneBadge.visibility = View.VISIBLE
+            val label = if (isSelfHosted) "Self-Hosted" else repository.providerPreset.displayName
+            setupStep2Subtitle.text = "Connected ($label)"
+        } else {
+            setupStep2ActionsContainer.visibility = View.VISIBLE
+            setupStep2DoneBadge.visibility = View.GONE
+            setupStep2Subtitle.text = "Pair with PC or select a cloud provider"
+            if (hasUrl && !repository.isServerVerified && (isSelfHosted || isCustom)) {
+                apiClient.checkHealth { result ->
+                    if (result is HealthResult.Ok || result is HealthResult.Paused) {
+                        runOnUiThread {
+                            repository.isServerVerified = true
+                            updateSetupChecklist()
+                        }
+                    }
+                }
+            }
+        }
+
+        val overlayGranted = Settings.canDrawOverlays(this)
+        if (overlayGranted) {
+            setupStep3ActionBtn.visibility = View.GONE
+            setupStep3DoneBadge.visibility = View.VISIBLE
+        } else {
+            setupStep3ActionBtn.visibility = View.VISIBLE
+            setupStep3DoneBadge.visibility = View.GONE
+        }
+
+        val isClip = repository.injectionMode == InjectionMode.CLIPBOARD
+        val isA11y = DictationAccessibilityService.isEnabled(this)
+        val step4Done = isClip || isA11y
+        if (step4Done) {
+            setupStep4ActionsContainer.visibility = View.GONE
+            setupStep4DoneBadge.visibility = View.VISIBLE
+            setupStep4Subtitle.text = if (isClip) "Using Clipboard Mode (no accessibility needed)" else "Accessibility auto-paste active"
+        } else {
+            setupStep4ActionsContainer.visibility = View.VISIBLE
+            setupStep4DoneBadge.visibility = View.GONE
+            setupStep4Subtitle.text = "Enable Accessibility or use Clipboard chip"
+        }
+
+        val doneCount = (if (micGranted) 1 else 0) + (if (step2Done) 1 else 0) + (if (overlayGranted) 1 else 0) + (if (step4Done) 1 else 0)
+        val allDone = doneCount == 4
+
+        if (allDone) {
+            setupProgressSubtitle.text = "All 4 steps complete! Ready to dictate."
+            if (!repository.isSetupDismissedManually) {
+                setupChecklistCard.visibility = View.GONE
+                reopenSetupCardLink.visibility = View.VISIBLE
+            } else {
+                setupChecklistCard.visibility = View.VISIBLE
+                reopenSetupCardLink.visibility = View.GONE
+            }
+        } else {
+            setupProgressSubtitle.text = "$doneCount of 4 steps complete"
+            setupChecklistCard.visibility = View.VISIBLE
+            reopenSetupCardLink.visibility = View.GONE
+        }
+    }
+
+    // Reason for edit: Smart cleanup default explanation note under switch per contract K-10
+    private fun updateSmartCleanupNote() {
+        val note = if (repository.providerPreset == ProviderPreset.SELF_HOSTED) {
+            if (!repository.cleanupUserSet) {
+                "Following your PC's setting"
+            } else {
+                if (repository.cleanupEnabled) "On (manually chosen)" else "Off (manually chosen)"
+            }
+        } else {
+            if (!repository.cleanupUserSet) {
+                if (repository.cleanupEnabled) "On because an AI model is set up" else "Off: no AI model set up yet"
+            } else {
+                if (repository.cleanupEnabled) "On (manually chosen)" else "Off (manually chosen)"
+            }
+        }
+        cleanupSmartDefaultNote.text = note
     }
 }

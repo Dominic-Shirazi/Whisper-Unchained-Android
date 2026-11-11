@@ -6,12 +6,14 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Added missing setup check on floating button tap with actionable one-tap fix overlay per contract F-16.
 // Reason for edit: Independent Mean tone and auto-promote to Fix grammar when selecting Professional/Casual/Friendly per contract F-15.
 // Reason for edit: Exposed showTemporaryHint for accessibility clipboard fallback hints per contract F-12.
 // Reason for edit: Added full-screen scrim (58% black fallback, animated) and experimental Samsung SemBlurInfo reflection per contract F-10.
 // Reason for edit: Fallback dim 0.45 with 0.96 scale entrance for devices without cross-window blur, FLAG_NOT_FOCUSABLE to prevent keyboard dismissal/jitter, and BuildConfig.DEBUG-gated transcript logging per contract F-9.
 // Reason for edit: Added recording style pill overlay with swipe gestures, haptic feedback, TalkBack actions, and per-dictation cleanup overrides per contract F-6.
 
+import android.Manifest
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
@@ -24,6 +26,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -31,14 +34,27 @@ import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.provider.Settings
+import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
 import android.view.animation.AccelerateInterpolator
+import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.view.AccessibilityDelegateCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
@@ -61,21 +77,11 @@ import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
-import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.util.Log
 import android.util.TypedValue
-import android.view.Gravity
 import android.view.KeyEvent
-import android.view.MotionEvent
-import android.view.View
-import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import java.io.File
 import java.io.FileOutputStream
@@ -158,6 +164,15 @@ class FloatingButtonService : Service() {
     private var isSheetOpen = false
     private var recordingStartTimeMs = 0L
     private var sheetTimerRunnable: Runnable? = null
+
+    // Reason for edit: Missing setup prompt overlay per contract F-16
+    private var setupPromptView: FrameLayout? = null
+
+    private enum class MissingSetupStep {
+        MICROPHONE,
+        SERVER,
+        ACCESSIBILITY
+    }
 
     private var state = ButtonState.HIDDEN
     @Volatile
@@ -1580,9 +1595,226 @@ class FloatingButtonService : Service() {
         }
     }
 
+    // Reason for edit: Verify prerequisites before recording and surface actionable prompt per contract F-16
+    private fun checkMissingSetup(): MissingSetupStep? {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            return MissingSetupStep.MICROPHONE
+        }
+        val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+        val isCustom = settingsRepository.providerPreset == ProviderPreset.CUSTOM
+        if ((isSelfHosted || isCustom) && (settingsRepository.baseUrl.isBlank() || settingsRepository.baseUrl.contains("example.com"))) {
+            return MissingSetupStep.SERVER
+        }
+        if (!isSelfHosted && !isCustom && settingsRepository.apiKey.isBlank()) {
+            return MissingSetupStep.SERVER
+        }
+        if (settingsRepository.injectionMode == InjectionMode.ACCESSIBILITY && !DictationAccessibilityService.isEnabled(this)) {
+            return MissingSetupStep.ACCESSIBILITY
+        }
+        return null
+    }
+
+    private fun showSetupMissingPrompt(step: MissingSetupStep) {
+        closeSetupMissingPrompt()
+        triggerHapticTick()
+
+        val rootOverlay = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#80000000"))
+            isClickable = true
+            setOnClickListener { closeSetupMissingPrompt() }
+        }
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(18).toFloat()
+                setColor(Color.parseColor("#1B1E25"))
+                setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+            }
+            background = bg
+            setPadding(dpToPx(20), dpToPx(20), dpToPx(20), dpToPx(20))
+            isClickable = true
+        }
+
+        val titleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val iconView = TextView(this).apply {
+            text = when (step) {
+                MissingSetupStep.MICROPHONE -> "🎙️"
+                MissingSetupStep.SERVER -> "🔗"
+                MissingSetupStep.ACCESSIBILITY -> "✍️"
+            }
+            textSize = 20f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.marginEnd = dpToPx(10) }
+        }
+        titleRow.addView(iconView)
+
+        val titleView = TextView(this).apply {
+            text = when (step) {
+                MissingSetupStep.MICROPHONE -> "Microphone Access Needed"
+                MissingSetupStep.SERVER -> "Whisper Server Not Set"
+                MissingSetupStep.ACCESSIBILITY -> "Accessibility Is Off"
+            }
+            setTextColor(Color.parseColor("#E7E9EC"))
+            textSize = 16f
+            setTypeface(typeface, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        titleRow.addView(titleView)
+
+        val closeBtn = TextView(this).apply {
+            text = "✕"
+            setTextColor(Color.parseColor("#868E9C"))
+            textSize = 18f
+            setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
+            setOnClickListener { closeSetupMissingPrompt() }
+        }
+        titleRow.addView(closeBtn)
+        card.addView(titleRow)
+
+        val descView = TextView(this).apply {
+            text = when (step) {
+                MissingSetupStep.MICROPHONE -> "Whisper Unchained needs microphone permission to capture your voice dictation."
+                MissingSetupStep.SERVER -> "No Whisper server or cloud API key is configured. Scan your desktop pairing QR code or select a cloud provider."
+                MissingSetupStep.ACCESSIBILITY -> "Accessibility is turned off, so Whisper Unchained cannot paste into text boxes automatically.\n\nTurn it on in Settings, or switch to Clipboard Mode to paste manually."
+            }
+            setTextColor(Color.parseColor("#868E9C"))
+            textSize = 13f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also {
+                it.topMargin = dpToPx(10)
+                it.bottomMargin = dpToPx(16)
+            }
+        }
+        card.addView(descView)
+
+        val actionsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+
+        if (step == MissingSetupStep.ACCESSIBILITY) {
+            val clipboardBtn = Button(this).apply {
+                text = "Use Clipboard Mode"
+                textSize = 12f
+                setTextColor(Color.parseColor("#2FB79A"))
+                val bgClip = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dpToPx(10).toFloat()
+                    setColor(Color.TRANSPARENT)
+                }
+                background = bgClip
+                setOnClickListener {
+                    settingsRepository.injectionMode = InjectionMode.CLIPBOARD
+                    closeSetupMissingPrompt()
+                    showTemporaryHint("Switched to Clipboard Mode")
+                    Toast.makeText(this@FloatingButtonService, "Switched to Clipboard Mode", Toast.LENGTH_SHORT).show()
+                }
+            }
+            actionsRow.addView(clipboardBtn, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dpToPx(40)
+            ).also { it.marginEnd = dpToPx(8) })
+        }
+
+        val fixBtn = Button(this).apply {
+            text = when (step) {
+                MissingSetupStep.MICROPHONE -> "Allow Microphone"
+                MissingSetupStep.SERVER -> "Open Setup"
+                MissingSetupStep.ACCESSIBILITY -> "Open Settings"
+            }
+            textSize = 13f
+            setTextColor(Color.parseColor("#15171C"))
+            setTypeface(typeface, Typeface.BOLD)
+            val btnBg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(10).toFloat()
+                setColor(Color.parseColor("#2FB79A"))
+            }
+            background = btnBg
+            setOnClickListener {
+                closeSetupMissingPrompt()
+                when (step) {
+                    MissingSetupStep.MICROPHONE, MissingSetupStep.SERVER -> {
+                        val intent = Intent(this@FloatingButtonService, MainActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        }
+                        startActivity(intent)
+                    }
+                    MissingSetupStep.ACCESSIBILITY -> {
+                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(intent)
+                    }
+                }
+            }
+        }
+        actionsRow.addView(fixBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            dpToPx(40)
+        ))
+        card.addView(actionsRow)
+
+        val cardParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.CENTER
+            setMargins(dpToPx(24), 0, dpToPx(24), 0)
+        }
+        rootOverlay.addView(card, cardParams)
+
+        val promptParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        )
+        promptParams.gravity = Gravity.CENTER
+
+        setupPromptView = rootOverlay
+        try {
+            windowManager.addView(rootOverlay, promptParams)
+        } catch (e: Exception) {
+            Log.e("FloatingButtonService", "Failed to show setup missing prompt", e)
+        }
+    }
+
+    private fun closeSetupMissingPrompt() {
+        setupPromptView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (e: Exception) {
+                Log.e("FloatingButtonService", "Failed to remove setup prompt", e)
+            }
+            setupPromptView = null
+        }
+    }
+
     private fun handleTap() {
         when (state) {
-            ButtonState.IDLE -> startRecording()
+            ButtonState.IDLE -> {
+                val missing = checkMissingSetup()
+                if (missing != null) {
+                    showSetupMissingPrompt(missing)
+                    return
+                }
+                startRecording()
+            }
             ButtonState.RECORDING -> stopRecording()
             ButtonState.RECORDING_NO_FOCUS -> { /* ignore — user needs to tap a text field first */ }
             ButtonState.PROCESSING -> { /* ignore — transcription in flight */ }
@@ -2173,6 +2405,7 @@ class FloatingButtonService : Service() {
         instance = null
         stopPollingForResume()
         closeStyleSheet()
+        closeSetupMissingPrompt()
         sheetOverlayView?.let {
             try {
                 windowManager.removeView(it)
