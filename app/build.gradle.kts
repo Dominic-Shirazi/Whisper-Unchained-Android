@@ -1,6 +1,7 @@
 // This file defines build configuration and dependencies for the Whisper Remote Android application module (:app).
 // It configures compileSdk, minSdk, signingConfigs, build features (BuildConfig generation), and dependencies.
 
+// Reason for edit: Added dist flavor dimension (play and full flavors) with versionCode = 7, versionName = "1.1.0" per contract F-18.
 // Reason for edit: Bumped versionCode = 6, versionName = "1.0.3" for Done button and outside tap consumption (F-17).
 // Reason for edit: Bumped versionCode = 5, versionName = "1.0.2" for first-run checklist (F-16) and smart cleanup default (K-10).
 // Reason for edit: Bumped versionCode = 4, versionName = "1.0.1" for release deployment per contract F-15.
@@ -35,10 +36,23 @@ android {
         applicationId = "com.cyrus_studio.whisperunchained"
         minSdk = 34
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.0.3"
+        versionCode = 7
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    flavorDimensions += "dist"
+    productFlavors {
+        create("play") {
+            dimension = "dist"
+            buildConfigField("boolean", "FEATURE_INTERNAL_AUDIO", "false")
+        }
+        create("full") {
+            dimension = "dist"
+            applicationIdSuffix = ".full"
+            buildConfigField("boolean", "FEATURE_INTERNAL_AUDIO", "true")
+        }
     }
 
     signingConfigs {

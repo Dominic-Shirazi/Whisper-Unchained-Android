@@ -9,6 +9,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Gated internal audio capture controls by BuildConfig.FEATURE_INTERNAL_AUDIO per F-18.
 // Reason for edit: Added first-run setup checklist card with live status and reopen link per contract F-16.
 // Reason for edit: Added server pairing confirmation dialog and Play-compliant prominent accessibility disclosure per contract F-12.
 // Reason for edit: Updated Conciseness spinner wording to "Full length | Shorter | Shortest" per contract F-8.
@@ -116,6 +117,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var openAccessibilitySettingsButton: Button
     private lateinit var openOverlayPermissionButton: Button
     private lateinit var enableInternalAudioButton: Button
+    private lateinit var internalAudioDisclaimer: TextView
     private lateinit var autoTrimHintsSwitch: SwitchMaterial
     private lateinit var startOnBootSwitch: SwitchMaterial
     private lateinit var autoRestartTailscaleSwitch: SwitchMaterial
@@ -264,6 +266,7 @@ class MainActivity : AppCompatActivity() {
         openAccessibilitySettingsButton = findViewById(R.id.openAccessibilitySettingsButton)
         openOverlayPermissionButton = findViewById(R.id.openOverlayPermissionButton)
         enableInternalAudioButton = findViewById(R.id.enableInternalAudioButton)
+        internalAudioDisclaimer = findViewById(R.id.internalAudioDisclaimer)
         autoTrimHintsSwitch = findViewById(R.id.autoTrimHintsSwitch)
         startOnBootSwitch = findViewById(R.id.startOnBootSwitch)
         autoRestartTailscaleSwitch = findViewById(R.id.autoRestartTailscaleSwitch)
@@ -797,9 +800,16 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
         }
 
-        enableInternalAudioButton.setOnClickListener {
-            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            mediaProjectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+        if (BuildConfig.FEATURE_INTERNAL_AUDIO) {
+            enableInternalAudioButton.visibility = View.VISIBLE
+            internalAudioDisclaimer.visibility = View.VISIBLE
+            enableInternalAudioButton.setOnClickListener {
+                val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                mediaProjectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+            }
+        } else {
+            enableInternalAudioButton.visibility = View.GONE
+            internalAudioDisclaimer.visibility = View.GONE
         }
 
         autoTrimHintsSwitch.setOnCheckedChangeListener { _, isChecked ->

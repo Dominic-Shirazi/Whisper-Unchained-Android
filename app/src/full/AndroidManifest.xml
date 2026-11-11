@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This file provides flavor-specific manifest entries for the "full" build flavor of Whisper Unchained.
+     It adds the android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION permission and updates FloatingButtonService
+     foregroundServiceType to "microphone|mediaProjection" for internal audio capture.
+     Reason for creation: Full build flavor manifest overlay per F-18. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
+    <application>
+        <service
+            android:name=".FloatingButtonService"
+            android:foregroundServiceType="microphone|mediaProjection"
+            tools:replace="android:foregroundServiceType" />
+    </application>
+
+</manifest>

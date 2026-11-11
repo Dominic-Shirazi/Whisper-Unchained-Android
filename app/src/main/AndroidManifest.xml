@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- Reason for edit: Removed FOREGROUND_SERVICE_MEDIA_PROJECTION from base manifest for Play compliance; full flavor injects it in src/full/ per F-18 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Reason for edit: Added VIBRATE permission for floating style pill haptic ticks per contract F-6 -->
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -39,11 +39,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Reason for edit: Base foregroundServiceType set to microphone; full flavor upgrades to microphone|mediaProjection per F-18 -->
         <service
             android:name=".FloatingButtonService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="microphone|mediaProjection" />
+            android:foregroundServiceType="microphone" />
 
         <!-- Updated for ROADMAP Phase 1: auto-start floating button on device reboot -->
         <receiver

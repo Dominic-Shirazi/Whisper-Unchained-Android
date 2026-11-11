@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This file provides flavor-specific string resource overrides for the "full" build flavor of Whisper Unchained.
+     It overrides app_name to "Whisper Unchained Full" so that the full build can be easily distinguished.
+     Reason for creation: Full build flavor app label configuration per F-18. -->
+<resources>
+    <string name="app_name">Whisper Unchained Full</string>
+</resources>

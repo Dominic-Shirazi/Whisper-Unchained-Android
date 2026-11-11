@@ -19,15 +19,29 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches) or cloud provider (Groq, OpenAI, OpenRouter)
 - Network access to the server — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## Distribution & Build Flavors (v1.1)
+
+Whisper Unchained is built with two distinct product flavors to ensure full Google Play policy compliance while preserving advanced internal-audio transcription for sideloaded installations:
+
+| Flavor | Package ID | App Name | Internal Audio (`FOREGROUND_SERVICE_MEDIA_PROJECTION`) | Target Audience |
+|---|---|---|---|---|
+| **`play`** | `com.cyrus_studio.whisperunchained` | Whisper Unchained | **No** (manifest stripped, UI hidden, no projection code reachable) | Google Play Store distribution |
+| **`full`** | `com.cyrus_studio.whisperunchained.full` | Whisper Unchained Full | **Yes** (audio capture from media playback, e.g. videos/podcasts; phone calls excluded) | GitHub Releases / F-Droid / Sideloading |
+
+Both flavors include the Accessibility Service with prominent disclosure for seamless text injection. Both flavors share identical signing keys and can be installed side-by-side on the same device.
+
 ## Permissions
 
-| Permission | Purpose |
-|---|---|
-| `RECORD_AUDIO` | Capture microphone input |
-| `SYSTEM_ALERT_WINDOW` | Display the floating microphone button over other apps |
-| `POST_NOTIFICATIONS` | Foreground service notifications (Android 13+) |
-| `RECEIVE_BOOT_COMPLETED` | Optionally auto-start the floating button service on device reboot |
-| Accessibility Service | Automatically paste transcribed text into the focused input field |
+| Permission | Flavor | Purpose |
+|---|---|---|
+| `RECORD_AUDIO` | Both | Capture microphone input |
+| `SYSTEM_ALERT_WINDOW` | Both | Display the floating microphone button over other apps |
+| `POST_NOTIFICATIONS` | Both | Foreground service notifications (Android 13+) |
+| `RECEIVE_BOOT_COMPLETED` | Both | Optionally auto-start the floating button service on device reboot |
+| `VIBRATE` | Both | Haptic ticks on recording style pill navigation |
+| `FOREGROUND_SERVICE_MICROPHONE` | Both | Microphone foreground service execution |
+| `FOREGROUND_SERVICE_MEDIA_PROJECTION` | **Full only** | Transcribe audio playing on this phone |
+| Accessibility Service | Both | Automatically paste transcribed text into the focused input field |
 
 ## Key Features
 
@@ -84,8 +98,17 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 ```bash
 git clone https://github.com/Dominic-Shirazi/Whisper-Unchained-Android.git
 cd Whisper-Unchained-Android
-./gradlew test assembleDebug
+
+# Run unit tests
+./gradlew test
+
+# Build release APKs for both flavors
+./gradlew :app:assemblePlayRelease :app:assembleFullRelease
 ```
+
+Release APKs are output to:
+- Play flavor: `app/build/outputs/apk/play/release/app-play-release.apk`
+- Full flavor: `app/build/outputs/apk/full/release/app-full-release.apk`
 
 Open in Android Studio (Ladybug or newer) for full IDE support.
 

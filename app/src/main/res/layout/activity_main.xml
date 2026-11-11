@@ -1406,6 +1406,17 @@
                     app:strokeWidth="1.5dp"
                     app:cornerRadius="25dp"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+
+                <!-- Reason for edit: Added call disclaimer for internal audio per F-18 -->
+                <TextView
+                    android:id="@+id/internalAudioDisclaimer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center"
+                    android:text="@string/internal_audio_call_disclaimer"
+                    android:textSize="12sp"
+                    android:textColor="@color/oneui_text_secondary" />
             </LinearLayout>
 
             <!-- Behavior & Background Connectivity Card -->

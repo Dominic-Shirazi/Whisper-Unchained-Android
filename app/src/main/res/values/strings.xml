@@ -7,7 +7,8 @@
     <string name="api_url_label">Server Endpoint (/v1)</string>
     <string name="save_settings">Save Settings</string>
     <string name="accessibility_reminder">Enable Whisper Unchained in Accessibility Settings to allow automatic text pasting into active fields.</string>
-    <string name="enable_internal_audio">Internal Audio Recording (YouTube/TikTok)</string>
+    <!-- Reason for edit: Relabeled internal audio per F-18 without brand names -->
+    <string name="enable_internal_audio">Transcribe audio playing on this phone</string>
 
     <string name="scan_pairing_hero_title">Scan Pairing Code</string>
     <string name="scan_pairing_hero_subtitle">Point camera at QR code in desktop installer or settings</string>
@@ -44,7 +45,9 @@
     <string name="permissions_shortcuts_title">PERMISSIONS &amp; SYSTEM SHORTCUTS</string>
     <string name="open_accessibility_button">Open Accessibility Settings</string>
     <string name="open_overlay_button">Open \"Appear on Top\" Permission</string>
-    <string name="enable_internal_audio_button">Internal Audio Recording (YouTube / TikTok)</string>
+    <!-- Reason for edit: Relabeled internal audio button and added call disclaimer per F-18 -->
+    <string name="enable_internal_audio_button">Transcribe audio playing on this phone</string>
+    <string name="internal_audio_call_disclaimer">Note: Phone calls cannot be captured.</string>
 
     <!-- Reason for edit: Renamed tabs to mirror desktop sections per contracts/04-look-and-feel.md (K-6) -->
     <string name="tab_transcription">Transcription</string>

@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Gated MediaProjection handling and audio playback callback with BuildConfig.FEATURE_INTERNAL_AUDIO per F-18.
 // Reason for edit: Replaced stop button with large Done button and consumed scrim outside-taps via StyleSheetOverlayLayout per contract F-17.
 // Reason for edit: Added missing setup check on floating button tap with actionable one-tap fix overlay per contract F-16.
 // Reason for edit: Independent Mean tone and auto-promote to Fix grammar when selecting Professional/Casual/Friendly per contract F-15.
@@ -343,7 +344,9 @@ class FloatingButtonService : Service() {
         settingsRepository = SettingsRepository(this)
         tailscaleManager = TailscaleManager(this)
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        audioManager.registerAudioPlaybackCallback(audioPlaybackCallback, mainHandler)
+        if (BuildConfig.FEATURE_INTERNAL_AUDIO) {
+            audioManager.registerAudioPlaybackCallback(audioPlaybackCallback, mainHandler)
+        }
 
         createNotificationChannel()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -356,6 +359,10 @@ class FloatingButtonService : Service() {
     }
 
     fun setMediaProjectionData(resultCode: Int, data: Intent): Boolean {
+        if (!BuildConfig.FEATURE_INTERNAL_AUDIO) {
+            Log.w("FloatingButtonService", "Internal audio capture is not supported in this build")
+            return false
+        }
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
@@ -429,6 +436,7 @@ class FloatingButtonService : Service() {
     }
 
     private fun onMediaPlaybackStateChanged(isPlaying: Boolean) {
+        if (!BuildConfig.FEATURE_INTERNAL_AUDIO) return
         mainHandler.post {
             if (!isRecording) return@post
 
@@ -2064,7 +2072,7 @@ class FloatingButtonService : Service() {
 
         releaseAudioResources()
 
-        val projectionAvailable = mediaProjection != null
+        val projectionAvailable = BuildConfig.FEATURE_INTERNAL_AUDIO && mediaProjection != null
         val targetSource = if (newSource == ActiveAudioSource.MEDIA_PLAYBACK && projectionAvailable) {
             ActiveAudioSource.MEDIA_PLAYBACK
         } else {
@@ -2435,6 +2443,13 @@ class FloatingButtonService : Service() {
         }
 
         releaseAudioFocus()
+        if (BuildConfig.FEATURE_INTERNAL_AUDIO) {
+            try {
+                audioManager.unregisterAudioPlaybackCallback(audioPlaybackCallback)
+            } catch (e: Exception) {
+                Log.e("FloatingButtonService", "Error unregistering audio playback callback", e)
+            }
+        }
 
         container?.let {
             try {
