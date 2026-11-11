@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Added full-screen scrim (58% black fallback, animated) and experimental Samsung SemBlurInfo reflection per contract F-10.
 // Reason for edit: Fallback dim 0.45 with 0.96 scale entrance for devices without cross-window blur, FLAG_NOT_FOCUSABLE to prevent keyboard dismissal/jitter, and BuildConfig.DEBUG-gated transcript logging per contract F-9.
 // Reason for edit: Added recording style pill overlay with swipe gestures, haptic feedback, TalkBack actions, and per-dictation cleanup overrides per contract F-6.
 
@@ -43,6 +44,7 @@ import com.example.whisperremote.data.InjectionMode
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
 import com.example.whisperremote.net.TailscaleManager
+import com.example.whisperremote.util.SamsungBlurHelper
 import com.example.whisperremote.util.TranscriptSanitizer
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
@@ -1057,7 +1059,6 @@ class FloatingButtonService : Service() {
         sheetOverlayView = overlay
 
         val dimView = View(this).apply {
-            setBackgroundColor(Color.TRANSPARENT)
             setOnClickListener {
                 closeStyleSheet()
             }
@@ -1067,6 +1068,17 @@ class FloatingButtonService : Service() {
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
+
+        // Reason for edit: Try Samsung hardware window blur; if successful use 28% scrim, otherwise use 58% black scrim fallback per contract F-10
+        val hasSamsungBlur = SamsungBlurHelper.applySamsungWindowBlur(dimView)
+        val scrimAlpha = if (hasSamsungBlur) 0.28f else 0.58f
+        val scrimColor = Color.argb((255 * scrimAlpha).toInt(), 0, 0, 0)
+        dimView.setBackgroundColor(scrimColor)
+
+        if (BuildConfig.DEBUG) {
+            val pathName = if (hasSamsungBlur) "Samsung SemBlurInfo (scrim 28%)" else "black scrim fallback 58%"
+            Log.d("FloatingButtonService", "Sheet backdrop initialized using: $pathName")
+        }
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
