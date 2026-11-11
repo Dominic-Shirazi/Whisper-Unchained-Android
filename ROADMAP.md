@@ -134,6 +134,11 @@ There is **no installer yet**: today a new user needs Python, the right GPU libr
   server console window **hidden** (`API_VISIBLE=false`, now the default).
 * **Finish on the Phone page:** show the pairing QR and the app download links.
 
+**Transcription source (built 2026-11-10):** the desktop (and the installer) can transcribe on this PC, on another
+PC running Whisper Unchained Server, or with a cloud service (Groq/OpenAI/OpenAI-compatible, user's key).
+**Still to do for cloud mode:** "prompt AI" commands and dictation cleanup need an editor LLM; give the desktop
+client the same cloud cleanup path the app gets (contract 02), using a chat endpoint + key the user picks.
+
 **Play Store badge:** Google's official "Get it on Google Play" badge may be used to link to our own listing,
 unaltered and with the attribution line ("Google Play and the Google Play logo are trademarks of Google LLC").
 Add it to the desktop Settings / installer only once the listing is live; until then it stays a text link marked
