@@ -257,6 +257,10 @@ Phases 1 and 2 are done (Android v1.0.3, server v0.9.6). Order from here: **spli
 | **v1.5** | **On-device engine** (§5.4) | Offline mode + automatic fallback when the PC/cloud can't be reached, so a dictation is never lost. Measured on the S25 (SM-S931U) and Fold6 (SM-F956U) before committing. |
 | **v1.6** | **Play Store submission** | Data Safety form, accessibility declaration + demo video, listing, badge (§2.8). |
 
+Feature requests (Dominic, 2026-11-11):
+* **Transcribe a file (desktop):** a "Transcribe file" button in the desktop app (not only the right-click menu): drag-and-drop or "Select file", audio or video, result in a text box with Copy / Save.
+* **Smart Replace (desktop + app):** a user list of spoken phrase → text, applied after transcription, broader than name corrections. Example: "enter my email" → `you@example.com`, so "let me give you my email enter my email" becomes "let me give you my email you@example.com". Same list on the server (so every client gets it) and in the app (for cloud mode); synced like the vocabulary.
+
 Later / ideas for `full`: voice-edit **selected text in any app** ("prompt AI, make this professional"), hardware-button or shortcut start, per-app styles.
 
 ### 5.1 UI makeover ("doesn't look AI-made")
@@ -287,3 +291,7 @@ Wispr Flow is on Play with an AccessibilityService for field detection and inser
 * **Not usable:** Gemini Nano (ML Kit GenAI) only runs while our app is in the foreground, which rules out dictating into other apps; the Fold6 isn't on its list. Samsung has no public Galaxy AI API.
 * **First step:** measure E2B/E4B with our real prompt (e.g. Google AI Edge Gallery) and Parakeet vs. turbo on Dominic's recordings, on the S25 and Fold6.
 * Fallback order: PC → on-device LLM → raw text.
+* **First measurements (S25, Snapdragon 8 Elite, llama.cpp v0.9.0 OpenCL, 2026-11-11):**
+  * Qwen 3.5 4B Q4_0 on the GPU works and cleans correctly (scratch-that, no-wait, short and long clips): reading the prompt ~2.5 s (cacheable: the system prompt is the same every time), writing ~19 tok/s cool, dropping to ~12-16 tok/s as the phone heats up. A 30-word clip ≈ 2 s of writing; a 200-word clip ≈ 15 s.
+  * Gemma 4 on llama.cpp's phone GPU path produces garbage, and on CPU it ignores "thinking off". Gemma 4 needs Google's LiteRT-LM to test fairly.
+  * SpeakoFlow Mini (Qwen 3.5 0.8B fine-tuned for cleanup, Apache-2.0) is very fast but **deleted whole spoken sentences** and answered a dictated question in our PC tests; not safe even as a fallback. Its MIT rules layer (AbhishekBarali/dictation-cleanup-rules: fillers, numbers, dates, currency, no AI) is a good candidate for the instant no-model fallback.
