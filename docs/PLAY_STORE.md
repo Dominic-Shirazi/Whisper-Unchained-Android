@@ -9,7 +9,7 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
   under **Cyrus Studio LLC's organization account** (EIN + D-U-N-S verified). A short internal test is still wise.
 - ✅ Public developer contact email: **Dominic@cyrus-studio.com** (also the privacy contact).
 - ✅ Website **https://whisperunchained.cyrus-studio.com**; privacy policy URL
-  **https://whisperunchained.cyrus-studio.com/privacy/** (keep it in step with `PRIVACY.md`); linked in the app's About page.
+  **https://whisperunchained.cyrus-studio.com/privacy/** (the official policy; `PRIVACY.md` in the repo just points to it); linked in the app's About page.
 
 ## 1. Build
 - ✅ targetSdk 36 (Play's minimum for new apps since 31 Aug 2026). minSdk 34 (Android 14+).
@@ -98,3 +98,14 @@ Screen-record on the S25, with captions:
 5. Open another app (e.g. Messages), tap the text box, tap the floating mic: **recording with the notification visible**
    (foreground service), speak, tap again: the text appears at the cursor.
 6. Show Settings → Paste into apps → how to turn it off.
+
+## 6. Privacy page updates (whisperunchained.cyrus-studio.com/privacy/)
+The page is accurate for v1.1. Update it **before** each of these ships:
+- **v1.2:** "What stays on your phone": recordings are no longer kept until the next one. New text: each recording is
+  deleted as soon as its text is inserted; if it couldn't be delivered, that one recording is kept for a retry and
+  deleted after the retry or 24 hours at most. Add to "Accessibility service": it never reads or types into password,
+  PIN or card-number fields.
+- **v1.3:** add "On this phone" to "Where your voice and text go" (speech recognition runs on the phone; nothing leaves
+  it), and that the app downloads the speech model files from GitHub (GitHub sees your internet address, like any download).
+- Mention the microphone notice shown before Android's permission prompt (optional; the page already explains it).
+
