@@ -10,4 +10,5 @@ A contract file is the source of truth. A relay `contract` message only points a
 
 | File | What |
 | :--- | :--- |
-| `01-transcription-api.md` | Transcription, health, models, auth, errors, pairing |
+| `01-transcription-api.md` | Transcription, health, models, auth, errors, pairing, shared vocabulary |
+| `02-cleanup.md` + `02-cleanup-prompt.json` | Optional LLM dictation cleanup: shared prompt, styles, tidying, failure rules |
