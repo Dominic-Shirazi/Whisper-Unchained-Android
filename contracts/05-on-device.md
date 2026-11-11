@@ -13,11 +13,11 @@ Dominic's 29 real recordings (996 s), each compared with what his PC's large-v3-
 so "difference" ≠ "error"; spot checks showed the phone models mostly keep stutters turbo smooths over).
 PC CPU, 4 threads, sherpa-onnx 2.0.1, audio cut at pauses (Silero VAD, ≤ 25 s pieces):
 
-| Model | Download | Differs from turbo | Short clips | Speed |
+| Model | Download (unpacked) | Differs from turbo | Short clips | Speed |
 | :--- | :--- | :--- | :--- | :--- |
-| **Parakeet TDT 110M int8** (English) | **108 MB** | **7.1 %** | **3.8 %** | 34× real time |
-| Parakeet TDT 0.6B v2 int8 (English) | 482 MB | 6.6 % | 5.7 % | 15× |
-| Parakeet TDT 0.6B v3 int8 (25 languages) | 487 MB | 9.8 % | 8.3 % | 14× |
+| **Parakeet TDT 110M int8** (English) | **136 MB** | **7.1 %** | **3.8 %** | 34× real time |
+| Parakeet TDT 0.6B v2 int8 (English) | 661 MB | 6.6 % | 5.7 % | 15× |
+| Parakeet TDT 0.6B v3 int8 (25 languages) | 671 MB | 9.8 % | 8.3 % | 14× |
 | Whisper small.en int8 | 636 MB | 8.4 % | 5.7 % | 3.7× |
 | Moonshine base (quantized) | 111 MB | 11.3 % | 9.1 % | 29× |
 | Whisper base.en int8 | 209 MB | 12.2 % | 14.4 % | 10× |
@@ -41,8 +41,8 @@ No GPU or NPU needed. The Fold6 (8 Gen 3) should be somewhat slower; still well 
    kafkasl/phone-whisper (Apache-2.0) is a working reference for the wiring and the download screen.
 2. **Models** (downloaded, not bundled, so the APK stays small):
    - **Default: Parakeet TDT 110M int8** (English).
-   - Optional "Higher accuracy (482 MB)": Parakeet TDT 0.6B v2 int8 (English).
-   - Optional "Other languages (487 MB)": Parakeet TDT 0.6B v3 int8 (25 European languages).
+   - Optional "Higher accuracy (661 MB)": Parakeet TDT 0.6B v2 int8 (English).
+   - Optional "Other languages (671 MB)": Parakeet TDT 0.6B v3 int8 (25 European languages).
    - **Silero VAD** (`silero_vad.onnx`, MIT, ~2 MB) always, to cut recordings at pauses into ≤ 25 s pieces
      (bounds memory on long dictations; the pieces are transcribed in order and joined with a space).
    - Host the exact files we tested on **our own GitHub release** (tag `models-v1` in this repo) and pin each file's
@@ -70,7 +70,7 @@ No GPU or NPU needed. The Fold6 (8 Gen 3) should be somewhat slower; still well 
    The remaining misses are near-misses ("telenix", "Olama") that the name corrections fix afterwards.
    Rewrite the hotwords file when the vocabulary changes; if the recognizer fails to load with hotwords, fall back to
    plain greedy decoding rather than failing.
-6. **Download screen:** model name, size, "Downloading 42 of 108 MB", Wi-Fi-only by default with a "Use mobile
+6. **Download screen:** model name, size, "Downloading 42 of 136 MB", Wi-Fi-only by default with a "Use mobile
    data" override, resumable, cancel. Settings → Transcription → **On-device model** shows what's installed and lets
    the user delete/switch models.
 7. **Intro (contract 04 §4):** the **Try it** page now works out of the box: the intro downloads the default model

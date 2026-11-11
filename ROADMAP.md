@@ -288,9 +288,9 @@ Wispr Flow is on Play with an AccessibilityService for field detection and inser
 
 ### 5.4 On-device engine (research 2026-11-11, to be measured)
 **Decided and measured (2026-11-11): spec is contracts/05-on-device.md.** Speech to text on the phone with
-sherpa-onnx + **Parakeet TDT 110M int8 (108 MB)**: on Dominic's 29 recordings it differed from his PC's turbo by
+sherpa-onnx + **Parakeet TDT 110M int8 (136 MB download)**: on Dominic's 29 recordings it differed from his PC's turbo by
 ~7 % (~4 % on short clips), and on the S25's CPU it transcribed 12 s of speech in 0.5 s and 31 s in 0.9 s. The
-0.6B models (~480 MB) are optional downloads. Model files are hosted on this repo's `models-v1` release with
+0.6B models (~660 MB) are optional downloads. Model files are hosted on this repo's `models-v1` release with
 SHA-256 pins. The notes below are the earlier research.
 
 * **Speech to text:** sherpa-onnx (Apache-2.0) with Parakeet TDT 0.6B INT8 (~465 MB, English roughly on par with large-v3-turbo; weights CC-BY-4.0) and Moonshine v2 as the fast/streaming option. kafkasl/phone-whisper (Apache-2.0) is a working reference for the sherpa-onnx wiring and model download.
