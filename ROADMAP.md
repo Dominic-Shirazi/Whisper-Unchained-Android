@@ -287,6 +287,12 @@ Research (2026-11-11) on what reads as AI-generated UI: an unchosen default acce
 Wispr Flow is on Play with an AccessibilityService for field detection and insertion, justified by "Android has no standard API to detect text-field focus or insert text into other apps", plus an in-app disclosure (why, what is read, what is never touched) before the system screen. Ours (F-14) follows the same pattern; recheck Google's current policy text before the v1.6 submission.
 
 ### 5.4 On-device engine (research 2026-11-11, to be measured)
+**Decided and measured (2026-11-11): spec is contracts/05-on-device.md.** Speech to text on the phone with
+sherpa-onnx + **Parakeet TDT 110M int8 (108 MB)**: on Dominic's 29 recordings it differed from his PC's turbo by
+~7 % (~4 % on short clips), and on the S25's CPU it transcribed 12 s of speech in 0.5 s and 31 s in 0.9 s. The
+0.6B models (~480 MB) are optional downloads. Model files are hosted on this repo's `models-v1` release with
+SHA-256 pins. The notes below are the earlier research.
+
 * **Speech to text:** sherpa-onnx (Apache-2.0) with Parakeet TDT 0.6B INT8 (~465 MB, English roughly on par with large-v3-turbo; weights CC-BY-4.0) and Moonshine v2 as the fast/streaming option. kafkasl/phone-whisper (Apache-2.0) is a working reference for the sherpa-onnx wiring and model download.
 * **Cleanup LLM:** LiteRT-LM with Gemma 4 E4B (best small model in the PC bench: 9/10 trap tests) on the phone GPU; E2B is ~2.5x faster but missed "scratch that". Google's S26 Ultra numbers: E4B ~22 tok/s decode, E2B ~52 tok/s; multi-token prediction claims ~2.2x more.
 * **Latency is the problem** (a 100-word cleanup is ~150 output tokens). Ways to cut it: skip the LLM when the text has no fillers or correction words (most short dictations need nothing); E2B for light cleanup, E4B only for corrections/mean; NPU backends on Snapdragon; paste the raw text and offer the cleaned version only when it's ready.
