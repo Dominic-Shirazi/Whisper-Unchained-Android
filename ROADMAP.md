@@ -251,14 +251,16 @@ To prevent Google Play rejections related to sensitive permissions:
 Phases 1 and 2 are done (Android v1.0.3, server v0.9.6).
 
 **Goal for V1: get the app ready for the Play Store** (permissions, disclosures, demo video, listing) with the current
-feature set, plus the split builds and the makeover. New features come after launch (§5.5).
+feature set, the split builds, the makeover, **and on-device transcription**: the Play app must work on its own,
+without the user signing up for a cloud service or installing our server on other hardware. New features come after
+launch (§5.5).
 
 | Version | What | Notes |
 | :--- | :--- | :--- |
 | **v1.1** | **Split `play` / `full` flavors** (§4.1) | `play` = `com.cyrus_studio.whisperunchained`: drops `FOREGROUND_SERVICE_MEDIA_PROJECTION` and the internal-audio switch. `full` = `com.cyrus_studio.whisperunchained.full`, shown as "Whisper Unchained Full" (decided 2026-11-11; the suffix lets both sit side by side): keeps internal audio, relabeled without brand names (e.g. "Transcribe audio playing on this phone"; phone calls can't be captured). Both keep the AccessibilityService: Wispr Flow ships on Play the same way, with a prominent disclosure (§5.3). |
 | **v1.2** | **UI makeover + first-run intro** (§5.1, §5.2) | Light and dark mode; the mic button keeps its brand color in both. |
-| **v1.3** | **Play Store submission** | Data Safety form, accessibility declaration + demo video, listing, badge (§2.8). |
-| **v1.5** | **On-device engine** (§5.4) | Offline mode + automatic fallback when the PC/cloud can't be reached. After launch (moved behind the Play submission 2026-11-11, since V1's goal is a Play-ready app; swap back if needed). |
+| **v1.3** | **On-device transcription (minimum)** (§5.4) | Tap to start, tap to stop, transcribe on the phone, name corrections on top. Used when no PC/cloud is set up, and as the automatic fallback when they can't be reached. An on-device LLM for cleanup is optional and can come later. |
+| **v1.4** | **Play Store submission** | Data Safety form, accessibility declaration + demo video, listing, badge (§2.8). |
 
 ### 5.1 UI makeover ("doesn't look AI-made")
 Research (2026-11-11) on what reads as AI-generated UI: an unchosen default accent (our teal), a border around every group, a tagline under the name, identical spacing everywhere, emoji or mixed icon sets, mismatched indicators. Direction: **stock Android done well, close to One UI**, not a One UI clone (the only One UI library is Views-based).
@@ -300,10 +302,10 @@ Wispr Flow is on Play with an AccessibilityService for field detection and inser
 Competitor scan (2026-11-11): SpeakoFlow, Handy, OpenWhispr, Amical, VoiceTypr, superwhisper, Wispr Flow, Aqua Voice, Willow, MacWhisper.
 None lets a phone use your own PC's GPU (VoiceTypr shares a PC's transcription with other PCs on the LAN, desktop only;
 Amical's Android bubble uses Amical's paid cloud models, not your desktop). That stays our edge.
-**Not goals:** live text while you talk (our chunked Whisper doesn't stream well); meeting recording / notes / speaker labels.
+**Not goals:** live text while you talk (our chunked Whisper doesn't stream well); meeting recording / notes / speaker labels; translate-to-English; hold-to-talk on the phone bubble (holding drags the bubble; the bubble stays tap to start, tap to stop).
 
 **Group A: desktop polish (small)**
-1. **Sharp text on the desktop.** The text looks pixelated next to e.g. the Claude app. Likely cause: Windows scales the windows as a picture. `settings_gui.py` sets only system-level DPI awareness (`SetProcessDpiAwareness(1)`); the wizard and other windows set none. Fix: per-monitor DPI awareness (2) in every window before Tk starts, Tk scaling to match, and a ClearType-friendly font (Segoe UI Variable). Verify on Head-PC's monitors.
+1. **Sharper, easier-to-read text on the desktop.** Next to the Claude app our letters look thin (one-pixel stems, jagged diagonals). Try in this order: one size larger and a sturdier font (Segoe UI Variable, or semibold for labels); per-monitor DPI awareness (2) in every window before Tk starts (`settings_gui.py` sets only system-level awareness, the wizard sets none) so Windows doesn't stretch the windows as a picture. Compare screenshots side by side on Head-PC's monitors.
 
 **Group B: "what you said, your way" (server text rules, shared by phone and desktop)**
 2. **Smart Replace**: spoken phrase → text ("enter my email" → `you@example.com`, so "let me give you my email enter my email" becomes "let me give you my email you@example.com"). One list on the server, synced to the app like the vocabulary (also used in the app's cloud mode). Broader version of name corrections.
@@ -312,15 +314,14 @@ Amical's Android bubble uses Amical's paid cloud models, not your desktop). That
 
 **Group C: a "results" window on the desktop (one window, three uses)**
 5. **Transcribe a file**: a button in the desktop app (not only the right-click menu): drag-and-drop or "Select file", audio or video, result in a text box with Copy / Save.
-6. **Subtitles + translate to English** for files: SRT/VTT export (segments already have timestamps) and Whisper's built-in translate-to-English.
+6. **Subtitles** for files: SRT/VTT export (segments already have timestamps). (Translate-to-English: not a goal, plenty of apps do that.)
 7. **History**: search past dictations, paste or copy again, raw vs. cleaned side by side, re-run cleanup. The transcript log already has the data.
 
 **Group D: voice editing**
-8. **Hold-to-talk on the phone bubble** (long-press); the desktop already has hold mode.
-9. **Voice-edit selected text in any app**: highlight, hotkey/bubble, say "make this shorter". Reuses "prompt AI" (Aqua Voice and SpeakoFlow do this). `full` flavor on Android; desktop via copy-selection → edit → paste.
+8. **Voice-edit selected text in any app**: highlight, hotkey/bubble, say "make this shorter". Reuses "prompt AI" (Aqua Voice and SpeakoFlow do this). `full` flavor on Android; desktop via copy-selection → edit → paste.
 
 **Group E: install and upkeep**
-10. **Auto-updates** with stable and beta channels, plus a **model manager** screen (§2.4).
+9. **Auto-updates** with stable and beta channels, plus a **model manager** screen (§2.4).
 
 **Group F: reach (largest)**
-11. **PCs without an NVIDIA GPU**: CPU Parakeet (sherpa-onnx) or whisper.cpp with Vulkan for AMD/Intel. Our biggest install blocker (Handy and OpenWhispr already do this).
+10. **PCs without an NVIDIA GPU**: CPU Parakeet (sherpa-onnx) or whisper.cpp with Vulkan for AMD/Intel. Our biggest install blocker (Handy and OpenWhispr already do this).

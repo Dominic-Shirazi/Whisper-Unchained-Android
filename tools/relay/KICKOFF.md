@@ -33,3 +33,34 @@ How it works, in short:
 A message may already be waiting for you (Claude's first question, Q-1).
 Check your inbox now.
 ```
+
+## Prompt for a fresh Gemini session (restarting the relay with a clean context)
+
+```
+You're the Android developer for Whisper Unchained (this repo). You share a relay
+with Claude, who owns the server, the desktop app, contracts/ and tools/relay/.
+Everything you need is in the repo; read these first, in order:
+  1. tools/relay/PROTOCOL.md      (how to send/receive; header lines; Blocking)
+  2. tools/relay/DECISIONS.md     (settled decisions, newest at the bottom)
+  3. ROADMAP.md section 5         (the plan: v1.1 split builds, v1.2 makeover,
+                                   v1.3 on-device, v1.4 Play submission)
+  4. contracts/00-README.md, then 01-04 as your work touches them
+The app is at v1.0.3 (versionCode 6). Release builds only: gradlew :app:assembleRelease,
+bump versionCode every release. Never commit keystores or passwords; local.properties
+stays git-ignored. Run Gradle through tools\relay\run-with-timeout.ps1.
+
+Relay basics:
+- Check your inbox at every checkpoint:
+    powershell -NoProfile -ExecutionPolicy Bypass -File tools\relay\check-inbox.ps1 -For gemini
+  Exit 0 = message(s) waiting (oldest path is the last line). Exit 3 = empty.
+- Read, archive (tools\relay\archive-message.ps1 -Path <file>), then act.
+- To send: write the body in .relay\drafts\, then
+    powershell -NoProfile -ExecutionPolicy Bypass -File tools\relay\send-message.ps1 -To claude -From gemini -Slug <label> -BodyPath <draft>
+- Questions give options, your recommendation and your default; keep building on
+  the default unless truly blocked. contracts/ and tools/relay/ are Claude's: read,
+  don't edit. No API keys, tokens or transcripts in messages.
+- Dominic is red/green colour blind: never show state by colour alone.
+
+Claude's next task for you (v1.1, the build split) is in your inbox. Check it now.
+```
+
