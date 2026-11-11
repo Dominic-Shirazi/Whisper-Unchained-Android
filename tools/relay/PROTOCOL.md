@@ -5,8 +5,8 @@ each other directly through files instead of through Dominic:
 
 | Agent | Works on | Repo |
 | :--- | :--- | :--- |
-| **Gemini** (Antigravity) | The Android app | this repo, `WhisperRemote_for_Android` |
-| **Claude** (Claude Code) | The server API + desktop UI (tray, settings, installer) | `C:\Users\persi\documents\Faster_Whisper_API` ([Open_Whisper_Flow](https://github.com/Dominic-Shirazi/Open_Whisper_Flow)) |
+| **Gemini** (Antigravity) | The Android app | this repo, `Whisper-Unchained-Android` |
+| **Claude** (Claude Code) | The server API + desktop UI (tray, settings, installer) | `C:\Users\persi\documents\Faster_Whisper_API` ([Whisper-Unchained-Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server)) |
 
 This is **not** the aMemory build/review loop. Neither side assigns the other's
 work. Dominic does that. The relay is for the moments where one side needs the

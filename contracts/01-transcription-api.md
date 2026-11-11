@@ -1,6 +1,6 @@
 # 01 · Transcription API contract
 
-**Version:** 1 (2026-11-10; §1–§5 implemented in Open_Whisper_Flow `03c1041`) · **Owner:** Claude · **Server:** Open_Whisper_Flow `api/whisper_api.py`
+**Version:** 1 (2026-11-10; §1–§5 implemented in Whisper-Unchained-Server `03c1041`) · **Owner:** Claude · **Server:** Whisper-Unchained-Server `api/whisper_api.py`
 
 Goal: the app speaks **plain OpenAI `/v1/audio/transcriptions`**, so the same client code works
 against the Head PC, Speaches, Groq, or OpenAI. Head-PC-only extras are optional fields that
@@ -120,7 +120,7 @@ The installer and the desktop Settings window will show a QR code the app scans.
 - `v` is the payload version. The app should reject `v` it doesn't know, with a "update the app" message.
 - The QR holds a secret when `api_key` is present. The desktop UI shows it only on request, behind a "Show pairing QR" button.
 
-## 8. Shared vocabulary · LIVE (code; Open_Whisper_Flow `1c3a2b8`)
+## 8. Shared vocabulary · LIVE (code; Whisper-Unchained-Server `1c3a2b8`)
 
 The Head PC's vocabulary list is **the** list. The app shows it and adds to it, so a word typed on the
 phone while out also works at the desk later (Dominic, 2026-11-10). Self-hosted preset only; other
@@ -151,7 +151,7 @@ providers have no such endpoint.
   The server-side list is not copied into the pairing QR (it would go stale).
 - Sending per-request `prompt` hints to the Head PC still works and is merged case-insensitively, but with the shared list it's no longer needed.
 
-## 9. Soft pause · LIVE (code; Open_Whisper_Flow, 2026-11-10)
+## 9. Soft pause · LIVE (code; Whisper-Unchained-Server, 2026-11-10)
 
 The PC can pause dictation to free its graphics card (from the tray, or automatically while a game runs). The server
 stays up; the speech model moves off the GPU.
@@ -163,7 +163,7 @@ stays up; the speech model moves off the GPU.
   state on the button. On a 503 `server_paused`, keep the recording and offer retry (or retry automatically once `/health` is `ok`;
   `game` pauses end on their own when the game closes).
 
-## 10. Hint echo (hallucinated word list) · LIVE on the server (Open_Whisper_Flow, 2026-11-10)
+## 10. Hint echo (hallucinated word list) · LIVE on the server (Whisper-Unchained-Server, 2026-11-10)
 
 **What happens:** on a faint noise after the last word (stop beep, key release), Whisper can read the hint list
 back as speech, looping: *"…at the top of the page. Ollama, Lesley, Ame, Sara, Lesley, Ame, Sara, Lesley."*

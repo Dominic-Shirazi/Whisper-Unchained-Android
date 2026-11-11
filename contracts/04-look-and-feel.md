@@ -6,7 +6,7 @@ Dominic: "the look and feel of the two should mirror each other a little bit, es
 a model, the IP addresses and whatnot, words and triggers." Not pixel-identical (Android vs. a desktop window),
 but the same names, the same colors and the same way of picking things.
 
-Desktop reference: Open_Whisper_Flow `client/settings_gui.py` (Settings window) and `client/model_catalog.py`.
+Desktop reference: Whisper-Unchained-Server `client/settings_gui.py` (Settings window) and `client/model_catalog.py`.
 
 ## 1. Colors
 

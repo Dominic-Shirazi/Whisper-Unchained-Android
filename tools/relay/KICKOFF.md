@@ -6,7 +6,7 @@ Paste the prompt into Gemini (Antigravity, in this repo). Claude is already runn
 
 ```
 You now share a relay with Claude, who is building the server API and desktop UI
-in a separate repo (Open_Whisper_Flow). Before anything else, read
+in a separate repo (Whisper-Unchained-Server). Before anything else, read
 tools/relay/PROTOCOL.md and contracts/01-transcription-api.md.
 
 How it works, in short:

@@ -1,6 +1,6 @@
 # 03 · "prompt AI" voice commands
 
-**Version:** 1 (2026-11-10) · **Owner:** Claude · **Server reference implementation:** Open_Whisper_Flow `api/edit_commands.py`
+**Version:** 1 (2026-11-10) · **Owner:** Claude · **Server reference implementation:** Whisper-Unchained-Server `api/edit_commands.py`
 
 The speaker dictates some text, says the trigger ("prompt AI"), then an instruction:
 *"The meeting moved to noon. Prompt AI, make this formal."* The editor LLM applies the instruction to the

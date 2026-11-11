@@ -1,6 +1,6 @@
 # 02 · Dictation cleanup contract
 
-**Version:** 2 (2026-11-10; v2 added `tone`) · **Owner:** Claude · **Server reference implementation:** Open_Whisper_Flow `api/cleanup.py`
+**Version:** 2 (2026-11-10; v2 added `tone`) · **Owner:** Claude · **Server reference implementation:** Whisper-Unchained-Server `api/cleanup.py`
 
 Optional LLM pass over a finished transcript: removes fillers, applies self-corrections
 ("Tuesday, no wait, Wednesday"), turns spoken formatting into formatting, and follows a chosen

@@ -15,7 +15,7 @@ This document outlines the unified vision, architecture, and step-by-step roadma
 ## 2. Desktop Server & Installer ("Head PC") Specification
 
 > **Build on what exists — don't rebuild the wheel.** The Head PC server is the existing
-> [Open_Whisper_Flow](https://github.com/Dominic-Shirazi/Open_Whisper_Flow) repo (faster-whisper + FastAPI,
+> [Whisper-Unchained-Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) repo (faster-whisper + FastAPI,
 > Windows service, tray listener, LLM voice-edit layer). Phase 2 extends it rather than starting a new server.
 > For plain transcription, [Speaches](https://github.com/speaches-ai/speaches) (formerly `faster-whisper-server`)
 > already provides an OpenAI-compatible faster-whisper server with model download and auto-unload. Our
@@ -83,7 +83,7 @@ dictation is offline for the reload, ~2 min on first download).
 
 * All Whisper models output **punctuation and capitalization natively**; that is not a differentiator between tiers.
 * INT8 roughly halves VRAM at a small accuracy cost; the picker should offer `compute_type` (float16 / int8_float16 / int8).
-* VRAM figures should be re-measured on real hardware before shipping (see the 2026-08 benchmark in Open_Whisper_Flow).
+* VRAM figures should be re-measured on real hardware before shipping (see the 2026-08 benchmark in Whisper-Unchained-Server).
 
 ### 2.5 Vocabulary Hints Across Providers
 Faster-whisper's `initial_prompt` ("suggested words") has equivalents elsewhere, so the Android/desktop hints field maps per provider:
@@ -113,7 +113,7 @@ restarting the UI. Gaps to fix:
 
 ### 2.8 Installer Plan (Dominic, 2026-11-10)
 There is **no installer yet**: today a new user needs Python, the right GPU libraries, and the scripts in
-`Open_Whisper_Flow/scripts/`. The installer should:
+`Whisper-Unchained-Server/scripts/`. The installer should:
 
 * **Offer two paths up front:** *"Use recommended settings"* (one click, picks everything below automatically)
   or *"Walk me through it"*, which steps through the same pages as the desktop Settings window
@@ -251,6 +251,6 @@ To prevent Google Play rejections related to sensitive permissions:
 | Phase | Component | Tasks |
 | :--- | :--- | :--- |
 | **Phase 1** | **Android Client Refactor** | • Upgrade `ApiClient.kt` to OpenAI `/v1/audio/transcriptions` standard.<br>• Add Settings UI presets, API key, model, and hints fields.<br>• Add client-side hint-loop sanitizer.<br>• Add `BootReceiver` for auto-start on device reboot.<br>• Add connectivity/Tailscale-down detection, button error state, and retry queue (§3.4). |
-| **Phase 2** | **Desktop Server ("Head PC")** | • Extend Open_Whisper_Flow: add `/v1/audio/transcriptions` + optional API key.<br>• Build `setup_server.py` installer with hardware detection.<br>• Add terminal QR-code generator for 1-click Android pairing.<br>• Settings UI: model picker (§2.4), hotkey picker (§2.6), Pause also unloads Ollama (§2.7). |
+| **Phase 2** | **Desktop Server ("Head PC")** | • Extend Whisper-Unchained-Server: add `/v1/audio/transcriptions` + optional API key.<br>• Build `setup_server.py` installer with hardware detection.<br>• Add terminal QR-code generator for 1-click Android pairing.<br>• Settings UI: model picker (§2.4), hotkey picker (§2.6), Pause also unloads Ollama (§2.7). |
 | **Phase 3** | **Play Store & Dual Injection** | • Configure `play` vs `full` Gradle build flavors.<br>• Implement Clipboard fallback option.<br>• Prepare Google Play Data Safety declaration and Accessibility demo video. |
 | **Phase 4** | **On-Device Offline Engine** | • Add optional on-demand model download (Sherpa-ONNX / Whisper TFLite).<br>• Show battery/thermal warnings for on-device processing. |
