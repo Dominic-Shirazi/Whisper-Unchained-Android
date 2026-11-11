@@ -62,9 +62,14 @@ No GPU or NPU needed. The Fold6 (8 Gen 3) should be somewhat slower; still well 
      every case in `contracts/05-text-rules-tests.json` (generated from the server code), as must the name-correction port.
    - If a cloud chat model is configured for cleanup, cleanup can run as today; otherwise the text is pasted as is.
    - No hint-echo trim needed (no prompt is sent to the model).
-5. **Vocabulary as hotwords (try it, keep if it helps):** sherpa-onnx transducers support contextual biasing
-   (`hotwordsFile` / `hotwordsScore` with `modified_beam_search`). Feed the vocabulary list; compare a few
-   "Telnyx / Ollama / Qwen" recordings with and without. Drop it if it adds noticeable delay or wrong words.
+5. **Vocabulary as hotwords (measured, keep it):** use `decodingMethod = "modified_beam_search"`,
+   `hotwordsFile` = the vocabulary (one term per line, plus the "write as" side of the name corrections),
+   `hotwordsScore = 2.0`, `modelingUnit = "bpe"`, `bpeVocab` = the model's `tokens.txt`. On 16 of Dominic's
+   recordings containing vocabulary words (Parakeet 110M): plain decoding got 10/20 right, beam search 12/20,
+   **beam + hotwords 14/20, with zero wrong insertions**, ~20 % slower (still well under a second for short clips).
+   The remaining misses are near-misses ("telenix", "Olama") that the name corrections fix afterwards.
+   Rewrite the hotwords file when the vocabulary changes; if the recognizer fails to load with hotwords, fall back to
+   plain greedy decoding rather than failing.
 6. **Download screen:** model name, size, "Downloading 42 of 108 MB", Wi-Fi-only by default with a "Use mobile
    data" override, resumable, cancel. Settings → Transcription → **On-device model** shows what's installed and lets
    the user delete/switch models.
