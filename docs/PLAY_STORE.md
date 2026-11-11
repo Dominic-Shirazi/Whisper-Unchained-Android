@@ -7,9 +7,9 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
 - ✅ **Closed-test requirement doesn't apply:** the 12-testers-for-14-days rule is only for *personal* accounts created
   after 13 Nov 2023 ([source](https://support.google.com/googleplay/android-developer/answer/14151465)). We publish
   under **Cyrus Studio LLC's organization account** (EIN + D-U-N-S verified). A short internal test is still wise.
-- ⬜ Public developer **contact email** (Play shows it; also the privacy contact). Use a project address, not a personal one.
-- ⬜ **Privacy policy URL**: `PRIVACY.md` (🟡 drafted) published at a stable public URL (GitHub Pages or the repo file),
-  and linked inside the app (About page).
+- ✅ Public developer contact email: **Dominic@cyrus-studio.com** (also the privacy contact).
+- ✅ Website **https://whisperunchained.cyrus-studio.com**; privacy policy URL
+  **https://whisperunchained.cyrus-studio.com/privacy/** (keep it in step with `PRIVACY.md`); linked in the app's About page.
 
 ## 1. Build
 - ✅ targetSdk 36 (Play's minimum for new apps since 31 Aug 2026). minSdk 34 (Android 14+).
@@ -26,7 +26,7 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
 - 🟡 **Microphone disclosure**: one line before the system prompt: "Audio is recorded only while you tap the mic, and is
   sent to the place you chose (this phone, your PC or your cloud service)."
 - 🟡 **Appear on top**: explain, then send to the system page; respect "no".
-- ⬜ Privacy policy link in About.
+- 🟡 Privacy policy link in About (F-22, URL updated in F-23).
 
 ## 3. Play Console forms
 
