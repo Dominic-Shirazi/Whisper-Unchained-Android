@@ -23,7 +23,7 @@ Multipart form (`multipart/form-data`):
 | `response_format` | no | `json` (default), `text`, `verbose_json`. Others → 400. |
 | `temperature` | no | Accepted and ignored (server uses its own decode settings). |
 | `processing` | no | **Head PC extra.** `full` (default): name corrections + spoken edit commands ("prompt AI …"), same as the desktop hotkey; plus cleanup if the server's "Clean up every dictation" is on. `raw`: plain Whisper text, no edits. `clean`: `full` + the cleanup pass for this request (contract 02). |
-| `cleanup_punctuation` / `cleanup_rewrite` / `cleanup_shorten` / `cleanup_emoji` | no | **Head PC extra.** Cleanup style overrides; see contract 02 §5. |
+| `cleanup_punctuation` / `cleanup_rewrite` / `cleanup_tone` / `cleanup_shorten` / `cleanup_emoji` | no | **Head PC extra.** Cleanup style overrides; see contract 02 §5. |
 
 **Response, `json`:**
 ```json
