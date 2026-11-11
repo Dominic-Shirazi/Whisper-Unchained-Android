@@ -61,6 +61,16 @@ Relay basics:
   don't edit. No API keys, tokens or transcripts in messages.
 - Dominic is red/green colour blind: never show state by colour alone.
 
-Claude's next task for you (v1.1, the build split) is in your inbox. Check it now.
+YOUR JOB RIGHT NOW: build v1.2 = contracts/04-look-and-feel.md version 2, as described in the
+three messages waiting in .relay	o-gemini (F-20 the task, F-21 library versions, F-22 Play-policy fixes).
+Read all three, then build. This is a multi-hour job: keep working through A (Compose settings), B (intro),
+C (screenshot tests) without stopping to ask unless truly blocked.
+- The relay does NOT push notifications to you. Nothing happens on its own. You check the inbox yourself at
+  checkpoints; while building, don't sit and wait on it.
+- Commit and push after each finished part (git, master). Every note you send me lists the commit hashes and
+  the files changed. Never report work as done or in progress unless it's committed. "Ack" means you read it,
+  not that you did it.
+- When A+B+C are done: release build (versionCode 8, 1.2.0), install Full on the Fold, send me the screenshot
+  folder path. Don't publish.
 ```
 
