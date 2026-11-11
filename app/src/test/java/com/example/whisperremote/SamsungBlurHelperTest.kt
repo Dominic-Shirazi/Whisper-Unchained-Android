@@ -13,6 +13,12 @@ import org.junit.Test
 class SamsungBlurHelperTest {
 
     @Test
+    fun testSheetBlurRadiusConstant() {
+        // Reason for edit: Verify SHEET_BLUR_RADIUS defaults to 30 per contract F-11
+        org.junit.Assert.assertEquals(30, SamsungBlurHelper.SHEET_BLUR_RADIUS)
+    }
+
+    @Test
     fun testSamsungBlurFailsGracefullyOnNonSamsungDevice() {
         // In JVM test environment, Build.MANUFACTURER is not "samsung"
         // We pass a dummy subclass or check execution
