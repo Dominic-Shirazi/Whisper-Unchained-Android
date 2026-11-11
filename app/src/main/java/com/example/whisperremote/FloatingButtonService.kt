@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Independent Mean tone and auto-promote to Fix grammar when selecting Professional/Casual/Friendly per contract F-15.
 // Reason for edit: Exposed showTemporaryHint for accessibility clipboard fallback hints per contract F-12.
 // Reason for edit: Added full-screen scrim (58% black fallback, animated) and experimental Samsung SemBlurInfo reflection per contract F-10.
 // Reason for edit: Fallback dim 0.45 with 0.96 scale entrance for devices without cross-window blur, FLAG_NOT_FOCUSABLE to prevent keyboard dismissal/jitter, and BuildConfig.DEBUG-gated transcript logging per contract F-9.
@@ -824,6 +825,7 @@ class FloatingButtonService : Service() {
             0 -> sessionRewrite
             1 -> sessionShorten
             2 -> sessionPunctuation
+            3 -> sessionTone
             else -> ""
         }
     }
@@ -835,6 +837,21 @@ class FloatingButtonService : Service() {
             0 -> sessionRewrite = value
             1 -> sessionShorten = value
             2 -> sessionPunctuation = value
+            3 -> {
+                // Reason for edit: Compact pill parity for tone dimension per contract F-15
+                if (value == "mean") {
+                    sessionTone = "mean"
+                } else if (value == "neutral") {
+                    sessionTone = "neutral"
+                } else {
+                    if (sessionRewrite == "keep") {
+                        sessionRewrite = "fix"
+                        showTemporaryHint("Switched to Fix grammar so the tone can change")
+                        Toast.makeText(this@FloatingButtonService, "Switched to Fix grammar so the tone can change", Toast.LENGTH_SHORT).show()
+                    }
+                    sessionTone = value
+                }
+            }
         }
     }
 
@@ -1372,7 +1389,7 @@ class FloatingButtonService : Service() {
             }
         )
 
-        // Row 4: Tone (disabled if rewrite == "keep", includes "Mean" for Self-Hosted per F-8)
+        // Row 4: Tone (independent Mean tone, auto-advances Grammar & flow for other tones per F-15)
         val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
         val toneValues = if (isSelfHosted) {
             listOf("neutral", "professional", "casual", "friendly", "mean")
@@ -1385,23 +1402,33 @@ class FloatingButtonService : Service() {
             listOf("My own tone", "Professional", "Casual", "Friendly")
         }
 
-        val toneEnabled = sessionRewrite != "keep"
         buildOptionRow(
             container = rowsContainer,
             title = "Tone",
             values = toneValues,
             labels = toneLabels,
             selectedValue = sessionTone,
-            isEnabled = toneEnabled,
-            note = if (!toneEnabled) "Tone requires Fix grammar or Polish" else null,
+            isEnabled = true,
+            note = null,
             onSelect = { selected ->
-                if (toneEnabled) {
+                // Reason for edit: Independent Mean tone, auto-promote to Fix grammar for other tones per contract F-15
+                if (selected == "mean") {
+                    sessionTone = "mean"
+                } else if (selected == "neutral") {
+                    sessionTone = "neutral"
+                } else {
+                    if (sessionRewrite == "keep") {
+                        sessionRewrite = "fix"
+                        showTemporaryHint("Switched to Fix grammar so the tone can change")
+                        Toast.makeText(this@FloatingButtonService, "Switched to Fix grammar so the tone can change", Toast.LENGTH_SHORT).show()
+                    }
                     sessionTone = selected
-                    hasUserModifiedPill = true
-                    expandPill()
-                    triggerHapticTick()
-                    buildStyleSheetCard(card)
                 }
+                hasUserModifiedPill = true
+                expandPill()
+                triggerHapticTick()
+                updatePillContent()
+                buildStyleSheetCard(card)
             }
         )
 
