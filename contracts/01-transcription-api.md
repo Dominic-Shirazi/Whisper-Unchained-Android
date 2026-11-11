@@ -114,3 +114,30 @@ The installer and the desktop Settings window will show a QR code the app scans.
 - `api_key` is **omitted** (not empty) when the server has no key.
 - `v` is the payload version. The app should reject `v` it doesn't know, with a "update the app" message.
 - The QR holds a secret when `api_key` is present. The desktop UI shows it only on request, behind a "Show pairing QR" button.
+
+## 8. Shared vocabulary · LIVE (code; Open_Whisper_Flow `1c3a2b8`)
+
+The Head PC's vocabulary list is **the** list. The app shows it and adds to it, so a word typed on the
+phone while out also works at the desk later (Dominic, 2026-11-10). Self-hosted preset only; other
+providers have no such endpoint.
+
+**`GET /v1/vocabulary`** (auth like every `/v1` route):
+```json
+{ "vocabulary": ["Qwen", "Ollama"], "from_name_corrections": ["Lesley", "Ame"], "chars": 25, "max_chars": 540 }
+```
+- `vocabulary`: the user's words. Show these as the editable-by-adding list.
+- `from_name_corrections`: hinted automatically from the server's name corrections; show read-only (or not at all).
+- `chars` / `max_chars`: how much of Whisper's hint space is used (~224 tokens ≈ 540 chars). Words past that are ignored by Whisper; warn when `chars` > `max_chars`.
+
+**`POST /v1/vocabulary`** `{"add": ["Kubernetes", "Tailscale"]}` → same body as GET plus `"added": [...]`
+(only the words that were new; dedupe is case-insensitive against both lists, so re-sending is harmless).
+- 1–50 words per call; each under 60 characters, no commas or line breaks. Otherwise `400 invalid_vocabulary`.
+- **Add-only by design.** Removing words is done in the desktop Settings window, so a mis-tap on the phone can't wipe the list.
+- Takes effect immediately for every dictation (desktop and phone); no restart.
+
+**Expected app behavior:**
+- Self-hosted preset: the hints field shows the server list (GET on open/refresh). Adding a word POSTs it.
+  **Offline:** queue it locally and POST the queue on the next successful `/health`; clear only the words the response confirms (`added` or already present in `vocabulary`).
+- Cloud presets (Groq/OpenAI/...): keep a local list and send it as the `prompt` field, since there is no server list.
+  The server-side list is not copied into the pairing QR (it would go stale).
+- Sending per-request `prompt` hints to the Head PC still works and is merged case-insensitively, but with the shared list it's no longer needed.
