@@ -1,12 +1,12 @@
 // This file provides the HTTP API client for Whisper Unchained.
 // It is called by FloatingButtonService (for audio transcription) and MainActivity (for connection & health checks).
-// Inputs: audio File (WAV/M4A), optional prompt hints, API key, model name from SettingsRepository.
+// Inputs: audio File (WAV/M4A), optional prompt hints, API key, model name from SettingsRepository, and per-dictation StyleOverrides from FloatingButtonService.
 // Outputs: TranscriptionResult (transcribed text or typed error), HealthResult, and model list.
 // It speaks the OpenAI-compatible standard POST /v1/audio/transcriptions, GET /health, and GET /v1/models.
 
 package com.example.whisperremote
 
-// Reason for edit: Updated per contract K-4 to support soft pause (status 'paused' in /health, 503 'server_paused' in transcriptions) and product rename to Whisper Unchained.
+// Reason for edit: Added per-dictation StyleOverrides support for style pill overrides per contract F-6 (contracts/01 §1 & contracts/02 §5).
 
 import android.content.Context
 import android.util.Log
@@ -36,6 +36,14 @@ sealed class TranscriptionResult {
     data class ServerError(val code: Int, val message: String) : TranscriptionResult()
     data class NetworkError(val error: Throwable) : TranscriptionResult()
 }
+
+// Reason for edit: Added StyleOverrides per contract F-6 & F-7 for per-dictation floating button style pill and sheet adjustments
+data class StyleOverrides(
+    val rewrite: String,
+    val shorten: String,
+    val punctuation: String,
+    val tone: String = "neutral"
+)
 
 sealed class HealthResult {
     data class Ok(val model: String?, val authRequired: Boolean) : HealthResult()
@@ -95,8 +103,13 @@ class ApiClient(private val context: Context) {
 
     /**
      * Sends audio payload to POST /v1/audio/transcriptions with full OpenAI parameter compatibility.
+     * Reason for edit: Added optional StyleOverrides parameter for per-dictation floating button adjustments (F-6).
      */
-    fun transcribeDetailed(file: File, callback: (TranscriptionResult) -> Unit) {
+    fun transcribeDetailed(
+        file: File,
+        styleOverrides: StyleOverrides? = null,
+        callback: (TranscriptionResult) -> Unit
+    ) {
         val url = repository.getTranscribeUrl()
         // Reason for edit: Added validation to prevent crashes when server URL is blank or unconfigured
         if (url.isBlank() || !url.startsWith("http")) {
@@ -104,7 +117,7 @@ class ApiClient(private val context: Context) {
             callback(TranscriptionResult.ServerError(400, "Server URL is not configured. Please open settings."))
             return
         }
-        Log.d("ApiClient", "Transcribing file ${file.absolutePath} (${file.length()} bytes) to $url")
+        Log.d("ApiClient", "Transcribing file ${file.absolutePath} (${file.length()} bytes) to $url with overrides: $styleOverrides")
 
         if (!file.exists()) {
             Log.e("ApiClient", "Audio file does not exist: ${file.absolutePath}")
@@ -137,11 +150,20 @@ class ApiClient(private val context: Context) {
 
         // Self-Hosted processing mode and cleanup overrides (contracts/01 §1 & contracts/02 §5)
         if (repository.providerPreset == ProviderPreset.SELF_HOSTED) {
-            if (repository.cleanupEnabled) {
+            if (styleOverrides != null) {
+                requestBodyBuilder.addFormDataPart("processing", "clean")
+                requestBodyBuilder.addFormDataPart("cleanup_punctuation", styleOverrides.punctuation)
+                requestBodyBuilder.addFormDataPart("cleanup_rewrite", styleOverrides.rewrite)
+                val tone = if (styleOverrides.rewrite == "keep") "neutral" else styleOverrides.tone
+                requestBodyBuilder.addFormDataPart("cleanup_tone", tone)
+                requestBodyBuilder.addFormDataPart("cleanup_shorten", styleOverrides.shorten)
+                requestBodyBuilder.addFormDataPart("cleanup_emoji", repository.cleanupEmoji)
+            } else if (repository.cleanupEnabled) {
                 requestBodyBuilder.addFormDataPart("processing", "clean")
                 requestBodyBuilder.addFormDataPart("cleanup_punctuation", repository.cleanupPunctuation)
                 requestBodyBuilder.addFormDataPart("cleanup_rewrite", repository.cleanupRewrite)
-                requestBodyBuilder.addFormDataPart("cleanup_tone", repository.cleanupTone)
+                val tone = if (repository.cleanupRewrite == "keep") "neutral" else repository.cleanupTone
+                requestBodyBuilder.addFormDataPart("cleanup_tone", tone)
                 requestBodyBuilder.addFormDataPart("cleanup_shorten", repository.cleanupShorten)
                 requestBodyBuilder.addFormDataPart("cleanup_emoji", repository.cleanupEmoji)
             } else {
@@ -180,7 +202,7 @@ class ApiClient(private val context: Context) {
                                     callback(TranscriptionResult.Empty())
                                 } else if (repository.providerPreset != ProviderPreset.SELF_HOSTED) {
                                     // For cloud presets: check for "prompt AI" voice edit commands (contracts/03) or cleanup pass (contracts/02)
-                                    processCloudTranscription(text) { processedText ->
+                                    processCloudTranscription(text, styleOverrides) { processedText ->
                                         if (processedText.isBlank()) {
                                             callback(TranscriptionResult.Empty())
                                         } else {
@@ -447,9 +469,13 @@ class ApiClient(private val context: Context) {
 
     /**
      * Routes cloud transcriptions to either "prompt AI" voice edit commands (contracts/03) or cleanup pass (contracts/02).
-     * Reason for edit: Added support for contracts/03-edit-commands.md (K-5).
+     * Reason for edit: Added support for contracts/03-edit-commands.md (K-5) and per-dictation StyleOverrides (F-6).
      */
-    private fun processCloudTranscription(text: String, callback: (String) -> Unit) {
+    private fun processCloudTranscription(
+        text: String,
+        styleOverrides: StyleOverrides? = null,
+        callback: (String) -> Unit
+    ) {
         try {
             val editPromptJson = context.assets.open("03-edit-prompt.json").bufferedReader().use { it.readText() }
             val editProcessor = EditCommandProcessor(editPromptJson)
@@ -464,9 +490,9 @@ class ApiClient(private val context: Context) {
             Log.w("ApiClient", "Error checking edit command triggers", e)
         }
 
-        // Not a voice command: run cleanup if enabled per contracts/02
-        if (repository.cleanupEnabled) {
-            cleanTranscriptWithCloudLlm(text, callback)
+        // Not a voice command: run cleanup if enabled or if overridden per contracts/02 & F-6
+        if (styleOverrides != null || repository.cleanupEnabled) {
+            cleanTranscriptWithCloudLlm(text, styleOverrides, callback)
         } else {
             callback(text)
         }
@@ -474,9 +500,13 @@ class ApiClient(private val context: Context) {
 
     /**
      * Executes client-side LLM cleanup for cloud ASR presets per contracts/02-cleanup.md (Version 2).
-     * Reason for edit: Added cloud LLM cleanup pipeline assembling prompts and tidying output with tone support.
+     * Reason for edit: Added support for per-dictation StyleOverrides (F-6).
      */
-    private fun cleanTranscriptWithCloudLlm(text: String, callback: (String) -> Unit) {
+    private fun cleanTranscriptWithCloudLlm(
+        text: String,
+        styleOverrides: StyleOverrides? = null,
+        callback: (String) -> Unit
+    ) {
         val chatUrl = repository.cleanupChatUrl
         if (chatUrl.isBlank()) {
             callback(text)
@@ -486,11 +516,15 @@ class ApiClient(private val context: Context) {
         try {
             val assetPrompt = context.assets.open("02-cleanup-prompt.json").bufferedReader().use { it.readText() }
             val cleaner = TranscriptCleaner(assetPrompt)
+            val punc = styleOverrides?.punctuation ?: repository.cleanupPunctuation
+            val rew = styleOverrides?.rewrite ?: repository.cleanupRewrite
+            val tone = if (rew == "keep") "neutral" else (styleOverrides?.tone ?: repository.cleanupTone)
+            val short = styleOverrides?.shorten ?: repository.cleanupShorten
             val options = CleanupOptions(
-                punctuation = repository.cleanupPunctuation,
-                rewrite = repository.cleanupRewrite,
-                tone = repository.cleanupTone,
-                shorten = repository.cleanupShorten,
+                punctuation = punc,
+                rewrite = rew,
+                tone = tone,
+                shorten = short,
                 emoji = repository.cleanupEmoji
             )
             val localVocab = repository.promptHints.split(",").map { it.trim() }.filter { it.isNotEmpty() }

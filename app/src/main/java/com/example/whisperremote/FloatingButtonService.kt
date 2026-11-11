@@ -1,12 +1,12 @@
 // This file provides the persistent floating microphone overlay and recording coordinator for Whisper Unchained.
 // It is called by MainActivity or BootReceiver when starting the dictation service.
-// Inputs: Audio captured from microphone or internal media projection, user touch interactions on the floating button.
-// Outputs: Audio WAV files sent to ApiClient for transcription, resulting text routed to Accessibility Service or Clipboard.
+// Inputs: Audio captured from microphone or internal media projection, user touch interactions on the floating button and recording style pill.
+// Outputs: Audio WAV files sent to ApiClient for transcription (with per-dictation style overrides), resulting text routed to Accessibility Service or Clipboard.
 // It manages floating button states (IDLE, RECORDING, PROCESSING, HIDDEN), soft pause recovery, Tailscale auto-recovery, and prompt-loop sanitization.
 
 package com.example.whisperremote
 
-// Reason for edit: Added soft pause handling (retaining audio, status 'paused' recovery polling without Tailscale resets) and updated name to Whisper Unchained per contract K-4.
+// Reason for edit: Added recording style pill overlay with swipe gestures, haptic feedback, TalkBack actions, and per-dictation cleanup overrides per contract F-6.
 
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
@@ -23,7 +23,21 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.RenderEffect
+import android.graphics.Shader
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.view.HapticFeedbackConstants
+import android.view.animation.AccelerateInterpolator
+import android.widget.FrameLayout
+import android.widget.ScrollView
 import android.widget.Toast
+import androidx.core.view.AccessibilityDelegateCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import com.example.whisperremote.data.InjectionMode
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
@@ -87,9 +101,54 @@ class FloatingButtonService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var audioManager: AudioManager
     private var container: LinearLayout? = null
+    private var topLabel: TextView? = null
     private var floatingButton: ImageView? = null
-    private var hintLabel: TextView? = null
+    private var stylePillView: LinearLayout? = null
+    private var pillContentContainer: LinearLayout? = null
+    private var pillCategoryLabel: TextView? = null
+    private var pillValueLabel: TextView? = null
+    private var pillDotViews: Array<View>? = null
+    private var bottomHintLabel: TextView? = null
     private var windowParams: WindowManager.LayoutParams? = null
+
+    // Reason for edit: Style pill & style sheet state per contracts F-6 & F-7
+    private data class StyleDimension(
+        val name: String,
+        val values: List<String>,
+        val labels: List<String>
+    )
+
+    private val dimensions = listOf(
+        StyleDimension(
+            name = "Grammar & flow",
+            values = listOf("keep", "fix", "polish"),
+            labels = listOf("Keep my words", "Fix grammar", "Polish")
+        ),
+        StyleDimension(
+            name = "Conciseness",
+            values = listOf("off", "light", "strong"),
+            labels = listOf("Off", "Light", "Strong")
+        ),
+        StyleDimension(
+            name = "Punctuation",
+            values = listOf("minimal", "light", "standard"),
+            labels = listOf("Minimal", "Light", "Standard")
+        )
+    )
+
+    private var currentDimensionIndex = 0
+    private var sessionRewrite = "keep"
+    private var sessionShorten = "off"
+    private var sessionPunctuation = "standard"
+    private var sessionTone = "neutral"
+    private var hasUserModifiedPill = false
+    private var pendingRetryStyleOverrides: StyleOverrides? = null
+
+    // Style sheet overlay state
+    private var sheetOverlayView: FrameLayout? = null
+    private var isSheetOpen = false
+    private var recordingStartTimeMs = 0L
+    private var sheetTimerRunnable: Runnable? = null
 
     private var state = ButtonState.HIDDEN
     @Volatile
@@ -151,11 +210,13 @@ class FloatingButtonService : Service() {
                         is HealthResult.Ok -> {
                             mainHandler.post {
                                 val retryFile = pendingRetryAudioFile
+                                val overrides = pendingRetryStyleOverrides
                                 pendingRetryAudioFile = null
+                                pendingRetryStyleOverrides = null
                                 stopPollingForResume()
                                 if (retryFile != null && retryFile.exists()) {
                                     showTemporaryHint("PC resumed - transcribing...")
-                                    processAudioFile(retryFile)
+                                    processAudioFile(retryFile, overrides)
                                 }
                             }
                         }
@@ -178,7 +239,7 @@ class FloatingButtonService : Service() {
     private fun showTemporaryHint(textToShow: String) {
         mainHandler.post {
             fadeHintRunnable?.let { mainHandler.removeCallbacks(it) }
-            hintLabel?.let { label ->
+            bottomHintLabel?.let { label ->
                 label.animate().cancel()
                 label.text = textToShow
                 label.alpha = 1.0f
@@ -203,9 +264,9 @@ class FloatingButtonService : Service() {
         mainHandler.post {
             fadeHintRunnable?.let { mainHandler.removeCallbacks(it) }
             fadeHintRunnable = null
-            hintLabel?.animate()?.cancel()
-            hintLabel?.alpha = 1.0f
-            hintLabel?.visibility = View.GONE
+            bottomHintLabel?.animate()?.cancel()
+            bottomHintLabel?.alpha = 1.0f
+            bottomHintLabel?.visibility = View.GONE
         }
     }
 
@@ -357,13 +418,24 @@ class FloatingButtonService : Service() {
     private fun setupOverlay() {
         val buttonPx = 150
 
+        topLabel = TextView(this).apply {
+            text = "Mic"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            gravity = Gravity.CENTER
+            setShadowLayer(6f, 0f, 2f, Color.BLACK)
+            visibility = View.GONE
+        }
+
         floatingButton = ImageView(this).apply {
             setImageResource(R.drawable.whisper_remote)
             setBackgroundColor(Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
 
-        hintLabel = TextView(this).apply {
+        setupStylePill()
+
+        bottomHintLabel = TextView(this).apply {
             text = "Tap a text field to finish"
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
@@ -376,8 +448,16 @@ class FloatingButtonService : Service() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setBackgroundColor(Color.TRANSPARENT)
+            addView(topLabel, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.bottomMargin = dpToPx(4) })
             addView(floatingButton, LinearLayout.LayoutParams(buttonPx, buttonPx))
-            addView(hintLabel, LinearLayout.LayoutParams(
+            addView(stylePillView, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.topMargin = dpToPx(6) })
+            addView(bottomHintLabel, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).also { it.topMargin = dpToPx(4) })
@@ -507,6 +587,883 @@ class FloatingButtonService : Service() {
         prefs.edit().putInt(KEY_BUTTON_X, x).putInt(KEY_BUTTON_Y, y).apply()
     }
 
+    // Reason for edit: Setup Style Pill view under the floating button per contract F-6
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupStylePill() {
+        val pillBg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dpToPx(16).toFloat()
+            setColor(Color.parseColor("#EE1B1E25"))
+            setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+        }
+
+        pillCategoryLabel = TextView(this).apply {
+            textSize = 10f
+            setTextColor(Color.parseColor("#868E9C"))
+            gravity = Gravity.CENTER
+            isAllCaps = false
+        }
+
+        pillValueLabel = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Color.parseColor("#E7E9EC"))
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+        }
+
+        val dot0 = View(this)
+        val dot1 = View(this)
+        val dot2 = View(this)
+        pillDotViews = arrayOf(dot0, dot1, dot2)
+
+        val dotsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            addView(dot0)
+            addView(dot1)
+            addView(dot2)
+        }
+
+        pillContentContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(pillCategoryLabel, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
+            addView(pillValueLabel, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also {
+                it.topMargin = dpToPx(1)
+                it.bottomMargin = dpToPx(3)
+            })
+            addView(dotsContainer, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
+        }
+
+        stylePillView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = pillBg
+            setPadding(dpToPx(14), dpToPx(6), dpToPx(14), dpToPx(6))
+            addView(pillContentContainer, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
+            visibility = View.GONE
+            isFocusable = true
+        }
+
+        // Accessibility Delegate with Custom Actions per F-6
+        ViewCompat.setAccessibilityDelegate(stylePillView!!, object : AccessibilityDelegateCompat() {
+            override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfoCompat) {
+                super.onInitializeAccessibilityNodeInfo(host, info)
+                info.className = "android.widget.Button"
+                info.contentDescription = getAccessibilityDescription()
+
+                info.addAction(
+                    AccessibilityNodeInfoCompat.AccessibilityActionCompat(
+                        R.id.action_do_less,
+                        "Do less"
+                    )
+                )
+                info.addAction(
+                    AccessibilityNodeInfoCompat.AccessibilityActionCompat(
+                        R.id.action_do_more,
+                        "Do more"
+                    )
+                )
+                info.addAction(
+                    AccessibilityNodeInfoCompat.AccessibilityActionCompat(
+                        R.id.action_next_style,
+                        "Next style"
+                    )
+                )
+            }
+
+            override fun performAccessibilityAction(host: View, action: Int, args: Bundle?): Boolean {
+                return when (action) {
+                    R.id.action_do_less -> {
+                        stepStyleLess()
+                        true
+                    }
+                    R.id.action_do_more -> {
+                        stepStyleMore()
+                        true
+                    }
+                    R.id.action_next_style -> {
+                        cycleStyleNext()
+                        true
+                    }
+                    else -> super.performAccessibilityAction(host, action, args)
+                }
+            }
+        })
+
+        // Touch Listener for 24dp Swipe Detection per F-6 & Tap per F-7
+        stylePillView?.setOnTouchListener(object : View.OnTouchListener {
+            private var startX = 0f
+            private var startY = 0f
+            private var hasSwiped = false
+
+            override fun onTouch(v: View, event: MotionEvent): Boolean {
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        startX = event.rawX
+                        startY = event.rawY
+                        hasSwiped = false
+                        return true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (!hasSwiped) {
+                            val dx = event.rawX - startX
+                            val dy = event.rawY - startY
+                            val threshold = dpToPx(24)
+                            if (Math.abs(dx) >= threshold || Math.abs(dy) >= threshold) {
+                                hasSwiped = true
+                                if (Math.abs(dx) >= Math.abs(dy)) {
+                                    // Horizontal: LEFT = do less, RIGHT = do more
+                                    if (dx < 0) {
+                                        stepStyleLess()
+                                    } else {
+                                        stepStyleMore()
+                                    }
+                                } else {
+                                    // Vertical: UP / DOWN = cycle style dimension (wrapping)
+                                    if (dy < 0) {
+                                        cycleStyleNext()
+                                    } else {
+                                        cycleStylePrevious()
+                                    }
+                                }
+                            }
+                        }
+                        return true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (!hasSwiped) {
+                            // Tap on pill opens style sheet per F-7
+                            openStyleSheet()
+                        }
+                        hasSwiped = false
+                        return true
+                    }
+                    MotionEvent.ACTION_CANCEL -> {
+                        hasSwiped = false
+                        return true
+                    }
+                }
+                return false
+            }
+        })
+    }
+
+    private fun getCurrentValue(): String {
+        return when (currentDimensionIndex) {
+            0 -> sessionRewrite
+            1 -> sessionShorten
+            2 -> sessionPunctuation
+            else -> ""
+        }
+    }
+
+    private fun setCurrentValue(value: String) {
+        hasUserModifiedPill = true
+        when (currentDimensionIndex) {
+            0 -> sessionRewrite = value
+            1 -> sessionShorten = value
+            2 -> sessionPunctuation = value
+        }
+    }
+
+    private fun getCurrentIndexInDimension(): Int {
+        val dim = dimensions[currentDimensionIndex]
+        val currVal = getCurrentValue()
+        val idx = dim.values.indexOf(currVal)
+        return if (idx >= 0) idx else 0
+    }
+
+    private fun stepStyleLess() {
+        val dim = dimensions[currentDimensionIndex]
+        val currentIndex = getCurrentIndexInDimension()
+        if (currentIndex > 0) {
+            val newIndex = currentIndex - 1
+            setCurrentValue(dim.values[newIndex])
+            triggerHapticTick()
+            animateValueChange(isRight = false)
+        } else {
+            triggerLimitFeedback(isRight = false)
+        }
+    }
+
+    private fun stepStyleMore() {
+        val dim = dimensions[currentDimensionIndex]
+        val currentIndex = getCurrentIndexInDimension()
+        if (currentIndex < dim.values.size - 1) {
+            val newIndex = currentIndex + 1
+            setCurrentValue(dim.values[newIndex])
+            triggerHapticTick()
+            animateValueChange(isRight = true)
+        } else {
+            triggerLimitFeedback(isRight = true)
+        }
+    }
+
+    private fun cycleStyleNext() {
+        val newIndex = (currentDimensionIndex + 1) % dimensions.size
+        animateDimensionChange(newIndex, isUp = true)
+    }
+
+    private fun cycleStylePrevious() {
+        val newIndex = if (currentDimensionIndex - 1 < 0) dimensions.size - 1 else currentDimensionIndex - 1
+        animateDimensionChange(newIndex, isUp = false)
+    }
+
+    private fun updateDots(activeIndex: Int) {
+        pillDotViews?.forEachIndexed { index, dotView ->
+            val isActive = index == activeIndex
+            val size = if (isActive) dpToPx(7) else dpToPx(5)
+            val color = if (isActive) Color.parseColor("#2FB79A") else Color.parseColor("#4B5363")
+            val dotBg = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+            }
+            dotView.background = dotBg
+            val lp = dotView.layoutParams as? LinearLayout.LayoutParams ?: LinearLayout.LayoutParams(size, size)
+            lp.width = size
+            lp.height = size
+            lp.setMargins(dpToPx(2), 0, dpToPx(2), 0)
+            dotView.layoutParams = lp
+        }
+    }
+
+    private fun updatePillContent(animated: Boolean = false) {
+        val dim = dimensions[currentDimensionIndex]
+        val valueIndex = getCurrentIndexInDimension()
+        pillCategoryLabel?.text = dim.name
+        pillValueLabel?.text = dim.labels[valueIndex]
+        updateDots(valueIndex)
+        stylePillView?.contentDescription = getAccessibilityDescription()
+    }
+
+    private fun announcePillChange() {
+        val dim = dimensions[currentDimensionIndex]
+        val valueIndex = getCurrentIndexInDimension()
+        val text = "${dim.name}: ${dim.labels[valueIndex]}"
+        stylePillView?.announceForAccessibility(text)
+    }
+
+    private fun getAccessibilityDescription(): String {
+        val dim = dimensions[currentDimensionIndex]
+        val valueIndex = getCurrentIndexInDimension()
+        return "Cleanup style: ${dim.name}, ${dim.labels[valueIndex]}. Swipe left to do less, right to do more, up or down to switch style, or tap for full options."
+    }
+
+    private fun triggerHapticTick() {
+        try {
+            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                vibrator?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator?.vibrate(VibrationEffect.createOneShot(20, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(20)
+            }
+        } catch (e: Exception) {
+            container?.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        }
+    }
+
+    private fun animateDimensionChange(newDimensionIndex: Int, isUp: Boolean) {
+        val content = pillContentContainer ?: return
+        triggerHapticTick()
+        val slideY = dpToPx(8).toFloat()
+        val exitY = if (isUp) -slideY else slideY
+        val enterY = if (isUp) slideY else -slideY
+
+        content.animate()
+            .alpha(0f)
+            .translationY(exitY)
+            .setDuration(85)
+            .withEndAction {
+                currentDimensionIndex = newDimensionIndex
+                updatePillContent(animated = false)
+                content.translationY = enterY
+                content.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setDuration(95)
+                    .withEndAction {
+                        announcePillChange()
+                    }
+                    .start()
+            }
+            .start()
+    }
+
+    private fun animateValueChange(isRight: Boolean) {
+        val content = pillContentContainer ?: return
+        val nudgeX = if (isRight) dpToPx(6).toFloat() else -dpToPx(6).toFloat()
+        content.animate()
+            .translationX(nudgeX)
+            .setDuration(50)
+            .withEndAction {
+                updatePillContent(animated = false)
+                content.translationX = -nudgeX / 2f
+                content.animate()
+                    .translationX(0f)
+                    .setDuration(50)
+                    .withEndAction {
+                        announcePillChange()
+                    }
+                    .start()
+            }
+            .start()
+    }
+
+    private fun triggerLimitFeedback(isRight: Boolean) {
+        val content = pillContentContainer ?: return
+        val bounceX = if (isRight) dpToPx(3).toFloat() else -dpToPx(3).toFloat()
+        content.animate()
+            .translationX(bounceX)
+            .setDuration(40)
+            .withEndAction {
+                content.animate().translationX(0f).setDuration(40).start()
+            }
+            .start()
+    }
+
+    private fun ensureOverlayInBounds() {
+        val containerView = container ?: return
+        val params = windowParams ?: return
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        containerView.measure(
+            View.MeasureSpec.makeMeasureSpec(screenWidth, View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(screenHeight, View.MeasureSpec.AT_MOST)
+        )
+        val width = containerView.measuredWidth
+        val height = containerView.measuredHeight
+        val margin = dpToPx(8)
+        var changed = false
+        if (params.x + width > screenWidth - margin) {
+            params.x = (screenWidth - width - margin).coerceAtLeast(margin)
+            changed = true
+        }
+        if (params.x < margin) {
+            params.x = margin
+            changed = true
+        }
+        if (params.y + height > screenHeight - dpToPx(48)) {
+            params.y = (screenHeight - height - dpToPx(48)).coerceAtLeast(dpToPx(24))
+            changed = true
+        }
+        if (changed && containerView.isAttachedToWindow) {
+            try {
+                windowManager.updateViewLayout(containerView, params)
+            } catch (e: Exception) {
+                Log.e("FloatingButtonService", "Error updating view layout in ensureOverlayInBounds", e)
+            }
+        }
+    }
+
+    // Reason for edit: Full style sheet overlay per contract F-7
+    private var currentSheetCard: View? = null
+    private var currentDimView: View? = null
+    private var sheetTimerView: TextView? = null
+
+    // Spot reserved for Dominic's upcoming mean-mode contract update per F-7
+    private val TONE_MEAN = "mean"
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun openStyleSheet() {
+        if (isSheetOpen || (state != ButtonState.RECORDING && state != ButtonState.RECORDING_NO_FOCUS)) {
+            return
+        }
+        isSheetOpen = true
+        triggerHapticTick()
+
+        val screenWidth = resources.displayMetrics.widthPixels
+
+        val overlay = FrameLayout(this)
+        sheetOverlayView = overlay
+
+        val dimView = View(this).apply {
+            setBackgroundColor(Color.parseColor("#9915171C"))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    setRenderEffect(RenderEffect.createBlurEffect(18f, 18f, Shader.TileMode.CLAMP))
+                } catch (e: Exception) {
+                    // Fallback to dim background
+                }
+            }
+            setOnClickListener {
+                closeStyleSheet()
+            }
+        }
+        currentDimView = dimView
+        overlay.addView(dimView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(20).toFloat()
+                setColor(Color.parseColor("#1B1E25"))
+                setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+            }
+            background = bg
+            setPadding(dpToPx(20), dpToPx(18), dpToPx(20), dpToPx(18))
+            setOnClickListener { /* consume click on card */ }
+        }
+        currentSheetCard = card
+
+        val maxCardWidth = dpToPx(380)
+        val cardWidth = minOf(screenWidth - dpToPx(32), maxCardWidth)
+        val cardLp = FrameLayout.LayoutParams(
+            cardWidth,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER
+        )
+        overlay.addView(card, cardLp)
+
+        // Populate card contents
+        buildStyleSheetCard(card)
+
+        val sheetParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        )
+
+        overlay.isFocusableInTouchMode = true
+        overlay.requestFocus()
+        overlay.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+                closeStyleSheet()
+                true
+            } else {
+                false
+            }
+        }
+
+        try {
+            windowManager.addView(overlay, sheetParams)
+        } catch (e: Exception) {
+            Log.e("FloatingButtonService", "Failed to add style sheet overlay", e)
+            isSheetOpen = false
+            return
+        }
+
+        // Live Timer runnable
+        sheetTimerRunnable = object : Runnable {
+            override fun run() {
+                if (!isRecording || !isSheetOpen) return
+                val elapsedSec = maxOf(0L, (System.currentTimeMillis() - recordingStartTimeMs) / 1000)
+                val mins = elapsedSec / 60
+                val secs = elapsedSec % 60
+                sheetTimerView?.text = String.format("%02d:%02d", mins, secs)
+                mainHandler.postDelayed(this, 500L)
+            }
+        }
+        mainHandler.post(sheetTimerRunnable!!)
+
+        // Animate grow out of button
+        card.post {
+            val buttonLoc = IntArray(2)
+            floatingButton?.getLocationOnScreen(buttonLoc)
+            val btnW = floatingButton?.width ?: dpToPx(50)
+            val btnH = floatingButton?.height ?: dpToPx(50)
+            val buttonCenterX = (buttonLoc[0] + btnW / 2).toFloat()
+            val buttonCenterY = (buttonLoc[1] + btnH / 2).toFloat()
+
+            val cardLoc = IntArray(2)
+            card.getLocationOnScreen(cardLoc)
+            card.pivotX = (buttonCenterX - cardLoc[0]).coerceIn(0f, card.width.toFloat())
+            card.pivotY = (buttonCenterY - cardLoc[1]).coerceIn(0f, card.height.toFloat())
+
+            card.scaleX = 0.2f
+            card.scaleY = 0.2f
+            card.alpha = 0f
+            dimView.alpha = 0f
+
+            dimView.animate().alpha(1f).setDuration(220).start()
+            card.animate()
+                .scaleX(1f)
+                .scaleY(1f)
+                .alpha(1f)
+                .setDuration(220)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
+        }
+    }
+
+    private fun closeStyleSheet(onClosed: (() -> Unit)? = null) {
+        if (!isSheetOpen) {
+            onClosed?.invoke()
+            return
+        }
+        isSheetOpen = false
+        sheetTimerRunnable?.let { mainHandler.removeCallbacks(it) }
+        sheetTimerRunnable = null
+
+        val overlay = sheetOverlayView ?: run {
+            onClosed?.invoke()
+            return
+        }
+        val card = currentSheetCard
+        val dim = currentDimView
+
+        dim?.animate()?.alpha(0f)?.setDuration(180)?.start()
+        card?.animate()
+            ?.scaleX(0.2f)
+            ?.scaleY(0.2f)
+            ?.alpha(0f)
+            ?.setDuration(180)
+            ?.setInterpolator(AccelerateInterpolator())
+            ?.withEndAction {
+                try {
+                    windowManager.removeView(overlay)
+                } catch (e: Exception) {
+                    Log.e("FloatingButtonService", "Error removing sheet overlay", e)
+                }
+                sheetOverlayView = null
+                currentSheetCard = null
+                currentDimView = null
+                sheetTimerView = null
+                onClosed?.invoke()
+            }
+            ?.start()
+    }
+
+    private fun buildStyleSheetCard(card: LinearLayout) {
+        card.removeAllViews()
+
+        // 1. Header with REC indicator and close button
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val recDot = View(this).apply {
+            val dotBg = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#D9694A"))
+            }
+            background = dotBg
+        }
+        header.addView(recDot, LinearLayout.LayoutParams(dpToPx(8), dpToPx(8)))
+
+        val recLabel = TextView(this).apply {
+            text = "REC"
+            setTextColor(Color.parseColor("#D9694A"))
+            textSize = 12f
+            setTypeface(typeface, Typeface.BOLD)
+        }
+        header.addView(recLabel, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also { it.marginStart = dpToPx(6) })
+
+        val timerView = TextView(this).apply {
+            val elapsedSec = maxOf(0L, (System.currentTimeMillis() - recordingStartTimeMs) / 1000)
+            val mins = elapsedSec / 60
+            val secs = elapsedSec % 60
+            text = String.format("%02d:%02d", mins, secs)
+            setTextColor(Color.parseColor("#E7E9EC"))
+            textSize = 13f
+            setTypeface(typeface, Typeface.BOLD)
+        }
+        sheetTimerView = timerView
+        header.addView(timerView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also { it.marginStart = dpToPx(8) })
+
+        // Title in center / spacer
+        val title = TextView(this).apply {
+            text = "Dictation Style"
+            setTextColor(Color.parseColor("#868E9C"))
+            textSize = 12f
+            gravity = Gravity.CENTER
+        }
+        header.addView(title, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f))
+
+        val closeBtn = TextView(this).apply {
+            text = "✕"
+            setTextColor(Color.parseColor("#868E9C"))
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
+            setOnClickListener {
+                closeStyleSheet()
+            }
+        }
+        header.addView(closeBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        card.addView(header)
+
+        // Divider
+        val divider = View(this).apply {
+            setBackgroundColor(Color.parseColor("#2B313C"))
+        }
+        card.addView(divider, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dpToPx(1)
+        ).also {
+            it.topMargin = dpToPx(10)
+            it.bottomMargin = dpToPx(12)
+        })
+
+        // Scrollable content for the style rows to ensure all fit on any screen
+        val scrollView = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val rowsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        scrollView.addView(rowsContainer)
+        card.addView(scrollView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        // Row 1: Grammar & flow
+        buildOptionRow(
+            container = rowsContainer,
+            title = "Grammar & flow",
+            values = listOf("keep", "fix", "polish"),
+            labels = listOf("Keep my words", "Fix grammar", "Polish"),
+            selectedValue = sessionRewrite,
+            isEnabled = true,
+            onSelect = { selected ->
+                sessionRewrite = selected
+                hasUserModifiedPill = true
+                triggerHapticTick()
+                updatePillContent()
+                buildStyleSheetCard(card)
+            }
+        )
+
+        // Row 2: Conciseness
+        buildOptionRow(
+            container = rowsContainer,
+            title = "Conciseness",
+            values = listOf("off", "light", "strong"),
+            labels = listOf("Off", "Light", "Strong"),
+            selectedValue = sessionShorten,
+            isEnabled = true,
+            onSelect = { selected ->
+                sessionShorten = selected
+                hasUserModifiedPill = true
+                triggerHapticTick()
+                updatePillContent()
+                buildStyleSheetCard(card)
+            }
+        )
+
+        // Row 3: Punctuation
+        buildOptionRow(
+            container = rowsContainer,
+            title = "Punctuation",
+            values = listOf("minimal", "light", "standard"),
+            labels = listOf("Minimal", "Light", "Standard"),
+            selectedValue = sessionPunctuation,
+            isEnabled = true,
+            onSelect = { selected ->
+                sessionPunctuation = selected
+                hasUserModifiedPill = true
+                triggerHapticTick()
+                updatePillContent()
+                buildStyleSheetCard(card)
+            }
+        )
+
+        // Row 4: Tone (disabled if rewrite == "keep")
+        val toneEnabled = sessionRewrite != "keep"
+        buildOptionRow(
+            container = rowsContainer,
+            title = "Tone",
+            values = listOf("neutral", "professional", "casual", "friendly"),
+            labels = listOf("My own tone", "Professional", "Casual", "Friendly"),
+            selectedValue = sessionTone,
+            isEnabled = toneEnabled,
+            note = if (!toneEnabled) "Tone requires Fix grammar or Polish" else null,
+            onSelect = { selected ->
+                if (toneEnabled) {
+                    sessionTone = selected
+                    hasUserModifiedPill = true
+                    triggerHapticTick()
+                    buildStyleSheetCard(card)
+                }
+            }
+        )
+
+        // Stop button
+        val stopBtn = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            val bg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(12).toFloat()
+                setColor(Color.parseColor("#D9694A"))
+            }
+            background = bg
+            val stopSquare = View(this@FloatingButtonService).apply {
+                val sqBg = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dpToPx(2).toFloat()
+                    setColor(Color.WHITE)
+                }
+                background = sqBg
+            }
+            addView(stopSquare, LinearLayout.LayoutParams(dpToPx(10), dpToPx(10)).also {
+                it.marginEnd = dpToPx(8)
+            })
+            val stopText = TextView(this@FloatingButtonService).apply {
+                text = "Stop Recording & Send"
+                setTextColor(Color.WHITE)
+                textSize = 14f
+                setTypeface(typeface, Typeface.BOLD)
+            }
+            addView(stopText)
+            setOnClickListener {
+                closeStyleSheet(onClosed = {
+                    stopRecording()
+                })
+            }
+        }
+        card.addView(stopBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dpToPx(44)
+        ).also {
+            it.topMargin = dpToPx(14)
+        })
+    }
+
+    private fun buildOptionRow(
+        container: LinearLayout,
+        title: String,
+        values: List<String>,
+        labels: List<String>,
+        selectedValue: String,
+        isEnabled: Boolean,
+        note: String? = null,
+        onSelect: (String) -> Unit
+    ) {
+        val rowTitle = TextView(this).apply {
+            text = title
+            setTextColor(Color.parseColor("#868E9C"))
+            textSize = 11f
+            setTypeface(typeface, Typeface.BOLD)
+        }
+        container.addView(rowTitle, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also {
+            it.topMargin = dpToPx(8)
+            it.bottomMargin = dpToPx(4)
+        })
+
+        // Horizontal container for the option pills
+        val pillsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        values.forEachIndexed { index, value ->
+            val label = labels[index]
+            val isSelected = value == selectedValue
+            val pill = TextView(this).apply {
+                text = if (isSelected) "✓ $label" else label
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setPadding(dpToPx(12), dpToPx(6), dpToPx(12), dpToPx(6))
+                styleOptionPill(this, isSelected, isEnabled)
+                contentDescription = if (isSelected) "$label, selected" else "$label, not selected"
+                if (isEnabled) {
+                    setOnClickListener {
+                        onSelect(value)
+                    }
+                }
+            }
+            pillsRow.addView(pill, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also {
+                if (index > 0) it.marginStart = dpToPx(6)
+            })
+        }
+
+        // Wrap in horizontal scroll view in case pills exceed card width
+        val horizontalScroll = android.widget.HorizontalScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(pillsRow)
+        }
+        container.addView(horizontalScroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        if (note != null) {
+            val noteView = TextView(this).apply {
+                text = note
+                setTextColor(Color.parseColor("#868E9C"))
+                textSize = 10f
+                setTypeface(typeface, Typeface.ITALIC)
+            }
+            container.addView(noteView, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also {
+                it.topMargin = dpToPx(2)
+            })
+        }
+    }
+
+    private fun styleOptionPill(pillView: TextView, isSelected: Boolean, isEnabled: Boolean) {
+        pillView.isEnabled = isEnabled
+        pillView.alpha = if (isEnabled) 1.0f else 0.4f
+        if (isSelected) {
+            val bg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(14).toFloat()
+                setColor(Color.parseColor("#2FB79A"))
+            }
+            pillView.background = bg
+            pillView.setTextColor(Color.parseColor("#15171C"))
+            pillView.setTypeface(pillView.typeface, Typeface.BOLD)
+        } else {
+            val bg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(14).toFloat()
+                setColor(Color.parseColor("#222731"))
+                setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+            }
+            pillView.background = bg
+            pillView.setTextColor(Color.parseColor("#E7E9EC"))
+            pillView.setTypeface(pillView.typeface, Typeface.NORMAL)
+        }
+    }
+
     private fun handleTap() {
         when (state) {
             ButtonState.IDLE -> startRecording()
@@ -560,29 +1517,45 @@ class FloatingButtonService : Service() {
         when (state) {
             ButtonState.HIDDEN -> {
                 cancelTemporaryHint()
+                closeStyleSheet()
+                topLabel?.visibility = View.GONE
+                stylePillView?.visibility = View.GONE
                 container?.visibility = View.GONE
                 floatingButton?.alpha = 1.0f
                 floatingButton?.setImageResource(R.drawable.whisper_remote)
             }
             ButtonState.IDLE -> {
                 cancelTemporaryHint()
+                closeStyleSheet()
+                topLabel?.visibility = View.GONE
+                stylePillView?.visibility = View.GONE
                 if (wasHidden) bringToFront()
                 container?.visibility = View.VISIBLE
                 floatingButton?.alpha = 1.0f
                 floatingButton?.setImageResource(R.drawable.whisper_remote)
             }
             ButtonState.RECORDING -> {
+                cancelTemporaryHint()
+                topLabel?.text = if (currentAudioSource == ActiveAudioSource.MEDIA_PLAYBACK) "Media" else "Mic"
+                topLabel?.visibility = View.VISIBLE
+                stylePillView?.visibility = View.VISIBLE
                 container?.visibility = View.VISIBLE
                 floatingButton?.alpha = 1.0f
                 floatingButton?.setImageResource(R.drawable.whisper_remote_record)
             }
             ButtonState.RECORDING_NO_FOCUS -> {
+                topLabel?.text = if (currentAudioSource == ActiveAudioSource.MEDIA_PLAYBACK) "Media" else "Mic"
+                topLabel?.visibility = View.VISIBLE
+                stylePillView?.visibility = View.VISIBLE
                 container?.visibility = View.VISIBLE
                 floatingButton?.alpha = 0.4f
                 floatingButton?.setImageResource(R.drawable.whisper_remote_record)
             }
             ButtonState.PROCESSING -> {
                 cancelTemporaryHint()
+                closeStyleSheet()
+                topLabel?.visibility = View.GONE
+                stylePillView?.visibility = View.GONE
                 container?.visibility = View.VISIBLE
                 floatingButton?.alpha = 0.5f
                 floatingButton?.setImageResource(R.drawable.whisper_remote)
@@ -594,8 +1567,19 @@ class FloatingButtonService : Service() {
     private fun startRecording() {
         stopPollingForResume()
         pendingRetryAudioFile = null
+        pendingRetryStyleOverrides = null
         audioFile = File(externalCacheDir, "recording.wav")
         pauseActiveMedia()
+
+        recordingStartTimeMs = System.currentTimeMillis()
+        currentDimensionIndex = 0
+        sessionRewrite = settingsRepository.cleanupRewrite
+        sessionShorten = settingsRepository.cleanupShorten
+        sessionPunctuation = settingsRepository.cleanupPunctuation
+        sessionTone = settingsRepository.cleanupTone
+        hasUserModifiedPill = false
+        updatePillContent(animated = false)
+        ensureOverlayInBounds()
 
         val sampleRate = 16000
         val channelConfig = AudioFormat.CHANNEL_IN_MONO
@@ -610,7 +1594,6 @@ class FloatingButtonService : Service() {
             audioRecord?.startRecording()
             isRecording = true
             setState(ButtonState.RECORDING)
-            showTemporaryHint("Mic")
             Log.d("FloatingButtonService", "Recording started (16kHz PCM MIC)")
 
             val targetFile = audioFile!!
@@ -759,7 +1742,8 @@ class FloatingButtonService : Service() {
         }
 
         val actualLabel = if (targetSource == ActiveAudioSource.MEDIA_PLAYBACK) "Media" else "Mic"
-        showTemporaryHint(actualLabel)
+        topLabel?.text = actualLabel
+        topLabel?.visibility = View.VISIBLE
     }
 
     private fun writeAudioDataToWavFile(file: File, bufferSize: Int) {
@@ -839,6 +1823,7 @@ class FloatingButtonService : Service() {
 
     private fun stopRecording() {
         isRecording = false
+        closeStyleSheet()
         releaseAudioFocus()
 
         try {
@@ -857,14 +1842,26 @@ class FloatingButtonService : Service() {
         recordingThread = null
 
         releaseAudioResources()
+
+        val overrides = if (hasUserModifiedPill) {
+            StyleOverrides(
+                rewrite = sessionRewrite,
+                shorten = sessionShorten,
+                punctuation = sessionPunctuation,
+                tone = sessionTone
+            )
+        } else {
+            null
+        }
+
         audioFile?.let { file ->
-            processAudioFile(file)
+            processAudioFile(file, overrides)
         } ?: run {
             setState(ButtonState.HIDDEN)
         }
     }
 
-    private fun processAudioFile(file: File) {
+    private fun processAudioFile(file: File, styleOverrides: StyleOverrides? = null) {
         if (!file.exists() || file.length() <= 44) {
             setState(ButtonState.HIDDEN)
             return
@@ -872,10 +1869,11 @@ class FloatingButtonService : Service() {
 
         setState(ButtonState.PROCESSING)
 
-        apiClient.transcribeDetailed(file) { result ->
+        apiClient.transcribeDetailed(file, styleOverrides) { result ->
             when (result) {
                 is TranscriptionResult.Success -> {
                     pendingRetryAudioFile = null
+                    pendingRetryStyleOverrides = null
                     stopPollingForResume()
                     var text = result.text
                     // Reason for edit: Only sanitize hints on cloud presets; self-hosted server removes hint echo directly per contracts/01 §10
@@ -889,6 +1887,7 @@ class FloatingButtonService : Service() {
                 }
                 is TranscriptionResult.Empty -> {
                     pendingRetryAudioFile = null
+                    pendingRetryStyleOverrides = null
                     stopPollingForResume()
                     Log.d("FloatingButtonService", "Transcription returned empty/silence")
                     mainHandler.post {
@@ -900,6 +1899,7 @@ class FloatingButtonService : Service() {
                     Log.i("FloatingButtonService", "Server paused: ${result.message}")
                     // Per contract K-4: treat 'paused' as REACHABLE (no Tailscale restart). Keep recording and start polling for resume.
                     pendingRetryAudioFile = file
+                    pendingRetryStyleOverrides = styleOverrides
                     mainHandler.post {
                         showTemporaryHint("Paused on your PC")
                         Toast.makeText(applicationContext, result.message.ifBlank { "Dictation is paused on your PC" }, Toast.LENGTH_LONG).show()
@@ -909,6 +1909,7 @@ class FloatingButtonService : Service() {
                 }
                 is TranscriptionResult.ModelUnavailable -> {
                     pendingRetryAudioFile = null
+                    pendingRetryStyleOverrides = null
                     stopPollingForResume()
                     Log.w("FloatingButtonService", "Model loading; retry after ${result.retryAfterSeconds}s")
                     mainHandler.post {
@@ -918,6 +1919,7 @@ class FloatingButtonService : Service() {
                 }
                 is TranscriptionResult.AuthError -> {
                     pendingRetryAudioFile = null
+                    pendingRetryStyleOverrides = null
                     stopPollingForResume()
                     Log.e("FloatingButtonService", "API key rejected: ${result.message}")
                     mainHandler.post {
@@ -929,6 +1931,7 @@ class FloatingButtonService : Service() {
                 }
                 is TranscriptionResult.NetworkError -> {
                     pendingRetryAudioFile = null
+                    pendingRetryStyleOverrides = null
                     stopPollingForResume()
                     Log.e("FloatingButtonService", "Network failure: ${result.error.message}")
                     if (settingsRepository.autoRestartTailscale && tailscaleManager.isTailscaleInstalled()) {
@@ -942,6 +1945,7 @@ class FloatingButtonService : Service() {
                 }
                 is TranscriptionResult.ServerError -> {
                     pendingRetryAudioFile = null
+                    pendingRetryStyleOverrides = null
                     stopPollingForResume()
                     Log.e("FloatingButtonService", "Server error ${result.code}: ${result.message}")
                     mainHandler.post {
@@ -1034,7 +2038,17 @@ class FloatingButtonService : Service() {
         super.onDestroy()
         instance = null
         stopPollingForResume()
+        closeStyleSheet()
+        sheetOverlayView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (e: Exception) {
+                Log.e("FloatingButtonService", "Error removing sheet overlay on destroy", e)
+            }
+            sheetOverlayView = null
+        }
         pendingRetryAudioFile = null
+        pendingRetryStyleOverrides = null
         snapAnimator?.cancel()
         snapAnimator = null
 

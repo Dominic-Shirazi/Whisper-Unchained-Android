@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    This file defines static resource IDs used by FloatingButtonService for TalkBack accessibility custom actions.
+    Inputs: None.
+    Outputs: Resource IDs R.id.action_do_less, R.id.action_do_more, R.id.action_next_style.
+    Reason for edit: Added custom accessibility action IDs for recording style pill per contract F-6.
+-->
+<resources>
+    <item type="id" name="action_do_less" />
+    <item type="id" name="action_do_more" />
+    <item type="id" name="action_next_style" />
+</resources>
