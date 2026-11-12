@@ -12,6 +12,7 @@
 // Conforms to contracts/04-look-and-feel.md §3.2 and contract 05 §2.3 & §2.6.
 // Reason for edit: Add transcription target selector, PC fallback toggle, and on-device model download/management per contract 05 §2.3 & §2.6.
 // Reason for edit: Use ic_download vector icon for model download buttons per F-35.
+// Reason for edit: Add backup offline model card and collapsed row at top of transcription settings per F-36 item 7.
 
 package com.example.whisperremote.ui.screens
 
@@ -50,6 +51,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -128,6 +131,7 @@ fun TranscriptionScreen(
     var downloadState by remember { mutableStateOf<ModelDownloadState>(ModelDownloadState.Idle) }
     var activeCancelSignal by remember { mutableStateOf<AtomicBoolean?>(null) }
     var deleteConfirmModelId by remember { mutableStateOf<String?>(null) }
+    var isBackupDismissed by remember { mutableStateOf(false) }
 
     fun refreshModelStatus() {
         Thread {
@@ -229,6 +233,137 @@ fun TranscriptionScreen(
                 .wrapContentWidth(Alignment.CenterHorizontally)
                 .widthIn(max = 640.dp)
         ) {
+            // Backup model card / small row per F-36 item 7
+            val isDefaultModelDownloaded = modelReadyMap[OnDeviceModelManager.DEFAULT_MODEL_ID] == true
+            if (currentTarget != TranscriptionTarget.ON_DEVICE && !isDefaultModelDownloaded) {
+                if (!isBackupDismissed) {
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = "Backup for when your PC can't be reached",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Download the 136 MB speech model and dictation keeps working offline, without AI editing.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                val isDl = downloadState is ModelDownloadState.Downloading && selectedModelId == OnDeviceModelManager.DEFAULT_MODEL_ID
+                                if (isDl) {
+                                    val dl = downloadState as ModelDownloadState.Downloading
+                                    val dlMb = (dl.totalBytesDownloaded / 1_000_000L).toInt()
+                                    val totalMb = 136
+                                    val progress = if (dl.totalBytesExpected > 0) dl.totalBytesDownloaded.toFloat() / dl.totalBytesExpected.toFloat() else 0f
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    LinearProgressIndicator(
+                                        progress = { progress },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(6.dp)
+                                            .clip(RoundedCornerShape(3.dp))
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Downloading $dlMb of $totalMb MB...",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                } else {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End
+                                    ) {
+                                        TextButton(onClick = { isBackupDismissed = true }) {
+                                            Text("Not now")
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Button(
+                                            onClick = {
+                                                selectedModelId = OnDeviceModelManager.DEFAULT_MODEL_ID
+                                                val cancelSig = AtomicBoolean(false)
+                                                activeCancelSignal = cancelSig
+                                                Thread {
+                                                    onDeviceModelManager.downloadModel(
+                                                        modelId = OnDeviceModelManager.DEFAULT_MODEL_ID,
+                                                        allowMobileData = !downloadWifiOnly,
+                                                        cancelSignal = cancelSig
+                                                    ) { state ->
+                                                        mainHandler.post {
+                                                            downloadState = state
+                                                            if (state is ModelDownloadState.Ready) {
+                                                                modelReadyMap[OnDeviceModelManager.DEFAULT_MODEL_ID] = true
+                                                                fallbackToPhone = true
+                                                                repository.fallbackToOnDevice = true
+                                                                activeCancelSignal = null
+                                                                refreshModelStatus()
+                                                            } else if (state is ModelDownloadState.Failed || state is ModelDownloadState.Cancelled) {
+                                                                activeCancelSignal = null
+                                                            }
+                                                        }
+                                                    }
+                                                }.start()
+                                            }
+                                        ) {
+                                            Text("Download")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Offline backup model (136 MB)",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "Dictation keeps working if PC is unreachable",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                TextButton(
+                                    onClick = { isBackupDismissed = false }
+                                ) {
+                                    Text("Get backup")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // 1. Where your voice is transcribed (§2.3)
             item {
                 SettingsGroup(

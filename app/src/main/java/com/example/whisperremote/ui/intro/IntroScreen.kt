@@ -7,6 +7,7 @@
 // Reason for edit: Out-of-the-box offline model download & on-device practice dictation per contract 05 §2.7.
 // Reason for edit: Branch battery optimization in Play flavor to open standard list settings without restricted REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission per F-27.
 // Reason for edit: Delete practice audio recordings after transcription per F-35.
+// Reason for edit: Update intro flow with logo on page 1, 3 transcription choices on page 2, read-only demo practice box with floating button and celebration continue on page 3, scrollable accessibility disclosure on page 5, status bars padding and BackHandler, and backup model card on page 7 per F-36 items 1-7.
 
 package com.example.whisperremote.ui.intro
 
@@ -22,11 +23,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
-import com.example.whisperremote.BuildConfig
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -35,13 +35,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -49,15 +49,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
@@ -72,6 +74,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -89,16 +92,22 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.whisperremote.ApiClient
+import com.example.whisperremote.BuildConfig
 import com.example.whisperremote.DictationAccessibilityService
 import com.example.whisperremote.HealthResult
 import com.example.whisperremote.R
 import com.example.whisperremote.TranscriptionResult
 import com.example.whisperremote.data.InjectionMode
+import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
 import com.example.whisperremote.data.TranscriptionTarget
 import com.example.whisperremote.ui.theme.WhisperTokens
@@ -108,9 +117,9 @@ import com.example.whisperremote.util.OnDeviceTranscriptionEngine
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
-import java.util.concurrent.atomic.AtomicBoolean
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicBoolean
 
 private class PracticeAudioRecorder(private val cacheDir: File) {
     private var audioRecord: AudioRecord? = null
@@ -245,6 +254,27 @@ fun IntroScreen(
     var currentPage by remember { mutableIntStateOf(initialPage) }
     val totalPages = 7
 
+    // Back gesture navigates to previous page; exits only on page 1 per F-36 item 5
+    BackHandler(enabled = currentPage > 1) {
+        currentPage--
+    }
+
+    // Auto-switch to Accessibility mode on return from Android Settings per F-36 item 6
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (DictationAccessibilityService.isEnabled(context)) {
+                    repository.injectionMode = InjectionMode.ACCESSIBILITY
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     val recorder = remember { PracticeAudioRecorder(context.cacheDir) }
 
     // On-device model manager & transcription engine for out-of-the-box intro practice per contract 05 §2.7
@@ -270,18 +300,26 @@ fun IntroScreen(
     var isPracticeTranscribing by remember { mutableStateOf(false) }
     var practiceSuccessCelebration by remember { mutableStateOf(false) }
 
-    // Connect page state
+    // Connect page choices state (F-36 item 2)
     var isConnected by remember { mutableStateOf(repository.isServerVerified || repository.baseUrl.isNotBlank()) }
     var connectedBaseUrl by remember { mutableStateOf(repository.baseUrl) }
-    var connectionStatusText by remember { mutableStateOf<String?>(null) }
-    var isTestingConnection by remember { mutableStateOf(false) }
+    var showCloudSetup by remember { mutableStateOf(false) }
+    var cloudPreset by remember {
+        mutableStateOf(if (repository.providerPreset != ProviderPreset.SELF_HOSTED) repository.providerPreset else ProviderPreset.GROQ)
+    }
+    var cloudApiKey by remember { mutableStateOf(repository.apiKey) }
+    var cloudTestStatus by remember { mutableStateOf<String?>(null) }
+    var isTestingCloud by remember { mutableStateOf(false) }
+
+    // Backup card state on Page 7 (F-36 item 7)
+    var introBackupDismissed by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(currentPage) {
         if (currentPage == 2) {
             isConnected = repository.isServerVerified || repository.baseUrl.isNotBlank()
             connectedBaseUrl = repository.baseUrl
         }
-        if (currentPage == 3) {
+        if (currentPage == 3 || currentPage == 7) {
             isDefaultModelReady = onDeviceModelManager.isModelReady(OnDeviceModelManager.DEFAULT_MODEL_ID)
         }
     }
@@ -304,9 +342,11 @@ fun IntroScreen(
 
     Scaffold(
         topBar = {
+            // Apply statusBarsPadding so back arrow does not overlap clock/camera per F-36 item 5
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .statusBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Row(
@@ -359,7 +399,7 @@ fun IntroScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(24.dp)
+                .padding(horizontal = 24.dp, vertical = 12.dp)
                 .wrapContentWidth(Alignment.CenterHorizontally)
                 .widthIn(max = 640.dp)
         ) {
@@ -381,10 +421,14 @@ fun IntroScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     when (page) {
-                        // 1. Welcome (§4 item 1)
+                        // 1. Welcome (§4 item 1 & F-36 item 1: app logo instead of green mic)
                         1 -> {
                             Spacer(modifier = Modifier.height(32.dp))
-                            IntroIllustration(painter = painterResource(R.drawable.ic_mic), tint = WhisperTokens.BrandTeal)
+                            Image(
+                                painter = painterResource(R.drawable.whisper_remote),
+                                contentDescription = "Whisper Unchained Logo",
+                                modifier = Modifier.size(96.dp)
+                            )
                             Spacer(modifier = Modifier.height(32.dp))
                             Text(
                                 text = "Talk instead of typing",
@@ -420,109 +464,361 @@ fun IntroScreen(
                             }
                         }
 
-                        // 2. Connect (§4 item 2, contract 05 §2.7)
+                        // 2. Connect (F-36 item 2: three clear choices instead of one button + skip)
                         2 -> {
-                            Spacer(modifier = Modifier.height(24.dp))
-                            IntroIllustration(painter = painterResource(R.drawable.ic_qr_code_scanner), tint = WhisperTokens.FallbackAccent)
-                            Spacer(modifier = Modifier.height(24.dp))
-                            Text(
-                                text = "Use your PC for best accuracy (optional)",
-                                style = MaterialTheme.typography.headlineLarge,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = "For the most accurate results, scan the pairing code in Whisper Unchained Server on your PC. Or skip this step: dictation works on this phone without a PC.",
-                                style = MaterialTheme.typography.bodyLarge,
-                                textAlign = TextAlign.Center,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            if (isConnected) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState()),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                IntroIllustration(painter = painterResource(R.drawable.ic_computer), tint = WhisperTokens.BrandTeal)
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    text = "✓ Connected to PC ($connectedBaseUrl)",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = WhisperTokens.BrandTeal,
-                                    fontWeight = FontWeight.Medium
+                                    text = "Where to transcribe",
+                                    style = MaterialTheme.typography.headlineLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
                                 )
-                            } else if (!connectionStatusText.isNullOrBlank()) {
-                                Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = connectionStatusText!!,
+                                    text = "Choose where speech recognition runs. You can change this anytime in Settings.",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = WhisperTokens.BrandTeal,
-                                    fontWeight = FontWeight.Medium
+                                    textAlign = TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            }
 
-                            Spacer(modifier = Modifier.weight(1f))
+                                Spacer(modifier = Modifier.height(20.dp))
 
-                            if (isConnected) {
-                                Button(
-                                    onClick = { currentPage = 3 },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(52.dp),
-                                    shape = RoundedCornerShape(26.dp)
-                                ) {
-                                    Text("Continue to practice")
-                                }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                OutlinedButton(
-                                    onClick = {
-                                        onScanQrCode {
-                                            isConnected = true
-                                            connectedBaseUrl = repository.baseUrl
-                                            currentPage = 3
+                                if (!showCloudSetup) {
+                                    // Choice 1: Scan pairing code
+                                    Card(
+                                        onClick = {
+                                            onScanQrCode {
+                                                isConnected = true
+                                                connectedBaseUrl = repository.baseUrl
+                                                repository.transcriptionTarget = TranscriptionTarget.PC.id
+                                                currentPage = 3
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_qr_code_scanner),
+                                                contentDescription = null,
+                                                tint = WhisperTokens.BrandTeal,
+                                                modifier = Modifier.size(32.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(16.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "Scan pairing code",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "From Whisper Unchained Server on your PC: best accuracy and AI editing",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
                                         }
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(52.dp),
-                                    shape = RoundedCornerShape(26.dp)
-                                ) {
-                                    Icon(painter = painterResource(R.drawable.ic_qr_code_scanner), contentDescription = null, modifier = Modifier.size(20.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Scan a different code")
-                                }
-                            } else {
-                                Button(
-                                    onClick = {
-                                        onScanQrCode {
-                                            isConnected = true
-                                            connectedBaseUrl = repository.baseUrl
-                                            currentPage = 3
+                                    }
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    // Choice 2: Use a cloud service
+                                    Card(
+                                        onClick = {
+                                            showCloudSetup = true
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_cloud),
+                                                contentDescription = null,
+                                                tint = Color(0xFF29A6B8),
+                                                modifier = Modifier.size(32.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(16.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "Use a cloud service",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "Your own Groq, OpenAI or other API key",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
                                         }
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(52.dp),
-                                    shape = RoundedCornerShape(26.dp)
-                                ) {
-                                    Icon(painter = painterResource(R.drawable.ic_qr_code_scanner), contentDescription = null, modifier = Modifier.size(20.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Scan pairing code")
-                                }
+                                    }
 
-                                Spacer(modifier = Modifier.height(10.dp))
+                                    Spacer(modifier = Modifier.height(12.dp))
 
-                                TextButton(
-                                    onClick = {
-                                        repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
-                                        currentPage = 3
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Skip — transcribe on this phone")
+                                    // Choice 3: Only this phone
+                                    Card(
+                                        onClick = {
+                                            repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
+                                            if (!isDefaultModelReady && modelDownloadState !is ModelDownloadState.Downloading) {
+                                                val cancelSig = AtomicBoolean(false)
+                                                activeCancelSignal = cancelSig
+                                                Thread {
+                                                    onDeviceModelManager.downloadModel(
+                                                        modelId = OnDeviceModelManager.DEFAULT_MODEL_ID,
+                                                        allowMobileData = true,
+                                                        cancelSignal = cancelSig
+                                                    ) { state ->
+                                                        mainHandler.post {
+                                                            modelDownloadState = state
+                                                            if (state is ModelDownloadState.Ready) {
+                                                                isDefaultModelReady = true
+                                                                repository.selectedOnDeviceModelId = OnDeviceModelManager.DEFAULT_MODEL_ID
+                                                                activeCancelSignal = null
+                                                            } else if (state is ModelDownloadState.Failed || state is ModelDownloadState.Cancelled) {
+                                                                activeCancelSignal = null
+                                                            }
+                                                        }
+                                                    }
+                                                }.start()
+                                            }
+                                            currentPage = 3
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_shield),
+                                                contentDescription = null,
+                                                tint = Color(0xFF38A169),
+                                                modifier = Modifier.size(32.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(16.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "Only this phone",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "Download a speech model (136 MB, up to 671 MB for more accuracy or languages). Works offline; no AI editing.",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    if (isConnected) {
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = "✓ Connected to PC ($connectedBaseUrl)",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = WhisperTokens.BrandTeal,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Button(
+                                            onClick = {
+                                                repository.transcriptionTarget = TranscriptionTarget.PC.id
+                                                currentPage = 3
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(52.dp),
+                                            shape = RoundedCornerShape(26.dp)
+                                        ) {
+                                            Text("Continue with connected PC")
+                                        }
+                                    }
+                                } else {
+                                    // Cloud service entry (Simple: provider picker + key field + Test) per F-36 item 2
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surface
+                                        )
+                                    ) {
+                                        Column(modifier = Modifier.padding(16.dp)) {
+                                            Text(
+                                                text = "Cloud Service Setup",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.height(12.dp))
+
+                                            Text("Provider", style = MaterialTheme.typography.labelMedium)
+                                            Spacer(modifier = Modifier.height(6.dp))
+
+                                            val cloudPresets = listOf(
+                                                ProviderPreset.GROQ,
+                                                ProviderPreset.TOGETHER,
+                                                ProviderPreset.OPENAI,
+                                                ProviderPreset.OPENROUTER,
+                                                ProviderPreset.CUSTOM
+                                            )
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                cloudPresets.take(3).forEach { preset ->
+                                                    val isSel = cloudPreset == preset
+                                                    OutlinedButton(
+                                                        onClick = { cloudPreset = preset },
+                                                        modifier = Modifier.weight(1f),
+                                                        colors = ButtonDefaults.outlinedButtonColors(
+                                                            containerColor = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                                                        )
+                                                    ) {
+                                                        Text(
+                                                            text = preset.displayName.split(" ").first(),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            maxLines = 1
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                cloudPresets.drop(3).forEach { preset ->
+                                                    val isSel = cloudPreset == preset
+                                                    OutlinedButton(
+                                                        onClick = { cloudPreset = preset },
+                                                        modifier = Modifier.weight(1f),
+                                                        colors = ButtonDefaults.outlinedButtonColors(
+                                                            containerColor = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                                                        )
+                                                    ) {
+                                                        Text(
+                                                            text = preset.displayName.split(" ").first(),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            maxLines = 1
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(12.dp))
+
+                                            OutlinedTextField(
+                                                value = cloudApiKey,
+                                                onValueChange = { cloudApiKey = it },
+                                                label = { Text("API Key (${cloudPreset.displayName})") },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                singleLine = true,
+                                                visualTransformation = PasswordVisualTransformation()
+                                            )
+
+                                            Spacer(modifier = Modifier.height(10.dp))
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        isTestingCloud = true
+                                                        cloudTestStatus = "Testing key..."
+                                                        repository.providerPreset = cloudPreset
+                                                        repository.baseUrl = cloudPreset.defaultBaseUrl
+                                                        repository.apiKey = cloudApiKey
+                                                        repository.modelName = cloudPreset.defaultModel
+                                                        apiClient.testConnection { ok, msg ->
+                                                            isTestingCloud = false
+                                                            cloudTestStatus = if (ok) "✓ Key verified!" else msg
+                                                        }
+                                                    },
+                                                    enabled = !isTestingCloud && cloudApiKey.isNotBlank()
+                                                ) {
+                                                    if (isTestingCloud) {
+                                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                    }
+                                                    Text("Test")
+                                                }
+
+                                                if (!cloudTestStatus.isNullOrBlank()) {
+                                                    Text(
+                                                        text = cloudTestStatus!!,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = if (cloudTestStatus!!.startsWith("✓")) WhisperTokens.BrandTeal else MaterialTheme.colorScheme.error,
+                                                        modifier = Modifier.weight(1f).padding(start = 8.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(16.dp))
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.End
+                                            ) {
+                                                TextButton(onClick = { showCloudSetup = false }) {
+                                                    Text("Back to choices")
+                                                }
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Button(
+                                                    onClick = {
+                                                        repository.transcriptionTarget = TranscriptionTarget.CLOUD.id
+                                                        repository.providerPreset = cloudPreset
+                                                        repository.baseUrl = cloudPreset.defaultBaseUrl
+                                                        repository.apiKey = cloudApiKey
+                                                        repository.modelName = cloudPreset.defaultModel
+                                                        currentPage = 3
+                                                    },
+                                                    enabled = cloudApiKey.isNotBlank()
+                                                ) {
+                                                    Text("Continue")
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
 
-                        // 3. Try it (Practice sandbox, §4 item 3 & contract 05 §2.7)
+                        // 3. Try it (F-36 item 3: demo read-only display box, floating button demo, no shift continue)
                         3 -> {
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
@@ -539,7 +835,6 @@ fun IntroScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            // Mandatory Microphone Disclosure per F-22 item 3 & F-24 item 3
                             Text(
                                 text = "Audio is recorded only while you tap the button, and goes where you chose: this phone, your PC or your cloud service.",
                                 style = MaterialTheme.typography.bodySmall,
@@ -547,11 +842,11 @@ fun IntroScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                            // On-Device Model Download Banner (contract 05 §2.7)
+                            // On-Device Model Download Banner (if on-device chosen and not downloaded)
                             val isDownloading = modelDownloadState is ModelDownloadState.Downloading
-                            if (!isDefaultModelReady) {
+                            if (repository.transcriptionTarget == TranscriptionTarget.ON_DEVICE.id && !isDefaultModelReady) {
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -580,15 +875,8 @@ fun IntroScreen(
                                             )
                                         }
                                         Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "Download Parakeet TDT 110M to practice dictation and transcribe completely offline on this phone.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-
                                         if (isDownloading) {
                                             val dl = modelDownloadState as ModelDownloadState.Downloading
-                                            // Reason for edit: Decimal MB calculations per F-32 matching contract 05
                                             val dlMb = (dl.totalBytesDownloaded / 1_000_000L).toInt()
                                             val totalMb = 136
                                             val progress = if (dl.totalBytesExpected > 0) dl.totalBytesDownloaded.toFloat() / dl.totalBytesExpected.toFloat() else 0f
@@ -615,6 +903,11 @@ fun IntroScreen(
                                                 }
                                             }
                                         } else {
+                                            Text(
+                                                text = "Download Parakeet TDT 110M to practice dictation and transcribe completely offline on this phone.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                             Spacer(modifier = Modifier.height(8.dp))
                                             Button(
                                                 onClick = {
@@ -650,7 +943,7 @@ fun IntroScreen(
                                 }
                             }
 
-                            // Mock Message Sandbox Card
+                            // Read-only display box (Surface with Text per F-36 item 3)
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -672,14 +965,34 @@ fun IntroScreen(
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
 
-                                    OutlinedTextField(
-                                        value = practiceText,
-                                        onValueChange = { practiceText = it },
-                                        placeholder = { Text("Your words will appear here.") },
+                                    Surface(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .weight(1f)
-                                    )
+                                            .clip(RoundedCornerShape(12.dp)),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(14.dp)
+                                        ) {
+                                            if (practiceText.isBlank()) {
+                                                Text(
+                                                    text = "Say something like: \"This is only a test.\"",
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            } else {
+                                                Text(
+                                                    text = practiceText,
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        }
+                                    }
 
                                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -688,16 +1001,17 @@ fun IntroScreen(
                                         horizontalArrangement = Arrangement.Center,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        // App logo button for practice dictation
+                                        // Demo button styled exactly like real floating button per F-36 item 3
                                         Box(
                                             modifier = Modifier
                                                 .size(64.dp)
                                                 .clip(CircleShape)
                                                 .background(
                                                     if (isPracticeRecording) Color(0xFFD9694A).copy(alpha = 0.2f)
-                                                     else WhisperTokens.BrandTeal.copy(alpha = 0.12f)
+                                                    else WhisperTokens.BrandTeal.copy(alpha = 0.12f)
                                                 )
                                                 .clickable {
+                                                    // Request mic permission first if not granted per F-36 item 3
                                                     val hasMic = ContextCompat.checkSelfPermission(
                                                         context, Manifest.permission.RECORD_AUDIO
                                                     ) == PackageManager.PERMISSION_GRANTED
@@ -743,14 +1057,13 @@ fun IntroScreen(
                                                                                     practiceText = "Transcription failed: ${e.message}"
                                                                                 }
                                                                             } finally {
-                                                                                // Reason for edit: Delete practice recording after use per F-35
                                                                                 audioFile.delete()
                                                                             }
                                                                         }.start()
                                                                     }
                                                                 } else {
                                                                     isPracticeTranscribing = true
-                                                                    practiceText = "Transcribing audio with your PC..."
+                                                                    practiceText = "Transcribing audio..."
                                                                     apiClient.transcribeDetailed(audioFile) { result ->
                                                                         when (result) {
                                                                             is TranscriptionResult.Success -> {
@@ -767,7 +1080,7 @@ fun IntroScreen(
                                                                             }
                                                                             else -> {
                                                                                 if (isDefaultModelReady) {
-                                                                                    practiceText = "PC unreachable. Transcribing on this phone instead..."
+                                                                                    practiceText = "Primary engine unreachable. Transcribing on this phone instead..."
                                                                                     Thread {
                                                                                         try {
                                                                                             if (!onDeviceEngine.isInitialized) {
@@ -776,7 +1089,7 @@ fun IntroScreen(
                                                                                             val text = onDeviceEngine.transcribe(audioFile, removeFillers = repository.removeFillerSounds)
                                                                                             mainHandler.post {
                                                                                                 isPracticeTranscribing = false
-                                                                                                practiceText = "$text\n\n(Transcribed on this phone: PC unreachable)"
+                                                                                                practiceText = "$text\n\n(Transcribed on this phone: server unreachable)"
                                                                                                 practiceSuccessCelebration = text.isNotBlank()
                                                                                             }
                                                                                         } catch (e: Exception) {
@@ -785,7 +1098,6 @@ fun IntroScreen(
                                                                                                 practiceText = "Transcription failed"
                                                                                             }
                                                                                         } finally {
-                                                                                            // Reason for edit: Delete practice recording after use per F-35
                                                                                             audioFile.delete()
                                                                                         }
                                                                                     }.start()
@@ -808,13 +1120,21 @@ fun IntroScreen(
                                                 },
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Image(
-                                                painter = painterResource(
-                                                    if (isPracticeRecording) R.drawable.whisper_remote_record else R.drawable.whisper_remote
-                                                ),
-                                                contentDescription = if (isPracticeRecording) "Stop recording" else "Tap here to practice speaking",
-                                                modifier = Modifier.size(54.dp)
-                                            )
+                                            if (isPracticeTranscribing) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(36.dp),
+                                                    strokeWidth = 3.dp,
+                                                    color = WhisperTokens.BrandTeal
+                                                )
+                                            } else {
+                                                Image(
+                                                    painter = painterResource(
+                                                        if (isPracticeRecording) R.drawable.whisper_remote_record else R.drawable.whisper_remote
+                                                    ),
+                                                    contentDescription = if (isPracticeRecording) "Stop recording" else "Tap here to practice speaking",
+                                                    modifier = Modifier.size(54.dp)
+                                                )
+                                            }
                                         }
 
                                         Spacer(modifier = Modifier.width(14.dp))
@@ -843,23 +1163,12 @@ fun IntroScreen(
                                             )
                                         }
                                     }
-
-                                    if (practiceSuccessCelebration) {
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Text(
-                                            text = "✓ Practice dictation captured successfully!",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = WhisperTokens.BrandTeal,
-                                            fontWeight = FontWeight.Medium,
-                                            modifier = Modifier.fillMaxWidth(),
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
                                 }
                             }
 
                             Spacer(modifier = Modifier.height(16.dp))
 
+                            // Continue button updates text without shifting layout per F-36 item 3
                             Button(
                                 onClick = { currentPage = 4 },
                                 modifier = Modifier
@@ -867,7 +1176,7 @@ fun IntroScreen(
                                     .height(52.dp),
                                 shape = RoundedCornerShape(26.dp)
                             ) {
-                                Text("Continue")
+                                Text(if (practiceSuccessCelebration) "It works: Continue" else "Continue")
                             }
                         }
 
@@ -919,116 +1228,127 @@ fun IntroScreen(
                             }
                         }
 
-                        // 5. Paste into apps (Prominent Accessibility Disclosure, §4 item 5 + F-22 item 4)
+                        // 5. Paste into apps (F-36 item 4: scrollable column so content is never cut off)
                         5 -> {
-                            Spacer(modifier = Modifier.height(16.dp))
-                            IntroIllustration(painter = painterResource(R.drawable.ic_shield), tint = Color(0xFFE57E3B))
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "Paste into apps",
-                                style = MaterialTheme.typography.headlineLarge,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState()),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                IntroIllustration(painter = painterResource(R.drawable.ic_shield), tint = Color(0xFFE57E3B))
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "Paste into apps",
+                                    style = MaterialTheme.typography.headlineLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
 
-                            if (!accessibilityAgreed) {
-                                // Prominent Disclosure Card
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .weight(1f),
-                                    shape = RoundedCornerShape(20.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surface
-                                    )
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(18.dp)
+                                if (!accessibilityAgreed) {
+                                    // Prominent Disclosure Card
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(20.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surface
+                                        )
                                     ) {
-                                        Text(
-                                            text = "How Whisper Unchained uses Accessibility",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = "Whisper Unchained uses Android's Accessibility Service solely to detect the active text field and insert your words at the cursor.\n\n" +
-                                                    "• What we read: The active editable field to place your text.\n" +
-                                                    "• What we NEVER touch: Password, PIN, and payment fields are never read or typed into.\n" +
-                                                    "• Privacy guarantee: No keystrokes or field contents are stored or sent anywhere.\n\n" +
-                                                    "You can turn this off anytime in Settings and use Clipboard mode instead.",
-                                            style = MaterialTheme.typography.bodyMedium
-                                        )
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(18.dp)
+                                        ) {
+                                            Text(
+                                                text = "How Whisper Unchained uses Accessibility",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = "Whisper Unchained uses Android's Accessibility Service solely to detect the active text field and insert your words at the cursor.\n\n" +
+                                                        "• What we read: The active editable field to place your text.\n" +
+                                                        "• What we NEVER touch: Password, PIN, and payment fields are never read or typed into.\n" +
+                                                        "• Privacy guarantee: No keystrokes or field contents are stored or sent anywhere.\n\n" +
+                                                        "You can turn this off anytime in Settings and use Clipboard mode instead.",
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        }
                                     }
-                                }
 
-                                Spacer(modifier = Modifier.height(16.dp))
+                                    Spacer(modifier = Modifier.height(16.dp))
 
-                                // Affirmative Agree button (Back/home gesture does not count per F-22)
-                                Button(
-                                    onClick = {
-                                        accessibilityAgreed = true
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(52.dp),
-                                    shape = RoundedCornerShape(26.dp)
-                                ) {
-                                    Text("Agree & Continue")
-                                }
+                                    Button(
+                                        onClick = {
+                                            accessibilityAgreed = true
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(52.dp),
+                                        shape = RoundedCornerShape(26.dp)
+                                    ) {
+                                        Text("Agree & Continue")
+                                    }
 
-                                Spacer(modifier = Modifier.height(10.dp))
+                                    Spacer(modifier = Modifier.height(10.dp))
 
-                                TextButton(
-                                    onClick = {
-                                        repository.injectionMode = InjectionMode.CLIPBOARD
-                                        currentPage = 6
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Not now (use clipboard chip)")
-                                }
-                            } else {
-                                // 3-Step Visual Guide after Agree
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .weight(1f),
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    StepRow(step = "1", text = "Tap 'Open settings' below")
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    StepRow(step = "2", text = "Find 'Whisper Unchained' in Installed Apps")
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    StepRow(step = "3", text = "Turn ON the main switch (leave the shortcut switch OFF)")
-                                }
+                                    TextButton(
+                                        onClick = {
+                                            repository.injectionMode = InjectionMode.CLIPBOARD
+                                            currentPage = 6
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Not now (use clipboard chip)")
+                                    }
+                                } else {
+                                    // 3-Step Visual Guide after Agree
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(20.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surface
+                                        )
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(18.dp)
+                                        ) {
+                                            StepRow(step = "1", text = "Tap 'Open settings' below")
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            StepRow(step = "2", text = "Find 'Whisper Unchained' in Installed Apps")
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            StepRow(step = "3", text = "Turn ON the main switch (leave the shortcut switch OFF)")
+                                        }
+                                    }
 
-                                Spacer(modifier = Modifier.height(16.dp))
+                                    Spacer(modifier = Modifier.height(16.dp))
 
-                                Button(
-                                    onClick = {
-                                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                                        context.startActivity(intent)
-                                        currentPage = 6
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(52.dp),
-                                    shape = RoundedCornerShape(26.dp)
-                                ) {
-                                    Text("Open Accessibility Settings")
-                                }
+                                    Button(
+                                        onClick = {
+                                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                            context.startActivity(intent)
+                                            currentPage = 6
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(52.dp),
+                                        shape = RoundedCornerShape(26.dp)
+                                    ) {
+                                        Text("Open Accessibility Settings")
+                                    }
 
-                                Spacer(modifier = Modifier.height(10.dp))
+                                    Spacer(modifier = Modifier.height(10.dp))
 
-                                TextButton(
-                                    onClick = { currentPage = 6 },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Done / Skip")
+                                    TextButton(
+                                        onClick = { currentPage = 6 },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Done / Skip")
+                                    }
                                 }
                             }
                         }
@@ -1106,44 +1426,139 @@ fun IntroScreen(
                             }
                         }
 
-                        // 7. What to expect (§4 item 7)
+                        // 7. What to expect (§4 item 7 & F-36 item 7: backup phone model card)
                         7 -> {
-                            Spacer(modifier = Modifier.height(24.dp))
-                            IntroIllustration(icon = Icons.Default.Check, tint = WhisperTokens.BrandTeal)
-                            Spacer(modifier = Modifier.height(24.dp))
-                            Text(
-                                text = "You're all set!",
-                                style = MaterialTheme.typography.headlineLarge,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "The floating button appears on your screen.\n\n" +
-                                        "• Tap once to start dictating.\n" +
-                                        "• Tap again to stop and paste.\n" +
-                                        "• Drag the button to place it anywhere you like.",
-                                style = MaterialTheme.typography.bodyLarge,
-                                textAlign = TextAlign.Center,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Spacer(modifier = Modifier.weight(1f))
-
-                            Button(
-                                onClick = {
-                                    if (repository.baseUrl.isBlank() && isDefaultModelReady) {
-                                        repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
-                                    }
-                                    repository.hasCompletedFirstRunChecklist = true
-                                    onFinishIntro()
-                                },
+                            Column(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(52.dp),
-                                shape = RoundedCornerShape(26.dp)
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState()),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text("Finish setup")
+                                Spacer(modifier = Modifier.height(24.dp))
+                                IntroIllustration(icon = Icons.Default.Check, tint = WhisperTokens.BrandTeal)
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Text(
+                                    text = "You're all set!",
+                                    style = MaterialTheme.typography.headlineLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "The floating button appears on your screen.\n\n" +
+                                            "• Tap once to start dictating.\n" +
+                                            "• Tap again to stop and paste.\n" +
+                                            "• Drag the button to place it anywhere you like.",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    textAlign = TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                // Backup model offer per F-36 item 7
+                                val showBackupOffer = repository.transcriptionTarget != TranscriptionTarget.ON_DEVICE.id &&
+                                        !isDefaultModelReady && !introBackupDismissed
+                                if (showBackupOffer) {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                    ) {
+                                        Column(modifier = Modifier.padding(16.dp)) {
+                                            Text(
+                                                text = "Backup for when your PC can't be reached",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "Download the 136 MB speech model and dictation keeps working offline, without AI editing.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+
+                                            val isDl = modelDownloadState is ModelDownloadState.Downloading
+                                            if (isDl) {
+                                                val dl = modelDownloadState as ModelDownloadState.Downloading
+                                                val dlMb = (dl.totalBytesDownloaded / 1_000_000L).toInt()
+                                                val totalMb = 136
+                                                val progress = if (dl.totalBytesExpected > 0) dl.totalBytesDownloaded.toFloat() / dl.totalBytesExpected.toFloat() else 0f
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                LinearProgressIndicator(
+                                                    progress = { progress },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(6.dp)
+                                                        .clip(RoundedCornerShape(3.dp))
+                                                )
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = "Downloading $dlMb of $totalMb MB...",
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            } else {
+                                                Spacer(modifier = Modifier.height(12.dp))
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.End
+                                                ) {
+                                                    TextButton(onClick = { introBackupDismissed = true }) {
+                                                        Text("Not now")
+                                                    }
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Button(
+                                                        onClick = {
+                                                            val cancelSig = AtomicBoolean(false)
+                                                            activeCancelSignal = cancelSig
+                                                            Thread {
+                                                                onDeviceModelManager.downloadModel(
+                                                                    modelId = OnDeviceModelManager.DEFAULT_MODEL_ID,
+                                                                    allowMobileData = true,
+                                                                    cancelSignal = cancelSig
+                                                                ) { state ->
+                                                                    mainHandler.post {
+                                                                        modelDownloadState = state
+                                                                        if (state is ModelDownloadState.Ready) {
+                                                                            isDefaultModelReady = true
+                                                                            repository.fallbackToOnDevice = true
+                                                                            activeCancelSignal = null
+                                                                        } else if (state is ModelDownloadState.Failed || state is ModelDownloadState.Cancelled) {
+                                                                            activeCancelSignal = null
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }.start()
+                                                        }
+                                                    ) {
+                                                        Text("Download")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                }
+
+                                Spacer(modifier = Modifier.height(24.dp))
+
+                                Button(
+                                    onClick = {
+                                        if (repository.baseUrl.isBlank() && isDefaultModelReady && repository.transcriptionTarget != TranscriptionTarget.CLOUD.id) {
+                                            repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
+                                        }
+                                        repository.hasCompletedFirstRunChecklist = true
+                                        onFinishIntro()
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(52.dp),
+                                    shape = RoundedCornerShape(26.dp)
+                                ) {
+                                    Text("Finish setup")
+                                }
                             }
                         }
                     }
