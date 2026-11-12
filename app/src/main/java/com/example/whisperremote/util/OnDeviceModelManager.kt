@@ -3,6 +3,7 @@
 // Inputs: models-manifest.json assets/string, app Context, download cancellation/progress callbacks, Wi-Fi override preferences.
 // Outputs: Model file resolution, SHA-256 hash validation, resumable/cancellable HTTP downloads, and corrupt file purging.
 // Strictly conforms to contracts/05-on-device.md §2.2 & §2.6 and tag models-v1 release manifests.
+// Reason for edit: Standardize model titles and decimal MB sizes per contract and F-32.
 // Reason for edit: Add HTTP Range resumable downloads with .part persistence and corrupt hash purging per F-29.
 
 package com.example.whisperremote.util
@@ -121,9 +122,9 @@ class OnDeviceModelManager(
             val tok = m.getJSONObject("tokens")
 
             val (dispName, desc) = when (key) {
-                DEFAULT_MODEL_ID -> Pair("Parakeet TDT 110M (Default)", "Fast & lightweight (~136 MB) · English")
-                ACCURACY_MODEL_ID -> Pair("Parakeet TDT 0.6B v2", "Higher accuracy (~661 MB) · English")
-                MULTI_MODEL_ID -> Pair("Parakeet TDT 0.6B v3", "25 European languages (~671 MB)")
+                DEFAULT_MODEL_ID -> Pair("Standard (English) · 136 MB", "Parakeet TDT 110M")
+                ACCURACY_MODEL_ID -> Pair("Higher accuracy (English) · 661 MB", "Parakeet TDT 0.6B v2")
+                MULTI_MODEL_ID -> Pair("Other languages · 671 MB", "25 European languages, Parakeet TDT 0.6B v3")
                 else -> Pair(key, "On-device model")
             }
 

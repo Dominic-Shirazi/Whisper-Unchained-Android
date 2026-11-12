@@ -1,3 +1,6 @@
+// This file tests package context for the application.
+// Reason for edit: Support both play and full flavor package names.
+
 package com.example.whisperremote
 
 import androidx.test.platform.app.InstrumentationRegistry
@@ -19,6 +22,6 @@ class ExampleInstrumentedTest {
     fun useAppContext() {
         // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("com.cyrus_studio.whisperunchained.full", appContext.packageName)
+        assertTrue(appContext.packageName.startsWith("com.cyrus_studio.whisperunchained"))
     }
 }

@@ -3,6 +3,7 @@
 // Inputs: models-manifest.json, temporary test files with known hashes.
 // Outputs: Validates that models are accurately parsed, hashes match, and corrupt files are purged per contracts/05 §2.2.
 // Reason for creation: Unit test suite for OnDeviceModelManager in v1.3 Part 2 per F-28.
+// Reason for edit: Update expected defaultModel.displayName to "Standard (English) · 136 MB" per F-32.
 
 package com.example.whisperremote
 
@@ -64,7 +65,7 @@ class OnDeviceModelManagerTest {
 
         val defaultModel = modelManager.availableModels[OnDeviceModelManager.DEFAULT_MODEL_ID]
         assertNotNull(defaultModel)
-        assertEquals("Parakeet TDT 110M (Default)", defaultModel!!.displayName)
+        assertEquals("Standard (English) · 136 MB", defaultModel!!.displayName)
         assertEquals(4, defaultModel.allFiles.size)
         assertEquals("parakeet-tdt-110m-en-int8.encoder.int8.onnx", defaultModel.encoder.fileName)
         assertEquals(131113202L, defaultModel.encoder.expectedBytes)

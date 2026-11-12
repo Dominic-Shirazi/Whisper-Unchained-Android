@@ -310,15 +310,18 @@ fun TranscriptionScreen(
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Text(
-                                        text = "100% Private & Offline",
+                                        text = "Private and offline",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(8.dp))
+                                val hasCloudAi = repository.cleanupChatUrl.isNotBlank() && repository.cleanupChatKey.isNotBlank()
+                                val privacyBody = "Speech is recognized on this phone; your audio never leaves it." +
+                                        if (hasCloudAi) " (If you turn on AI Editing with a cloud service, the text is sent there for cleanup.)" else ""
                                 Text(
-                                    text = "Recordings are processed directly on your phone's processor using Parakeet TDT and Silero VAD. No audio or text ever leaves this device.",
+                                    text = privacyBody,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1012,9 +1015,24 @@ fun TranscriptionScreen(
                                             )
                                         }
                                     }
-                                } else if (!isDownloadingThis && !isVerifyingThis) {
-                                    val sizeMb = (modelSpec.totalBytes / (1024 * 1024)).toInt()
-                                    OutlinedButton(
+                                }
+                            }
+
+                            // Download action on its own line below model details per F-32 item 4
+                            if (!isReady && !isDownloadingThis && !isVerifyingThis) {
+                                val sizeMb = when (modelSpec.id) {
+                                    OnDeviceModelManager.DEFAULT_MODEL_ID -> 136
+                                    OnDeviceModelManager.ACCURACY_MODEL_ID -> 661
+                                    OnDeviceModelManager.MULTI_MODEL_ID -> 671
+                                    else -> (modelSpec.totalBytes / 1_000_000L).toInt()
+                                }
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 48.dp)
+                                ) {
+                                    Button(
                                         onClick = {
                                             if (downloadWifiOnly && !onDeviceModelManager.isWifiConnected()) {
                                                 Toast.makeText(
@@ -1022,7 +1040,7 @@ fun TranscriptionScreen(
                                                     "Wi-Fi connection required. Turn off 'Download over Wi-Fi only' to download on mobile data.",
                                                     Toast.LENGTH_LONG
                                                 ).show()
-                                                return@OutlinedButton
+                                                return@Button
                                             }
 
                                             val cancelSig = AtomicBoolean(false)
@@ -1057,18 +1075,25 @@ fun TranscriptionScreen(
                                                 }
                                             }.start()
                                         },
-                                        shape = RoundedCornerShape(18.dp)
+                                        shape = RoundedCornerShape(16.dp)
                                     ) {
+                                        Icon(painter = painterResource(R.drawable.ic_mic), contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
                                         Text("Download ($sizeMb MB)", style = MaterialTheme.typography.labelSmall)
                                     }
                                 }
                             }
 
-                            // Download progress / verification UI per contract 05 §2.6
+                            // Download progress / verification UI per contract 05 §2.6 & F-32
                             if (isDownloadingThis) {
                                 val dlState = downloadState as ModelDownloadState.Downloading
-                                val dlMb = (dlState.totalBytesDownloaded / (1024 * 1024)).toInt()
-                                val totalMb = (dlState.totalBytesExpected / (1024 * 1024)).toInt()
+                                val dlMb = (dlState.totalBytesDownloaded / 1_000_000L).toInt()
+                                val totalMb = when (modelSpec.id) {
+                                    OnDeviceModelManager.DEFAULT_MODEL_ID -> 136
+                                    OnDeviceModelManager.ACCURACY_MODEL_ID -> 661
+                                    OnDeviceModelManager.MULTI_MODEL_ID -> 671
+                                    else -> (dlState.totalBytesExpected / 1_000_000L).toInt()
+                                }
                                 val progress = if (dlState.totalBytesExpected > 0) {
                                     dlState.totalBytesDownloaded.toFloat() / dlState.totalBytesExpected.toFloat()
                                 } else 0f
@@ -1088,7 +1113,7 @@ fun TranscriptionScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "Downloading $dlMb of $totalMb MB (${dlState.currentFileName})",
+                                        text = "Downloading $dlMb of $totalMb MB",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

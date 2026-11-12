@@ -432,7 +432,7 @@ fun IntroScreen(
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "For the fastest and most accurate transcription with large-v3-turbo, scan the QR code in your PC app. Or skip this step to transcribe completely offline on this phone.",
+                                text = "For the most accurate results, scan the pairing code in Whisper Unchained Server on your PC. Or skip this step: dictation works on this phone without a PC.",
                                 style = MaterialTheme.typography.bodyLarge,
                                 textAlign = TextAlign.Center,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -587,8 +587,9 @@ fun IntroScreen(
 
                                         if (isDownloading) {
                                             val dl = modelDownloadState as ModelDownloadState.Downloading
-                                            val dlMb = (dl.totalBytesDownloaded / (1024 * 1024)).toInt()
-                                            val totalMb = (dl.totalBytesExpected / (1024 * 1024)).toInt()
+                                            // Reason for edit: Decimal MB calculations per F-32 matching contract 05
+                                            val dlMb = (dl.totalBytesDownloaded / 1_000_000L).toInt()
+                                            val totalMb = 136
                                             val progress = if (dl.totalBytesExpected > 0) dl.totalBytesDownloaded.toFloat() / dl.totalBytesExpected.toFloat() else 0f
                                             Spacer(modifier = Modifier.height(8.dp))
                                             LinearProgressIndicator(
@@ -664,7 +665,7 @@ fun IntroScreen(
                                         .padding(16.dp)
                                 ) {
                                     Text(
-                                        text = "Practice Chat Box",
+                                        text = "Practice box",
                                         style = MaterialTheme.typography.labelLarge,
                                         color = MaterialTheme.colorScheme.primary
                                     )
@@ -673,7 +674,7 @@ fun IntroScreen(
                                     OutlinedTextField(
                                         value = practiceText,
                                         onValueChange = { practiceText = it },
-                                        placeholder = { Text("Your spoken words will appear here in real time...") },
+                                        placeholder = { Text("Your words will appear here.") },
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .weight(1f)
