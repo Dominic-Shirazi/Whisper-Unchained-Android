@@ -15,6 +15,9 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
 - ✅ targetSdk 36 (Play's minimum for new apps since 31 Aug 2026). minSdk 34 (Android 14+).
 - ⬜ **App bundle** (`gradlew :app:bundlePlayRelease`), signed with our key, which becomes the **upload key**; enroll in
   **Play App Signing** (Google holds the app-signing key).
+- ⬜ **ABIs:** GitHub APKs are trimmed to `arm64-v8a` (v1.3, saves ~40 MB). The Play **bundle** should include all ABIs
+  (Play delivers only the device's own), so 32-bit Android Go phones and x86 Chromebooks aren't excluded: apply the
+  `abiFilters` only to APK builds, not `bundlePlayRelease`.
 - ⬜ Only the `play` flavor goes to Play (no MediaProjection, verified in v1.1).
 - ⬜ The `play` APK must **not** declare `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (restricted; dictation isn't an allowed
   use case). Play opens the battery settings list instead; `full` keeps the direct prompt (F-27). Check with
