@@ -1,5 +1,6 @@
 // This file is the primary activity and settings coordinator for Whisper Unchained.
 // Rebuilt in Jetpack Compose + Material 3 per contracts/04-look-and-feel.md version 2 (F-20, F-21, F-22).
+// Reason for edit: Add OnDevice status card state support per contract 05 §2.3.
 // Reason for edit: Support QR scan success callback for automatic intro advance, and fix setup steps remaining calculation.
 // Inputs: User configurations, camera QR code scanning (Google Code Scanner), Android system permissions.
 // Outputs: Complete Compose UI hosting HomeScreen, subpages (Transcription, Words/Triggers, AI Editing, Paste Mode,
@@ -39,7 +40,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
+import com.example.whisperremote.data.TranscriptionTarget
 import com.example.whisperremote.net.TailscaleManager
+import com.example.whisperremote.util.OnDeviceModelManager
 import com.example.whisperremote.ui.components.StatusCardState
 import com.example.whisperremote.ui.intro.IntroScreen
 import com.example.whisperremote.ui.screens.AboutScreen
@@ -107,6 +110,14 @@ class MainActivity : ComponentActivity() {
         if (!repository.hasCompletedFirstRunChecklist) {
             val stepsLeft = calculateSetupStepsLeft()
             statusCardState = StatusCardState.IncompleteSetup(stepsLeft = stepsLeft, totalSteps = 4)
+            return
+        }
+
+        // Reason for edit: Display OnDevice status on home status card per contract 05 §2.3
+        if (repository.transcriptionTarget == TranscriptionTarget.ON_DEVICE.id) {
+            val modelSpec = OnDeviceModelManager(this).availableModels[repository.selectedOnDeviceModelId]
+            val name = modelSpec?.displayName ?: "Parakeet TDT 110M"
+            statusCardState = StatusCardState.OnDevice(name)
             return
         }
 

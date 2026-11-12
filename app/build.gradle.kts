@@ -46,6 +46,11 @@ android {
         versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Reason for edit: Limit native libraries to arm64-v8a per F-30 (all API 34+ phones are 64-bit ARM; saves ~115 MB in release APK)
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     flavorDimensions += "dist"

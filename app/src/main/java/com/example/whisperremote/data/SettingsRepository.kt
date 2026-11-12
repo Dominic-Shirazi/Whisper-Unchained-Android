@@ -3,6 +3,7 @@
 // Inputs: User inputs from Settings UI or QR code scan, with sensitive credentials (API keys) protected by hardware-backed KeyStore AES-256-GCM.
 // Outputs: Provider settings (base URL, API key, model, prompt hints), behavioral flags (auto-trim, boot start, Tailscale auto-restart), and injection mode.
 // It resolves endpoints according to the OpenAI standard (/v1/audio/transcriptions, /health, /v1/models) and migrates legacy URLs cleanly.
+// Reason for edit: Add on-device model and download preferences per contract 05 §2.3 & §2.6.
 // Reason for edit: Accurate provider info (corrected Together pricing, realistic speed claims, verified privacy summaries, pricing URLs) per F-27.
 
 package com.example.whisperremote.data
@@ -640,6 +641,10 @@ class SettingsRepository(context: Context) {
     var selectedOnDeviceModelId: String
         get() = getPlainString("selected_on_device_model_id", "parakeet-tdt-110m-en-int8")
         set(value) = putPlainString("selected_on_device_model_id", value)
+
+    var downloadWifiOnly: Boolean
+        get() = prefs.getBoolean("download_wifi_only", true)
+        set(value) = prefs.edit().putBoolean("download_wifi_only", value).apply()
 
     fun queueVocabularyAddition(word: String) {
         val clean = word.trim()

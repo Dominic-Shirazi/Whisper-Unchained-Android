@@ -363,3 +363,55 @@ fun SettingsSplitRow(
         }
     }
 }
+
+// Reason for edit: Add SettingsRadioRow for transcription target and model selection per contract 05 §2.3
+@Composable
+fun SettingsRadioRow(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    trailingBadge: String? = null
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .defaultMinSize(
+                minHeight = if (subtitle.isNullOrBlank()) WhisperTokens.SingleLineRowMinHeight
+                else WhisperTokens.TwoLineRowMinHeight
+            )
+            .clickable(role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = WhisperTokens.RowHorizontalPadding, vertical = WhisperTokens.RowVerticalPadding),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        androidx.compose.material3.RadioButton(
+            selected = selected,
+            onClick = onClick
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (trailingBadge != null) {
+            Text(
+                text = trailingBadge,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+            )
+        }
+    }
+}

@@ -65,7 +65,10 @@ import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import com.example.whisperremote.data.InjectionMode
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
+import com.example.whisperremote.data.TranscriptionTarget
 import com.example.whisperremote.net.TailscaleManager
+import com.example.whisperremote.util.OnDeviceModelManager
+import com.example.whisperremote.util.OnDeviceTranscriptionEngine
 import com.example.whisperremote.util.SamsungBlurHelper
 import com.example.whisperremote.util.TranscriptSanitizer
 import android.media.AudioAttributes
@@ -191,6 +194,10 @@ class FloatingButtonService : Service() {
     private lateinit var apiClient: ApiClient
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var tailscaleManager: TailscaleManager
+
+    // Reason for edit: On-device transcription engine and model manager per contract 05 §2.8
+    private val onDeviceModelManager by lazy { OnDeviceModelManager(this) }
+    private val onDeviceEngine by lazy { OnDeviceTranscriptionEngine(this, onDeviceModelManager, settingsRepository) }
 
     private var audioFocusRequest: AudioFocusRequest? = null
     private var currentAudioSource = ActiveAudioSource.MIC
@@ -350,6 +357,20 @@ class FloatingButtonService : Service() {
         if (BuildConfig.FEATURE_INTERNAL_AUDIO) {
             audioManager.registerAudioPlaybackCallback(audioPlaybackCallback, mainHandler)
         }
+
+        // Reason for edit: Pre-warm on-device recognizer off main thread per contract 05 §2.8
+        Thread {
+            try {
+                if (settingsRepository.transcriptionTarget == TranscriptionTarget.ON_DEVICE.id || settingsRepository.fallbackToOnDevice) {
+                    val modelId = settingsRepository.selectedOnDeviceModelId
+                    if (onDeviceModelManager.isModelReady(modelId)) {
+                        onDeviceEngine.initialize(modelId)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("FloatingButtonService", "Error pre-warming on-device engine", e)
+            }
+        }.start()
 
         // Reason for edit: Verify RECORD_AUDIO permission before starting FGS to prevent SecurityException per F-26
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -2313,6 +2334,12 @@ class FloatingButtonService : Service() {
 
         setState(ButtonState.PROCESSING)
 
+        // Reason for edit: Direct on-device transcription when Target is ON_DEVICE per contract 05 §2.3
+        if (settingsRepository.transcriptionTarget == TranscriptionTarget.ON_DEVICE.id) {
+            processOnDeviceTranscription(file, fallbackNotice = false)
+            return
+        }
+
         apiClient.transcribeDetailed(file, styleOverrides) { result ->
             when (result) {
                 is TranscriptionResult.Success -> {
@@ -2383,6 +2410,14 @@ class FloatingButtonService : Service() {
                     pendingRetryStyleOverrides = null
                     stopPollingForResume()
                     Log.e("FloatingButtonService", "Network failure: ${result.error.message}")
+
+                    // Reason for edit: Fallback to on-device transcription when PC/cloud is unreachable per contract 05 §2.3
+                    if (settingsRepository.fallbackToOnDevice && (onDeviceModelManager.isModelReady(settingsRepository.selectedOnDeviceModelId) || onDeviceModelManager.isModelReady(OnDeviceModelManager.DEFAULT_MODEL_ID))) {
+                        Log.i("FloatingButtonService", "Falling back to on-device transcription: PC unreachable")
+                        processOnDeviceTranscription(file, fallbackNotice = true)
+                        return@transcribeDetailed
+                    }
+
                     if (settingsRepository.autoRestartTailscale && tailscaleManager.isTailscaleInstalled()) {
                         tailscaleManager.restartTailscaleIfAllowed()
                     }
@@ -2397,6 +2432,14 @@ class FloatingButtonService : Service() {
                     pendingRetryStyleOverrides = null
                     stopPollingForResume()
                     Log.e("FloatingButtonService", "Server error ${result.code}: ${result.message}")
+
+                    // Reason for edit: Fallback to on-device transcription on 5xx server errors per contract 05 §2.3
+                    if (result.code >= 500 && settingsRepository.fallbackToOnDevice && (onDeviceModelManager.isModelReady(settingsRepository.selectedOnDeviceModelId) || onDeviceModelManager.isModelReady(OnDeviceModelManager.DEFAULT_MODEL_ID))) {
+                        Log.i("FloatingButtonService", "Falling back to on-device transcription: Server error ${result.code}")
+                        processOnDeviceTranscription(file, fallbackNotice = true)
+                        return@transcribeDetailed
+                    }
+
                     mainHandler.post {
                         val errorText = result.message.ifBlank { "Server error ${result.code}" }
                         showTemporaryHint("Error ${result.code}")
@@ -2409,6 +2452,48 @@ class FloatingButtonService : Service() {
                 cleanupActiveAudioFile(keepIfPendingRetry = false)
             }
         }
+    }
+
+    // Reason for edit: Helper for executing on-device transcription off main thread with optional fallback notice per contract 05 §2.3
+    private fun processOnDeviceTranscription(file: File, fallbackNotice: Boolean) {
+        Thread {
+            try {
+                var modelId = settingsRepository.selectedOnDeviceModelId
+                if (!onDeviceModelManager.isModelReady(modelId)) {
+                    modelId = OnDeviceModelManager.DEFAULT_MODEL_ID
+                }
+                if (!onDeviceEngine.isInitialized || onDeviceEngine.loadedModelId != modelId) {
+                    val ok = onDeviceEngine.initialize(modelId)
+                    if (!ok) {
+                        mainHandler.post {
+                            showTemporaryHint("Model not ready")
+                            Toast.makeText(applicationContext, "On-device model is not installed", Toast.LENGTH_SHORT).show()
+                            setState(ButtonState.HIDDEN)
+                        }
+                        return@Thread
+                    }
+                }
+
+                val text = onDeviceEngine.transcribe(file, removeFillers = settingsRepository.removeFillerSounds)
+                mainHandler.post {
+                    if (fallbackNotice) {
+                        Toast.makeText(applicationContext, "Transcribed on this phone: your PC couldn't be reached", Toast.LENGTH_LONG).show()
+                    }
+                    if (text.isBlank()) {
+                        showTemporaryHint("No speech detected")
+                        setState(ButtonState.HIDDEN)
+                    } else {
+                        deliverTranscribedText(text)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("FloatingButtonService", "On-device transcription failed", e)
+                mainHandler.post {
+                    showTemporaryHint("Transcription failed")
+                    setState(ButtonState.HIDDEN)
+                }
+            }
+        }.start()
     }
 
     private fun deliverTranscribedText(text: String) {
@@ -2493,6 +2578,8 @@ class FloatingButtonService : Service() {
         stopPollingForResume()
         closeStyleSheet()
         closeSetupMissingPrompt()
+        // Reason for edit: Release on-device recognizer and VAD native resources per contract 05 §2.8
+        onDeviceEngine.release()
         if (::windowManager.isInitialized) {
             sheetOverlayView?.let {
                 try {

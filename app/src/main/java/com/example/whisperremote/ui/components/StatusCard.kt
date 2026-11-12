@@ -1,8 +1,9 @@
 // This file provides the prominent status card composable at the top of Whisper Unchained's home screen.
 // It is called by HomeScreen (inspired by Samsung One UI's Samsung Account card).
-// Inputs: Connection status (connected, model, paused, error), setup completion state, click listener.
+// Inputs: Connection status (connected, model, paused, error, on-device), setup completion state, click listener.
 // Outputs: Touch-accessible status card with informative icon and text indicators (color-blind safe).
 // Tapping the card opens the Transcription screen (or launches the First-Run Intro if setup is pending).
+// Reason for edit: Add OnDevice status card state per contract 05 §2.3.
 
 package com.example.whisperremote.ui.components
 
@@ -41,6 +42,7 @@ import com.example.whisperremote.ui.theme.WhisperTokens
 
 sealed interface StatusCardState {
     data class IncompleteSetup(val stepsLeft: Int, val totalSteps: Int = 4) : StatusCardState
+    data class OnDevice(val modelName: String) : StatusCardState
     data class Connected(val targetName: String, val model: String) : StatusCardState
     data class Cloud(val providerName: String, val model: String) : StatusCardState
     data class Paused(val message: String) : StatusCardState
@@ -68,6 +70,14 @@ fun StatusCard(
                 iconBg = WhisperTokens.FallbackAccent,
                 title = "Finish setup (${state.stepsLeft} of ${state.totalSteps} steps left)",
                 subtitle = "Tap to complete initial setup and test dictation"
+            )
+        }
+        is StatusCardState.OnDevice -> {
+            CardIconData(
+                iconPainter = painterResource(R.drawable.ic_mic),
+                iconBg = WhisperTokens.BrandTeal,
+                title = "On this phone",
+                subtitle = state.modelName
             )
         }
         is StatusCardState.Connected -> {
