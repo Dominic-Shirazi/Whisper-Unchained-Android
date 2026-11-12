@@ -4,7 +4,7 @@
 // Outputs: Vocabulary hints with character budget (540 chars), server name-correction hints,
 //          sync button, name corrections editor (local for cloud / read-only for PC), and voice edit trigger info.
 // Conforms to contracts/04-look-and-feel.md §3.3 and Appendix v1 §6.
-// Reason for edit: Hop to main looper for Toast and state in vocabulary sync per F-26.
+// Reason for edit: Center-align name correction arrows in a straight vertical column per user feedback.
 
 package com.example.whisperremote.ui.screens
 
@@ -248,23 +248,30 @@ fun WordsTriggersScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(vertical = 4.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
                                             text = entry.key,
                                             style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.weight(1f)
                                         )
-                                        Text(
-                                            text = "→",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.outline
-                                        )
+                                        Box(
+                                            modifier = Modifier.width(36.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "→",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.outline
+                                            )
+                                        }
                                         Text(
                                             text = entry.value,
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurface
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.weight(1f)
                                         )
                                     }
                                 }

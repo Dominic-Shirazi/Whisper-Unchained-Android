@@ -41,8 +41,8 @@ android {
         applicationId = "com.cyrus_studio.whisperunchained"
         minSdk = 34
         targetSdk = 36
-        // Reason for edit: Bump versionCode to 13 for plain notification/battery text, raw URL QR support, and isConnected state sync
-        versionCode = 13
+        // Reason for edit: Bump versionCode to 14 for centered home title with logo and aligned name correction arrows
+        versionCode = 14
         versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

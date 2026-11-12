@@ -4,7 +4,7 @@
 //         navigation callbacks to subpages (transcription, words/triggers, ai-editing, paste-mode, permissions, floating-button, about, intro).
 // Outputs: Scrollable list with collapsing LargeTopAppBar, account-style StatusCard, grouped borderless rows,
 //          colored circle icons on top-level rows only, and bottom "Looking for something else?" card.
-// Reason for edit: Direct incomplete setup card clicks to missing setup step (transcription or permissions) instead of intro restart.
+// Reason for edit: Center title with app logo in home top bar per user feedback.
 
 package com.example.whisperremote.ui.screens
 
@@ -13,8 +13,10 @@ import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -54,6 +56,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.whisperremote.BuildConfig
 import com.example.whisperremote.FloatingButtonService
@@ -121,12 +125,32 @@ fun HomeScreen(
         topBar = {
             LargeTopAppBar(
                 title = {
-                    Text(
-                        text = if (BuildConfig.FLAVOR == "full") "Whisper Unchained Full" else "Whisper Unchained",
-                        style = if (BuildConfig.FLAVOR == "full") MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineLarge,
-                        maxLines = 1,
-                        softWrap = false
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(end = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.whisper_remote),
+                                contentDescription = "Logo",
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = if (BuildConfig.FLAVOR == "full") "Whisper Unchained Full" else "Whisper Unchained",
+                                style = if (BuildConfig.FLAVOR == "full") MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
                 },
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.largeTopAppBarColors(
