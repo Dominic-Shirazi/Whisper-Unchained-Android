@@ -16,6 +16,9 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
 - ⬜ **App bundle** (`gradlew :app:bundlePlayRelease`), signed with our key, which becomes the **upload key**; enroll in
   **Play App Signing** (Google holds the app-signing key).
 - ⬜ Only the `play` flavor goes to Play (no MediaProjection, verified in v1.1).
+- ⬜ The `play` APK must **not** declare `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (restricted; dictation isn't an allowed
+  use case). Play opens the battery settings list instead; `full` keeps the direct prompt (F-27). Check with
+  `aapt2 dump permissions`.
 
 ## 2. In-app requirements (contract 04 §4 + F-22)
 - 🟡 **Accessibility prominent disclosure** before sending the user to Accessibility settings: separate screen, says what
