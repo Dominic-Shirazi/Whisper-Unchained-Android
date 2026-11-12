@@ -60,8 +60,7 @@ user configures, so we declare conservatively:
 | App activity → Other user-generated content (dictated text sent for AI cleanup) | **Yes** | No | **Optional** | App functionality | No |
 
 - Nothing else (no identifiers, location, contacts, diagnostics, analytics).
-- **Encrypted in transit:** **Yes** once contract 06 ships (was: Yes only if the app refuses plain `http://` to non-local hosts or we decide
-  Tailscale/HTTPS-only. Today a LAN `http://` address is allowed, so the honest answer is **No** unless we change that.
+- **Encrypted in transit:** **Yes**, once contract 06 ships (until then a LAN `http://` address is allowed).
   **Decision (Dominic, 2026-11-11): HTTPS is required before launch; the answer will be Yes.** "It's your own, it's
   secure, it's private": a "No" on the listing would undercut that. Design: contracts/06-https.md (the server makes its
   own certificate; the pairing QR carries its fingerprint; the Play app refuses http://).
