@@ -19,8 +19,12 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
-## What's New in v1.3 (On-Device Transcription)
+## What's New in v1.3 (On-Device Transcription & Word List Management)
 
+- **Interactive Helper Words & Name Corrections Editor**: Edit vocabulary helper words and "Heard as → Write as" name corrections directly from the phone. Features row tap-to-edit dialogs, inline add fields, "+ Add a correction" dialogs, and instant removal with ~4s Undo snackbars.
+- **Offline Mutation Queueing & A11y Badging**: Edits made while disconnected from the PC are queued locally in exact order and automatically replayed on the next successful `/health` check. Queued items are badged with clear textual `"waiting for your PC"` labels (text-based for color-blind accessibility).
+- **Immediate Local Reflection**: Edits and queued mutations immediately update cached server vocabulary and name corrections maps so on-device transcription (`sherpa-onnx`) and `TextRules` apply the updated spellings in real time before reaching the PC.
+- **Center-Aligned Name Correction Columns**: "Heard as → Write as" rows align the replacement arrows in a straight vertical column for consistent scanning on mobile screens.
 - **Local Offline Transcription Engine**: Embedded `sherpa-onnx` (2.0.1) engine running quantized NVIDIA Parakeet TDT 110M int8 (NeMo transducer) entirely on-device with zero network requests or API keys required.
 - **Silero VAD Chunking**: Bounded audio chunking using Silero VAD (cutting speech into $\le 25\text{ s}$ pause-separated segments) for reliable decoding of arbitrarily long dictations.
 - **Dynamic Hotwords & Beam Search**: Automatic compilation of shared vocabulary and name correction target words into hotword definitions with `modified_beam_search` (score 2.0) and graceful fallback to greedy search.

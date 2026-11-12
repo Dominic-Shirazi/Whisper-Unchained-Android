@@ -167,6 +167,16 @@ class ScreenshotTest {
     @Test
     @Config(qualifiers = "w360dp-h780dp-xhdpi")
     fun testWordsTriggersDarkS25() {
+        repository.providerPreset = com.example.whisperremote.data.ProviderPreset.SELF_HOSTED
+        repository.cachedServerVocabulary = setOf("Kubernetes", "Docker", "Ollama")
+        repository.cachedServerNameCorrectionsJson = "{\"Corey\":\"Cory\",\"Leslie\":\"Lesley\"}"
+        repository.clearPendingMutations()
+        repository.queueWordMutation(
+            com.example.whisperremote.data.QueuedMutation(
+                type = "name",
+                setNameCorrections = mapOf("Corey" to "Cory")
+            )
+        )
         capture("words_triggers_dark_s25") {
             WhisperTheme(darkTheme = true, dynamicColor = false) {
                 WordsTriggersScreen(
@@ -181,6 +191,16 @@ class ScreenshotTest {
     @Test
     @Config(qualifiers = "w360dp-h780dp-xhdpi")
     fun testWordsTriggersLightS25() {
+        repository.providerPreset = com.example.whisperremote.data.ProviderPreset.SELF_HOSTED
+        repository.cachedServerVocabulary = setOf("Kubernetes", "Docker", "Ollama")
+        repository.cachedServerNameCorrectionsJson = "{\"Corey\":\"Cory\",\"Leslie\":\"Lesley\"}"
+        repository.clearPendingMutations()
+        repository.queueWordMutation(
+            com.example.whisperremote.data.QueuedMutation(
+                type = "name",
+                setNameCorrections = mapOf("Corey" to "Cory")
+            )
+        )
         capture("words_triggers_light_s25") {
             WhisperTheme(darkTheme = false, dynamicColor = false) {
                 WordsTriggersScreen(

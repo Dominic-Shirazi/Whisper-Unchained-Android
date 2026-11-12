@@ -4,6 +4,7 @@
 // Outputs: Cleaned text with filler sounds removed and name corrections applied according to canonical server logic.
 // Strictly conforms to contracts/05-on-device.md §2.4, contracts/05-text-rules-tests.json, and api/fillers.py.
 // Reason for creation: Port server name corrections and filler sound removal to Kotlin for on-device v1.3 per F-28.
+// Reason for edit: Add formatCorrectionsText for name corrections editor per F-43.
 
 package com.example.whisperremote.util
 
@@ -135,5 +136,14 @@ object TextRules {
             }
         }
         return map
+    }
+
+    // Reason for edit: Add formatCorrectionsText for formatting name corrections map into lines per F-43
+    /**
+     * Formats a name corrections map into multi-line "Heard as: Write as" format.
+     */
+    fun formatCorrectionsText(corrections: Map<String, String>): String {
+        if (corrections.isEmpty()) return ""
+        return corrections.entries.joinToString("\n") { "${it.key}: ${it.value}" }
     }
 }

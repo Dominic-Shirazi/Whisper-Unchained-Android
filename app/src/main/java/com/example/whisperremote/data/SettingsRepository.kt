@@ -5,6 +5,7 @@
 // It resolves endpoints according to the OpenAI standard (/v1/audio/transcriptions, /health, /v1/models) and migrates legacy URLs cleanly.
 // Reason for edit: Add on-device model and download preferences per contract 05 §2.3 & §2.6.
 // Reason for edit: Accurate provider info (corrected Together pricing, realistic speed claims, verified privacy summaries, pricing URLs) per F-27.
+// Reason for edit: Add NameCorrections URL, QueuedMutation queue and immediate local cache sync per F-43.
 
 package com.example.whisperremote.data
 
@@ -21,7 +22,64 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.example.whisperremote.BuildConfig
 import com.example.whisperremote.util.KeyStoreCryptoHelper
+import org.json.JSONArray
 import org.json.JSONObject
+
+// Reason for edit: Add QueuedMutation model for offline word and name corrections queue per F-43
+data class QueuedMutation(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val type: String, // "vocab" or "name"
+    val addWords: List<String> = emptyList(),
+    val removeWords: List<String> = emptyList(),
+    val setNameCorrections: Map<String, String> = emptyMap(),
+    val removeNameCorrections: List<String> = emptyList()
+) {
+    fun toJson(): JSONObject {
+        return JSONObject().apply {
+            put("id", id)
+            put("type", type)
+            if (addWords.isNotEmpty()) put("addWords", JSONArray(addWords))
+            if (removeWords.isNotEmpty()) put("removeWords", JSONArray(removeWords))
+            if (setNameCorrections.isNotEmpty()) {
+                val setObj = JSONObject()
+                for ((k, v) in setNameCorrections) setObj.put(k, v)
+                put("setNameCorrections", setObj)
+            }
+            if (removeNameCorrections.isNotEmpty()) put("removeNameCorrections", JSONArray(removeNameCorrections))
+        }
+    }
+
+    companion object {
+        fun fromJson(json: JSONObject): QueuedMutation {
+            val id = json.optString("id", java.util.UUID.randomUUID().toString())
+            val type = json.optString("type", "vocab")
+            val addArray = json.optJSONArray("addWords") ?: JSONArray()
+            val addWords = (0 until addArray.length()).map { addArray.getString(it) }
+            val removeArray = json.optJSONArray("removeWords") ?: JSONArray()
+            val removeWords = (0 until removeArray.length()).map { removeArray.getString(it) }
+
+            val setObj = json.optJSONObject("setNameCorrections")
+            val setNameCorrections = mutableMapOf<String, String>()
+            if (setObj != null) {
+                for (k in setObj.keys()) {
+                    setNameCorrections[k] = setObj.getString(k)
+                }
+            }
+
+            val removeNameArray = json.optJSONArray("removeNameCorrections") ?: JSONArray()
+            val removeNameCorrections = (0 until removeNameArray.length()).map { removeNameArray.getString(it) }
+
+            return QueuedMutation(
+                id = id,
+                type = type,
+                addWords = addWords,
+                removeWords = removeWords,
+                setNameCorrections = setNameCorrections,
+                removeNameCorrections = removeNameCorrections
+            )
+        }
+    }
+}
 
 data class QrPayload(
     val baseUrl: String,
@@ -641,6 +699,132 @@ class SettingsRepository(context: Context) {
         } else {
             "$base/v1/vocabulary"
         }
+    }
+
+    // Reason for edit: Added NameCorrections endpoint resolver per contract 01 §8 and F-43
+    fun getNameCorrectionsUrl(): String {
+        val base = baseUrl
+        return if (base.endsWith("/v1")) {
+            "$base/name_corrections"
+        } else {
+            "$base/v1/name_corrections"
+        }
+    }
+
+    // Reason for edit: Added pending mutations queue and immediate cache sync per F-43
+    var pendingMutationsJson: String
+        get() = getPlainString("pending_word_mutations_json", "[]")
+        set(value) = putPlainString("pending_word_mutations_json", value)
+
+    fun getPendingMutations(): List<QueuedMutation> {
+        val jsonStr = pendingMutationsJson
+        if (jsonStr.isBlank() || jsonStr == "[]") return emptyList()
+        return try {
+            val array = JSONArray(jsonStr)
+            (0 until array.length()).map { QueuedMutation.fromJson(array.getJSONObject(it)) }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun addPendingMutation(mutation: QueuedMutation) {
+        val list = getPendingMutations().toMutableList()
+        list.add(mutation)
+        savePendingMutations(list)
+    }
+
+    fun removePendingMutation(id: String) {
+        val list = getPendingMutations().filterNot { it.id == id }
+        savePendingMutations(list)
+    }
+
+    fun clearPendingMutations() {
+        savePendingMutations(emptyList())
+    }
+
+    private fun savePendingMutations(mutations: List<QueuedMutation>) {
+        val array = JSONArray()
+        for (m in mutations) {
+            array.put(m.toJson())
+        }
+        pendingMutationsJson = array.toString()
+    }
+
+    fun isVocabPending(word: String): Boolean {
+        val trimmed = word.trim()
+        val mutations = getPendingMutations()
+        return mutations.any { m ->
+            m.type == "vocab" && (
+                m.addWords.any { it.equals(trimmed, ignoreCase = true) } ||
+                m.removeWords.any { it.equals(trimmed, ignoreCase = true) }
+            )
+        }
+    }
+
+    fun isNameCorrectionPending(heard: String): Boolean {
+        val trimmed = heard.trim()
+        val mutations = getPendingMutations()
+        return mutations.any { m ->
+            m.type == "name" && (
+                m.setNameCorrections.keys.any { it.equals(trimmed, ignoreCase = true) } ||
+                m.removeNameCorrections.any { it.equals(trimmed, ignoreCase = true) }
+            )
+        }
+    }
+
+    fun queueWordMutation(mutation: QueuedMutation) {
+        addPendingMutation(mutation)
+        when (mutation.type) {
+            "vocab" -> {
+                val currentVocab = cachedServerVocabulary.toMutableSet()
+                currentVocab.removeAll(mutation.removeWords.toSet())
+                currentVocab.addAll(mutation.addWords)
+                cachedServerVocabulary = currentVocab
+
+                val pendingVocab = pendingVocabularyQueue.toMutableSet()
+                pendingVocab.removeAll(mutation.removeWords.toSet())
+                pendingVocab.addAll(mutation.addWords)
+                pendingVocabularyQueue = pendingVocab
+            }
+            "name" -> {
+                val currentMap = parseCachedServerNameCorrections().toMutableMap()
+                for (rem in mutation.removeNameCorrections) {
+                    val keyToRemove = currentMap.keys.firstOrNull { it.equals(rem, ignoreCase = true) }
+                    if (keyToRemove != null) currentMap.remove(keyToRemove)
+                }
+                for ((k, v) in mutation.setNameCorrections) {
+                    val existingKey = currentMap.keys.firstOrNull { it.equals(k, ignoreCase = true) }
+                    if (existingKey != null && existingKey != k) {
+                        currentMap.remove(existingKey)
+                    }
+                    currentMap[k] = v
+                }
+                updateCachedServerNameCorrections(currentMap)
+            }
+        }
+    }
+
+    fun parseCachedServerNameCorrections(): Map<String, String> {
+        val json = cachedServerNameCorrectionsJson
+        if (json.isBlank()) return emptyMap()
+        return try {
+            val obj = JSONObject(json)
+            val map = mutableMapOf<String, String>()
+            for (k in obj.keys()) {
+                map[k] = obj.getString(k)
+            }
+            map
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun updateCachedServerNameCorrections(corrections: Map<String, String>) {
+        val obj = JSONObject()
+        for ((k, v) in corrections) {
+            obj.put(k, v)
+        }
+        cachedServerNameCorrectionsJson = obj.toString()
     }
 
     var pendingVocabularyQueue: Set<String>

@@ -12,12 +12,15 @@ package com.example.whisperremote
 // Reason for edit: Ensure all public callbacks dispatch on Looper.getMainLooper() to prevent background thread UI/Toast crashes per F-26.
 // Reason for edit: Configure pinned TLS trust manager and hostname verifier per contract 06 §3 (F-38/F-39).
 // Reason for edit: Scope certificate pinning strictly to paired PC origin per F-40.
+// Reason for edit: Add modifyVocabulary, modifyNameCorrections, and replayPendingMutations per contract 01 §8 and F-43.
 
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import com.example.whisperremote.data.ProviderPreset
+import com.example.whisperremote.data.QueuedMutation
 import com.example.whisperremote.data.SettingsRepository
 import com.example.whisperremote.net.PinnedCertificateHelper
 import com.example.whisperremote.util.CleanupOptions
@@ -70,13 +73,26 @@ data class VocabularyData(
     val nameCorrections: Map<String, String> = emptyMap(),
     val chars: Int,
     val maxChars: Int,
-    val added: List<String> = emptyList()
+    val added: List<String> = emptyList(),
+    val removed: List<String> = emptyList()
 )
 
 sealed class VocabularyResult {
     data class Success(val data: VocabularyData) : VocabularyResult()
     data class Error(val code: Int, val message: String) : VocabularyResult()
     data class NetworkError(val error: Throwable) : VocabularyResult()
+}
+
+// Reason for edit: Add NameCorrectionsResult per contract 01 §8 and F-43
+sealed class NameCorrectionsResult {
+    data class Success(
+        val nameCorrections: Map<String, String>,
+        val changed: Map<String, String> = emptyMap(),
+        val removed: List<String> = emptyList()
+    ) : NameCorrectionsResult()
+    data class Unsupported(val message: String = "Update the PC app to edit these here") : NameCorrectionsResult()
+    data class Error(val code: Int, val message: String) : NameCorrectionsResult()
+    data class NetworkError(val error: Throwable) : NameCorrectionsResult()
 }
 
 class ApiClient(private val context: Context) {
@@ -392,11 +408,13 @@ class ApiClient(private val context: Context) {
                         val cleanupAlways = if (json.has("cleanup_always")) json.optBoolean("cleanup_always") else null
 
                         if (status.equals("ok", ignoreCase = true)) {
+                            replayPendingMutations()
                             callback(HealthResult.Ok(model, authRequired, cleanupAlways))
                         } else if (status.equals("paused", ignoreCase = true)) {
                             val pausedReason = if (json.has("paused_reason") && !json.isNull("paused_reason")) {
                                 json.getString("paused_reason")
                             } else null
+                            replayPendingMutations()
                             callback(HealthResult.Paused(pausedReason, model, authRequired, cleanupAlways))
                         } else {
                             callback(HealthResult.ServiceError("Server status: $status"))
@@ -511,11 +529,17 @@ class ApiClient(private val context: Context) {
     }
 
     /**
-     * Adds words to shared vocabulary via POST /v1/vocabulary (contracts/01-transcription-api.md §8).
+     * Modifies shared vocabulary via POST /v1/vocabulary (contracts/01-transcription-api.md §8).
+     * Takes {"add": [...], "remove": [...]}. Removes run first.
+     * Reason for edit: Added full add & remove mutation support per contract 01 §8 and F-43.
      */
-    fun addVocabulary(words: List<String>, rawCallback: (VocabularyResult) -> Unit) {
+    fun modifyVocabulary(
+        add: List<String> = emptyList(),
+        remove: List<String> = emptyList(),
+        rawCallback: (VocabularyResult) -> Unit
+    ) {
         val callback: (VocabularyResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
-        if (words.isEmpty()) return
+        if (add.isEmpty() && remove.isEmpty()) return
 
         val url = repository.getVocabularyUrl()
         if (url.isBlank() || !url.startsWith("http")) {
@@ -523,7 +547,8 @@ class ApiClient(private val context: Context) {
             return
         }
         val jsonPayload = JSONObject().apply {
-            put("add", JSONArray(words.take(50)))
+            if (add.isNotEmpty()) put("add", JSONArray(add.take(50)))
+            if (remove.isNotEmpty()) put("remove", JSONArray(remove.take(50)))
         }
 
         val requestBody = jsonPayload.toString().toRequestBody("application/json".toMediaTypeOrNull())
@@ -559,24 +584,218 @@ class ApiClient(private val context: Context) {
                                 for (k in nameCorrectionsObj.keys()) {
                                     nameCorrectionsMap[k] = nameCorrectionsObj.getString(k)
                                 }
+                                repository.cachedServerNameCorrectionsJson = nameCorrectionsObj.toString()
                             }
 
                             val addedArray = json.optJSONArray("added") ?: JSONArray()
                             val addedList = (0 until addedArray.length()).map { addedArray.getString(it) }
 
+                            val removedArray = json.optJSONArray("removed") ?: JSONArray()
+                            val removedList = (0 until removedArray.length()).map { removedArray.getString(it) }
+
                             val chars = json.optInt("chars", 0)
                             val maxChars = json.optInt("max_chars", 540)
 
-                            callback(VocabularyResult.Success(VocabularyData(vocabList, nameList, nameCorrectionsMap, chars, maxChars, addedList)))
+                            repository.cachedServerVocabulary = vocabList.toSet()
+
+                            callback(VocabularyResult.Success(VocabularyData(vocabList, nameList, nameCorrectionsMap, chars, maxChars, addedList, removedList)))
                         } catch (e: Exception) {
                             callback(VocabularyResult.Error(response.code, "Failed to parse vocabulary response: ${e.message}"))
                         }
                     } else {
-                        callback(VocabularyResult.Error(response.code, "Server returned HTTP ${response.code}: ${response.message}"))
+                        val errMsg = try {
+                            val errJson = JSONObject(body)
+                            errJson.optString("message").ifBlank { errJson.optString("detail") }
+                        } catch (_: Exception) { null }
+                        callback(VocabularyResult.Error(response.code, errMsg?.ifBlank { null } ?: "Server returned HTTP ${response.code}: ${response.message}"))
                     }
                 }
             }
         })
+    }
+
+    fun addVocabulary(words: List<String>, rawCallback: (VocabularyResult) -> Unit) {
+        modifyVocabulary(add = words, rawCallback = rawCallback)
+    }
+
+    /**
+     * Modifies name corrections via POST /v1/name_corrections (contracts/01-transcription-api.md §8).
+     * Takes {"set": {"Corey": "Cory"}, "remove": ["Emma"]}.
+     * Reason for edit: Added name corrections mutation endpoint per contract 01 §8 and F-43.
+     */
+    fun modifyNameCorrections(
+        set: Map<String, String> = emptyMap(),
+        remove: List<String> = emptyList(),
+        rawCallback: (NameCorrectionsResult) -> Unit
+    ) {
+        val callback: (NameCorrectionsResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
+        if (set.isEmpty() && remove.isEmpty()) return
+
+        val url = repository.getNameCorrectionsUrl()
+        if (url.isBlank() || !url.startsWith("http")) {
+            callback(NameCorrectionsResult.Error(400, "Server URL is not configured"))
+            return
+        }
+
+        val jsonPayload = JSONObject().apply {
+            if (set.isNotEmpty()) {
+                val setObj = JSONObject()
+                for ((k, v) in set) setObj.put(k, v)
+                put("set", setObj)
+            }
+            if (remove.isNotEmpty()) {
+                put("remove", JSONArray(remove.take(50)))
+            }
+        }
+
+        val requestBody = jsonPayload.toString().toRequestBody("application/json".toMediaTypeOrNull())
+        val requestBuilder = Request.Builder()
+            .url(url)
+            .post(requestBody)
+
+        val token = repository.apiKey
+        if (token.isNotBlank()) {
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+
+        fastClientFor(url).newCall(requestBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback(NameCorrectionsResult.NetworkError(mapError(e)))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    val body = response.body?.string().orEmpty()
+                    if (response.code == 404) {
+                        callback(NameCorrectionsResult.Unsupported("Update the PC app to edit these here"))
+                        return
+                    }
+                    if (response.isSuccessful) {
+                        try {
+                            val json = JSONObject(body)
+                            val nameCorrectionsObj = json.optJSONObject("name_corrections")
+                            val nameCorrectionsMap = mutableMapOf<String, String>()
+                            if (nameCorrectionsObj != null) {
+                                for (k in nameCorrectionsObj.keys()) {
+                                    nameCorrectionsMap[k] = nameCorrectionsObj.getString(k)
+                                }
+                                repository.cachedServerNameCorrectionsJson = nameCorrectionsObj.toString()
+                            }
+
+                            val vocabArray = json.optJSONArray("vocabulary")
+                            if (vocabArray != null) {
+                                val vocabList = (0 until vocabArray.length()).map { vocabArray.getString(it) }
+                                repository.cachedServerVocabulary = vocabList.toSet()
+                            }
+
+                            val changedObj = json.optJSONObject("changed")
+                            val changedMap = mutableMapOf<String, String>()
+                            if (changedObj != null) {
+                                for (k in changedObj.keys()) {
+                                    changedMap[k] = changedObj.getString(k)
+                                }
+                            }
+
+                            val removedArray = json.optJSONArray("removed") ?: JSONArray()
+                            val removedList = (0 until removedArray.length()).map { removedArray.getString(it) }
+
+                            callback(NameCorrectionsResult.Success(nameCorrectionsMap, changedMap, removedList))
+                        } catch (e: Exception) {
+                            callback(NameCorrectionsResult.Error(response.code, "Failed to parse name corrections response: ${e.message}"))
+                        }
+                    } else {
+                        val errMsg = try {
+                            val errJson = JSONObject(body)
+                            errJson.optString("message").ifBlank { errJson.optString("detail") }
+                        } catch (_: Exception) { null }
+                        callback(NameCorrectionsResult.Error(response.code, errMsg?.ifBlank { null } ?: "Server returned HTTP ${response.code}: ${response.message}"))
+                    }
+                }
+            }
+        })
+    }
+
+    /**
+     * Replays queued offline word and name correction mutations in order.
+     * Reason for edit: Added replayPendingMutations per contract 01 §8 and F-43.
+     */
+    fun replayPendingMutations(onComplete: ((Boolean) -> Unit)? = null) {
+        val mutations = repository.getPendingMutations()
+        if (mutations.isEmpty()) {
+            onComplete?.invoke(true)
+            return
+        }
+        replayNextMutation(mutations, 0, onComplete)
+    }
+
+    private fun replayNextMutation(
+        mutations: List<QueuedMutation>,
+        index: Int,
+        onComplete: ((Boolean) -> Unit)?
+    ) {
+        if (index >= mutations.size) {
+            onComplete?.invoke(true)
+            return
+        }
+        val item = mutations[index]
+        when (item.type) {
+            "vocab" -> {
+                modifyVocabulary(add = item.addWords, remove = item.removeWords) { result ->
+                    when (result) {
+                        is VocabularyResult.Success -> {
+                            repository.removePendingMutation(item.id)
+                            replayNextMutation(mutations, index + 1, onComplete)
+                        }
+                        is VocabularyResult.Error -> {
+                            if (result.code == 400) {
+                                repository.removePendingMutation(item.id)
+                                runOnMain {
+                                    Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                }
+                                replayNextMutation(mutations, index + 1, onComplete)
+                            } else {
+                                onComplete?.invoke(false)
+                            }
+                        }
+                        is VocabularyResult.NetworkError -> {
+                            onComplete?.invoke(false)
+                        }
+                    }
+                }
+            }
+            "name" -> {
+                modifyNameCorrections(set = item.setNameCorrections, remove = item.removeNameCorrections) { result ->
+                    when (result) {
+                        is NameCorrectionsResult.Success -> {
+                            repository.removePendingMutation(item.id)
+                            replayNextMutation(mutations, index + 1, onComplete)
+                        }
+                        is NameCorrectionsResult.Unsupported -> {
+                            repository.removePendingMutation(item.id)
+                            replayNextMutation(mutations, index + 1, onComplete)
+                        }
+                        is NameCorrectionsResult.Error -> {
+                            if (result.code == 400) {
+                                repository.removePendingMutation(item.id)
+                                runOnMain {
+                                    Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                }
+                                replayNextMutation(mutations, index + 1, onComplete)
+                            } else {
+                                onComplete?.invoke(false)
+                            }
+                        }
+                        is NameCorrectionsResult.NetworkError -> {
+                            onComplete?.invoke(false)
+                        }
+                    }
+                }
+            }
+            else -> {
+                repository.removePendingMutation(item.id)
+                replayNextMutation(mutations, index + 1, onComplete)
+            }
+        }
     }
 
     /**
