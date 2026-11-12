@@ -589,6 +589,36 @@ fun TranscriptionScreen(
                                             Text("Open Tailscale")
                                         }
                                     }
+
+                                    // One-line home Wi-Fi note per contract 06 §3.6 and F-38
+                                    if (serverUrl.isNotBlank() && !TailscaleManager.isTailscaleAddress(serverUrl)) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 4.dp)
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_cloud),
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Connected over home Wi-Fi (away from home requires Tailscale)",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            TextButton(
+                                                onClick = { tailscaleManager.openPlayStoreForTailscale() }
+                                            ) {
+                                                Text("Tailscale", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                    }
                                 }
                             }
 
@@ -1068,6 +1098,36 @@ fun TranscriptionScreen(
                                             shape = RoundedCornerShape(12.dp)
                                         ) {
                                             Text("Open Tailscale")
+                                        }
+                                    }
+
+                                    // One-line home Wi-Fi note per contract 06 §3.6 and F-38
+                                    if (serverUrl.isNotBlank() && !TailscaleManager.isTailscaleAddress(serverUrl)) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 4.dp)
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_cloud),
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Connected over home Wi-Fi (away from home requires Tailscale)",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            TextButton(
+                                                onClick = { tailscaleManager.openPlayStoreForTailscale() }
+                                            ) {
+                                                Text("Tailscale", style = MaterialTheme.typography.labelSmall)
+                                            }
                                         }
                                     }
                                 }

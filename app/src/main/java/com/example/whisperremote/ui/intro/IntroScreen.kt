@@ -9,6 +9,7 @@
 // Reason for edit: Delete practice audio recordings after transcription per F-35.
 // Reason for edit: Update intro flow with logo on page 1, 3 transcription choices on page 2, read-only demo practice box with floating button and celebration continue on page 3, scrollable accessibility disclosure on page 5, status bars padding and BackHandler, and backup model card on page 7 per F-36 items 1-7.
 // Reason for edit: Add post-scan Tailscale connection check and failure diagnostics per F-37.
+// Reason for edit: Add Home-Wi-Fi Tailscale warning card per contract 06 §3.6 and F-38.
 
 package com.example.whisperremote.ui.intro
 
@@ -524,7 +525,9 @@ fun IntroScreen(
                                                     isTestingConnection = false
                                                     if (health is HealthResult.Ok) {
                                                         isConnected = true
-                                                        currentPage = 3
+                                                        if (TailscaleManager.isTailscaleAddress(repository.baseUrl)) {
+                                                            currentPage = 3
+                                                        }
                                                     } else {
                                                         isConnected = false
                                                         connectionDiagnosis = tailscaleManager.diagnoseConnectionFailure(repository.baseUrl)
@@ -815,24 +818,79 @@ fun IntroScreen(
 
                                     if (isConnected) {
                                         Spacer(modifier = Modifier.height(16.dp))
-                                        Text(
-                                            text = "✓ Connected to PC ($connectedBaseUrl)",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = WhisperTokens.BrandTeal,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Button(
-                                            onClick = {
-                                                repository.transcriptionTarget = TranscriptionTarget.PC.id
-                                                currentPage = 3
-                                            },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(52.dp),
-                                            shape = RoundedCornerShape(26.dp)
-                                        ) {
-                                            Text("Continue with connected PC")
+                                        val isTailscale = TailscaleManager.isTailscaleAddress(connectedBaseUrl)
+                                        if (!isTailscale) {
+                                            // Home-Wi-Fi warning card per contract 06 §3.6 and F-38
+                                            Card(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(16.dp),
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                                )
+                                            ) {
+                                                Column(modifier = Modifier.padding(16.dp)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Icon(
+                                                            painter = painterResource(R.drawable.ic_cloud),
+                                                            contentDescription = null,
+                                                            tint = WhisperTokens.BrandTeal,
+                                                            modifier = Modifier.size(24.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Text(
+                                                            text = "Connected over your home Wi-Fi",
+                                                            style = MaterialTheme.typography.titleMedium,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.height(6.dp))
+                                                    Text(
+                                                        text = "Away from home your phone can't reach your PC unless you install Tailscale on both.",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    Spacer(modifier = Modifier.height(14.dp))
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.End
+                                                    ) {
+                                                        TextButton(
+                                                            onClick = {
+                                                                repository.transcriptionTarget = TranscriptionTarget.PC.id
+                                                                currentPage = 3
+                                                            }
+                                                        ) {
+                                                            Text("Home only for now")
+                                                        }
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Button(
+                                                            onClick = { tailscaleManager.openPlayStoreForTailscale() }
+                                                        ) {
+                                                            Text("Set up Tailscale")
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            Text(
+                                                text = "✓ Connected to PC ($connectedBaseUrl)",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = WhisperTokens.BrandTeal,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Button(
+                                                onClick = {
+                                                    repository.transcriptionTarget = TranscriptionTarget.PC.id
+                                                    currentPage = 3
+                                                },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(52.dp),
+                                                shape = RoundedCornerShape(26.dp)
+                                            ) {
+                                                Text("Continue with connected PC")
+                                            }
                                         }
                                     }
                                 } else {
