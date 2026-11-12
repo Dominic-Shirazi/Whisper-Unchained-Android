@@ -64,6 +64,29 @@ The transcription backend this app is designed to work with.
 
 ---
 
+## On-Device Transcription (v1.3)
+
+### NVIDIA Parakeet TDT Models
+FastConformer Transducer acoustic models converted by k2-fsa/sherpa-onnx.
+- **Author:** NVIDIA Corporation
+- **License:** Creative Commons Attribution 4.0 International (CC-BY-4.0)
+- https://huggingface.co/nvidia/parakeet-tdt-110m
+
+### sherpa-onnx
+Offline speech recognition and VAD engine for on-device inference.
+- **Author:** The Next-gen Kaldi Authors (k2-fsa)
+- **Version:** 2.0.1
+- **License:** Apache License 2.0
+- https://github.com/k2-fsa/sherpa-onnx
+
+### Silero VAD
+Pre-trained enterprise-grade voice activity detector.
+- **Author:** Silero Team
+- **License:** MIT License
+- https://github.com/snakers4/silero-vad
+
+---
+
 ## Apache License 2.0 (summary)
 
 The libraries listed under Apache 2.0 above are used in compliance with that license.

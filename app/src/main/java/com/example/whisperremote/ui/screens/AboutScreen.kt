@@ -1,6 +1,6 @@
 // This file provides the About subpage for Whisper Unchained.
 // Updated to match F-23 site and privacy policy URLs.
-// Reason for edit: Bump displayed build to Build 17 for Play release readiness per F-27.
+// Reason for edit: Add open source model attribution link (Parakeet CC-BY-4.0, sherpa-onnx Apache-2.0, Silero MIT) per contract 05 §2.2.
 // It is called by HomeScreen.
 // Inputs: Version info, GitHub links, callbacks to reopen First-Run Intro.
 // Outputs: About screen with Privacy Policy link, Website link, Contact link, and "Run setup again" trigger.
@@ -159,6 +159,15 @@ fun AboutScreen(
                         subtitle = "github.com/Dominic-Shirazi/Whisper-Unchained-Server",
                         onClick = {
                             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(AboutConstants.SERVER_REPO_URL))
+                            context.startActivity(intent)
+                        }
+                    )
+                    SettingsDivider()
+                    SettingsNavRow(
+                        title = "Open source & model licenses",
+                        subtitle = "Parakeet (CC-BY-4.0), sherpa-onnx (Apache-2.0), Silero VAD (MIT)",
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("${AboutConstants.GITHUB_REPO_URL}/blob/master/ATTRIBUTIONS.md"))
                             context.startActivity(intent)
                         }
                     )
