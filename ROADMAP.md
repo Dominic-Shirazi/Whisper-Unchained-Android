@@ -301,6 +301,12 @@ SHA-256 pins. The notes below are the earlier research.
 * Fallback order: PC → on-device LLM → raw text.
 * **First measurements (S25, Snapdragon 8 Elite, llama.cpp v0.9.0 OpenCL, 2026-11-11):**
   * Qwen 3.5 4B Q4_0 on the GPU works and cleans correctly (scratch-that, no-wait, short and long clips): reading the prompt ~2.5 s (cacheable: the system prompt is the same every time), writing ~19 tok/s cool, dropping to ~12-16 tok/s as the phone heats up. A 30-word clip ≈ 2 s of writing; a 200-word clip ≈ 15 s.
+  * **Load time (measured 2026-11-11 evening):** GPU start ~10-11 s even with the file cached (mostly OpenCL setup), CPU
+    start ~1.5 s but then reading the 605-token prompt takes ~30 s on CPU vs ~2.5 s on GPU. So: load once when the
+    floating button starts and keep it (~2.6 GB of RAM while on), never per dictation; cache the system prompt so each
+    dictation only pays for its own words. Expected per short dictation once loaded: ~1 s prompt + ~2 s writing.
+  * **Dominic (2026-11-11): wants it as an optional switch**, "AI editing on this phone", off by default, with a
+    battery/memory warning and the 2.6 GB download. Post-v1.3 (after on-device transcription ships).
   * Gemma 4 on llama.cpp's phone GPU path produces garbage, and on CPU it ignores "thinking off". Gemma 4 needs Google's LiteRT-LM to test fairly.
   * SpeakoFlow Mini (Qwen 3.5 0.8B fine-tuned for cleanup, Apache-2.0) is very fast but **deleted whole spoken sentences** and answered a dictated question in our PC tests; not safe even as a fallback. Its MIT rules layer (AbhishekBarali/dictation-cleanup-rules: fillers, numbers, dates, currency, no AI) is a good candidate for the instant no-model fallback.
 
