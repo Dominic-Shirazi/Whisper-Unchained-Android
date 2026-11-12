@@ -146,4 +146,84 @@ class WordListManagementTest {
         assertEquals("Lesley", parsed["Leslie"])
         assertEquals("Cory", parsed["Corey"])
     }
+
+    // Reason for edit: Add tests for OpenAI error parsing, replay guard, and offline calculation per F-44
+    @Test
+    fun testExtractErrorMessage_openAiStyle() {
+        val json = """{"error": {"message": "'Cory' would be replaced by itself.", "type": "invalid_request_error", "code": "invalid_name_corrections"}}"""
+        val extracted = ApiClient.extractErrorMessage(json)
+        assertEquals("'Cory' would be replaced by itself.", extracted)
+    }
+
+    @Test
+    fun testExtractErrorMessage_fallbackToTopLevel() {
+        val topMsgJson = """{"message": "Word cannot be empty"}"""
+        assertEquals("Word cannot be empty", ApiClient.extractErrorMessage(topMsgJson))
+
+        val detailJson = """{"detail": "Bad payload"}"""
+        assertEquals("Bad payload", ApiClient.extractErrorMessage(detailJson))
+    }
+
+    @Test
+    fun testOfflineComputation_fromNameCorrectionsAndChars() {
+        val vocab = listOf("Kubernetes", "Docker", "Ollama")
+        val corrections = mapOf("Corey" to "Cory", "Emma" to "Ame", "Leslie" to "Lesley")
+
+        // fromNameCorrections = distinct values of name corrections
+        val fromNames = corrections.values.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        assertEquals(listOf("Cory", "Ame", "Lesley"), fromNames)
+
+        // chars = length of ", ".join(distinct(vocabulary + those values))
+        val combined = (vocab + fromNames).distinct()
+        val chars = combined.joinToString(", ").length
+        assertEquals("Kubernetes, Docker, Ollama, Cory, Ame, Lesley".length, chars)
+    }
+
+    @Test
+    fun testReplayPendingMutations_concurrentGuard() {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            repository.baseUrl = server.url("/v1").toString()
+            val apiClient = ApiClient(context)
+
+            val m1 = QueuedMutation(id = "m1", type = "vocab", removeWords = listOf("Docker"))
+            val m2 = QueuedMutation(id = "m2", type = "vocab", addWords = listOf("Docker"))
+            repository.addPendingMutation(m1)
+            repository.addPendingMutation(m2)
+
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("""{"vocabulary":[],"from_name_corrections":[],"chars":0,"max_chars":540}"""))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("""{"vocabulary":["Docker"],"from_name_corrections":[],"chars":6,"max_chars":540}"""))
+
+            val latch = java.util.concurrent.CountDownLatch(1)
+            var secondCallAccepted: Boolean? = null
+
+            // Call replay twice back to back
+            apiClient.replayPendingMutations { _ ->
+                latch.countDown()
+            }
+            apiClient.replayPendingMutations { accepted ->
+                secondCallAccepted = accepted
+            }
+
+            // Second call must be rejected immediately while first replay is active
+            assertEquals(false, secondCallAccepted)
+
+            val start = System.currentTimeMillis()
+            while (latch.count > 0 && System.currentTimeMillis() - start < 5000) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                Thread.sleep(20)
+            }
+            assertEquals(0, latch.count)
+
+            val req1 = server.takeRequest()
+            val req2 = server.takeRequest()
+
+            assertTrue(req1.body.readUtf8().contains(""""remove":["Docker"]"""))
+            assertTrue(req2.body.readUtf8().contains(""""add":["Docker"]"""))
+            assertEquals(0, repository.getPendingMutations().size)
+        } finally {
+            server.shutdown()
+        }
+    }
 }

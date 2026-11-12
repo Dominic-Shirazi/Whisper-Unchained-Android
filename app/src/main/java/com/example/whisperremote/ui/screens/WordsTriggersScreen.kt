@@ -113,8 +113,22 @@ fun WordsTriggersScreen(
         mutableStateOf(repository.parseCachedServerNameCorrections())
     }
     var nameCorrectionsSupported by remember { mutableStateOf(true) }
-    var charBudgetChars by remember { mutableIntStateOf(0) }
     val charBudgetMax = 540
+
+    // Computed "from name corrections" list: when live reply hasn't arrived, compute from cached serverNameCorrections values
+    val effectiveFromNameCorrections = remember(fromNameCorrectionsWords, serverNameCorrections) {
+        if (fromNameCorrectionsWords.isNotEmpty()) {
+            fromNameCorrectionsWords
+        } else {
+            serverNameCorrections.values.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        }
+    }
+
+    // Computed total characters: length of ", ".join(distinct(vocabulary + those values))
+    val charBudgetChars = remember(helperWords, effectiveFromNameCorrections) {
+        val combined = (helperWords + effectiveFromNameCorrections).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (combined.isEmpty()) 0 else combined.joinToString(", ").length
+    }
 
     // Add field state for helper words
     var newWordInput by remember { mutableStateOf("") }
@@ -135,18 +149,9 @@ fun WordsTriggersScreen(
                         helperWords = result.data.vocabulary
                         fromNameCorrectionsWords = result.data.fromNameCorrections
                         serverNameCorrections = result.data.nameCorrections
-                        charBudgetChars = result.data.chars
                     }
                 }
             }
-        }
-    }
-
-    // Helper: update char budget estimate when local list changes
-    fun updateCharEstimate() {
-        if (repository.providerPreset == ProviderPreset.SELF_HOSTED) {
-            val totalWords = helperWords + fromNameCorrectionsWords
-            charBudgetChars = totalWords.joinToString(", ").length
         }
     }
 
@@ -165,7 +170,6 @@ fun WordsTriggersScreen(
                             helperWords = result.data.vocabulary
                             fromNameCorrectionsWords = result.data.fromNameCorrections
                             serverNameCorrections = result.data.nameCorrections
-                            charBudgetChars = result.data.chars
                             Toast.makeText(context, "Synced with PC (${helperWords.size} words)", Toast.LENGTH_SHORT).show()
                         }
                         is VocabularyResult.Error -> {
@@ -192,7 +196,6 @@ fun WordsTriggersScreen(
         newWordInput = ""
 
         helperWords = helperWords + trimmed
-        updateCharEstimate()
 
         val mutation = QueuedMutation(type = "vocab", addWords = listOf(trimmed))
         repository.queueWordMutation(mutation)
@@ -204,13 +207,11 @@ fun WordsTriggersScreen(
                     helperWords = result.data.vocabulary
                     fromNameCorrectionsWords = result.data.fromNameCorrections
                     serverNameCorrections = result.data.nameCorrections
-                    charBudgetChars = result.data.chars
                 }
                 is VocabularyResult.Error -> {
                     if (result.code == 400) {
                         repository.removePendingMutation(mutation.id)
                         helperWords = helperWords - trimmed
-                        updateCharEstimate()
                         coroutineScope.launch { snackbarHostState.showSnackbar(result.message) }
                     }
                 }
@@ -235,7 +236,6 @@ fun WordsTriggersScreen(
         editingWordTarget = null
 
         helperWords = helperWords.map { if (it.equals(oldWord, ignoreCase = true)) trimmed else it }
-        updateCharEstimate()
 
         val mutation = QueuedMutation(type = "vocab", addWords = listOf(trimmed), removeWords = listOf(oldWord))
         repository.queueWordMutation(mutation)
@@ -247,13 +247,11 @@ fun WordsTriggersScreen(
                     helperWords = result.data.vocabulary
                     fromNameCorrectionsWords = result.data.fromNameCorrections
                     serverNameCorrections = result.data.nameCorrections
-                    charBudgetChars = result.data.chars
                 }
                 is VocabularyResult.Error -> {
                     if (result.code == 400) {
                         repository.removePendingMutation(mutation.id)
                         helperWords = helperWords.map { if (it.equals(trimmed, ignoreCase = true)) oldWord else it }
-                        updateCharEstimate()
                         coroutineScope.launch { snackbarHostState.showSnackbar(result.message) }
                     }
                 }
@@ -266,7 +264,6 @@ fun WordsTriggersScreen(
 
     fun onRemoveHelperWord(word: String) {
         helperWords = helperWords.filterNot { it.equals(word, ignoreCase = true) }
-        updateCharEstimate()
 
         val mutation = QueuedMutation(type = "vocab", removeWords = listOf(word))
         repository.queueWordMutation(mutation)
@@ -278,7 +275,6 @@ fun WordsTriggersScreen(
                     helperWords = result.data.vocabulary
                     fromNameCorrectionsWords = result.data.fromNameCorrections
                     serverNameCorrections = result.data.nameCorrections
-                    charBudgetChars = result.data.chars
                 }
                 is VocabularyResult.Error -> {
                     if (result.code == 400) {
@@ -519,8 +515,8 @@ fun WordsTriggersScreen(
             item {
                 if (repository.providerPreset == ProviderPreset.SELF_HOSTED) {
                     SettingsGroup(
-                        header = "Helper Words",
-                        footer = "Words and jargon to boost recognition accuracy across all audio.",
+                        header = "Helper words",
+                        footer = "Names and jargon Whisper should expect. Tap a word to change it.",
                         modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
@@ -647,7 +643,7 @@ fun WordsTriggersScreen(
                             }
 
                             // From name corrections section
-                            if (fromNameCorrectionsWords.isNotEmpty()) {
+                            if (effectiveFromNameCorrections.isNotEmpty()) {
                                 Spacer(modifier = Modifier.height(14.dp))
                                 Text(
                                     text = "From name corrections on your PC",
@@ -656,7 +652,7 @@ fun WordsTriggersScreen(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = fromNameCorrectionsWords.joinToString(", "),
+                                    text = effectiveFromNameCorrections.joinToString(", "),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                 )
@@ -666,8 +662,8 @@ fun WordsTriggersScreen(
                 } else {
                     // Cloud presets: Prompt hints text field
                     SettingsGroup(
-                        header = "Vocabulary Hints",
-                        footer = "Words and jargon to boost recognition accuracy across cloud audio.",
+                        header = "Helper words",
+                        footer = "Names and jargon Whisper should expect.",
                         modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
@@ -700,10 +696,10 @@ fun WordsTriggersScreen(
                     val footerText = if (!nameCorrectionsSupported) {
                         "Update the PC app to edit these here"
                     } else {
-                        "Tap a row to edit. Whisper audio will rewrite heard names to these spellings."
+                        "When Whisper writes the left word, it's replaced with the right one. Works for short phrases too. Tap a row to change it."
                     }
                     SettingsGroup(
-                        header = "Name Corrections",
+                        header = "Name corrections",
                         footer = footerText,
                         modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                     ) {
@@ -814,8 +810,8 @@ fun WordsTriggersScreen(
                 } else {
                     // Cloud presets: Structured row editor for localNameCorrections per F-43 item 5
                     SettingsGroup(
-                        header = "Name Corrections",
-                        footer = "Tap a row to edit. Whisper audio will rewrite heard names to these spellings.",
+                        header = "Name corrections",
+                        footer = "When Whisper writes the left word, it's replaced with the right one. Works for short phrases too. Tap a row to change it.",
                         modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {

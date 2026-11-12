@@ -13,6 +13,7 @@ package com.example.whisperremote
 // Reason for edit: Configure pinned TLS trust manager and hostname verifier per contract 06 §3 (F-38/F-39).
 // Reason for edit: Scope certificate pinning strictly to paired PC origin per F-40.
 // Reason for edit: Add modifyVocabulary, modifyNameCorrections, and replayPendingMutations per contract 01 §8 and F-43.
+// Reason for edit: AtomicBoolean replay guard, OpenAI error.message parsing, and 404 cache recovery per F-44.
 
 import android.content.Context
 import android.os.Handler
@@ -38,6 +39,7 @@ import java.io.File
 import java.io.IOException
 import java.net.URI
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 sealed class TranscriptionResult {
     data class Success(val text: String) : TranscriptionResult()
@@ -98,6 +100,7 @@ sealed class NameCorrectionsResult {
 class ApiClient(private val context: Context) {
 
     private val repository = SettingsRepository(context)
+    private val isReplaying = AtomicBoolean(false)
 
     // Standard timeout client (60s) with system CA trust store for cloud endpoints & general web APIs
     private val publicClient = OkHttpClient.Builder()
@@ -603,11 +606,8 @@ class ApiClient(private val context: Context) {
                             callback(VocabularyResult.Error(response.code, "Failed to parse vocabulary response: ${e.message}"))
                         }
                     } else {
-                        val errMsg = try {
-                            val errJson = JSONObject(body)
-                            errJson.optString("message").ifBlank { errJson.optString("detail") }
-                        } catch (_: Exception) { null }
-                        callback(VocabularyResult.Error(response.code, errMsg?.ifBlank { null } ?: "Server returned HTTP ${response.code}: ${response.message}"))
+                        val errMsg = extractErrorMessage(body)
+                        callback(VocabularyResult.Error(response.code, errMsg ?: "Server returned HTTP ${response.code}: ${response.message}"))
                     }
                 }
             }
@@ -704,11 +704,8 @@ class ApiClient(private val context: Context) {
                             callback(NameCorrectionsResult.Error(response.code, "Failed to parse name corrections response: ${e.message}"))
                         }
                     } else {
-                        val errMsg = try {
-                            val errJson = JSONObject(body)
-                            errJson.optString("message").ifBlank { errJson.optString("detail") }
-                        } catch (_: Exception) { null }
-                        callback(NameCorrectionsResult.Error(response.code, errMsg?.ifBlank { null } ?: "Server returned HTTP ${response.code}: ${response.message}"))
+                        val errMsg = extractErrorMessage(body)
+                        callback(NameCorrectionsResult.Error(response.code, errMsg ?: "Server returned HTTP ${response.code}: ${response.message}"))
                     }
                 }
             }
@@ -717,34 +714,33 @@ class ApiClient(private val context: Context) {
 
     /**
      * Replays queued offline word and name correction mutations in order.
-     * Reason for edit: Added replayPendingMutations per contract 01 §8 and F-43.
+     * Guarded by AtomicBoolean so concurrent calls cannot interleave or duplicate mutations.
+     * Re-reads the pending queue from SettingsRepository at each step.
+     * Reason for edit: Added replayPendingMutations per contract 01 §8, F-43, and F-44 review.
      */
     fun replayPendingMutations(onComplete: ((Boolean) -> Unit)? = null) {
-        val mutations = repository.getPendingMutations()
-        if (mutations.isEmpty()) {
-            onComplete?.invoke(true)
+        if (!isReplaying.compareAndSet(false, true)) {
+            onComplete?.invoke(false)
             return
         }
-        replayNextMutation(mutations, 0, onComplete)
+        replayNextMutation(onComplete)
     }
 
-    private fun replayNextMutation(
-        mutations: List<QueuedMutation>,
-        index: Int,
-        onComplete: ((Boolean) -> Unit)?
-    ) {
-        if (index >= mutations.size) {
+    private fun replayNextMutation(onComplete: ((Boolean) -> Unit)?) {
+        val mutations = repository.getPendingMutations()
+        if (mutations.isEmpty()) {
+            isReplaying.set(false)
             onComplete?.invoke(true)
             return
         }
-        val item = mutations[index]
+        val item = mutations.first()
         when (item.type) {
             "vocab" -> {
                 modifyVocabulary(add = item.addWords, remove = item.removeWords) { result ->
                     when (result) {
                         is VocabularyResult.Success -> {
                             repository.removePendingMutation(item.id)
-                            replayNextMutation(mutations, index + 1, onComplete)
+                            replayNextMutation(onComplete)
                         }
                         is VocabularyResult.Error -> {
                             if (result.code == 400) {
@@ -752,12 +748,14 @@ class ApiClient(private val context: Context) {
                                 runOnMain {
                                     Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
                                 }
-                                replayNextMutation(mutations, index + 1, onComplete)
+                                replayNextMutation(onComplete)
                             } else {
+                                isReplaying.set(false)
                                 onComplete?.invoke(false)
                             }
                         }
                         is VocabularyResult.NetworkError -> {
+                            isReplaying.set(false)
                             onComplete?.invoke(false)
                         }
                     }
@@ -768,11 +766,20 @@ class ApiClient(private val context: Context) {
                     when (result) {
                         is NameCorrectionsResult.Success -> {
                             repository.removePendingMutation(item.id)
-                            replayNextMutation(mutations, index + 1, onComplete)
+                            replayNextMutation(onComplete)
                         }
                         is NameCorrectionsResult.Unsupported -> {
+                            // Older server (404): drop item, notify user, and restore cache from PC
                             repository.removePendingMutation(item.id)
-                            replayNextMutation(mutations, index + 1, onComplete)
+                            runOnMain {
+                                Toast.makeText(
+                                    context,
+                                    "Your PC app is too old to change name corrections from the phone. Update it, then make this change again.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                            getVocabulary { _ -> }
+                            replayNextMutation(onComplete)
                         }
                         is NameCorrectionsResult.Error -> {
                             if (result.code == 400) {
@@ -780,12 +787,14 @@ class ApiClient(private val context: Context) {
                                 runOnMain {
                                     Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
                                 }
-                                replayNextMutation(mutations, index + 1, onComplete)
+                                replayNextMutation(onComplete)
                             } else {
+                                isReplaying.set(false)
                                 onComplete?.invoke(false)
                             }
                         }
                         is NameCorrectionsResult.NetworkError -> {
+                            isReplaying.set(false)
                             onComplete?.invoke(false)
                         }
                     }
@@ -793,7 +802,7 @@ class ApiClient(private val context: Context) {
             }
             else -> {
                 repository.removePendingMutation(item.id)
-                replayNextMutation(mutations, index + 1, onComplete)
+                replayNextMutation(onComplete)
             }
         }
     }
@@ -1013,6 +1022,30 @@ class ApiClient(private val context: Context) {
     companion object {
         const val CERT_MISMATCH_MESSAGE =
             "Your PC's security certificate changed. If you reinstalled Whisper Unchained Server, scan its pairing code again."
+
+        /**
+         * Extracts readable error messages from OpenAI-style JSON responses:
+         * {"error": {"message": "..."}}, falling back to top-level "message" or "detail".
+         * Conforms to contract 01 §8 and F-44.
+         */
+        fun extractErrorMessage(body: String): String? {
+            if (body.isBlank()) return null
+            return try {
+                val json = JSONObject(body)
+                val errorObj = json.optJSONObject("error")
+                if (errorObj != null) {
+                    val msg = errorObj.optString("message").trim()
+                    if (msg.isNotEmpty()) return msg
+                }
+                val msg = json.optString("message").trim()
+                if (msg.isNotEmpty()) return msg
+                val detail = json.optString("detail").trim()
+                if (detail.isNotEmpty()) return detail
+                null
+            } catch (_: Exception) {
+                null
+            }
+        }
 
         /**
          * Returns true if the given error was caused by a pinned certificate mismatch or TLS handshake failure.
