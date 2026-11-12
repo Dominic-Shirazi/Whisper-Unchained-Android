@@ -3,10 +3,12 @@
 // Inputs: SettingsRepository, ApiClient (for testing connection & health checks), GoogleCodeScanner trigger.
 // Outputs: Pairing-first layout (Scan QR primary button, immediate Test connection status, collapsed Manual setup).
 // Conforms to contracts/04-look-and-feel.md §3.2 and appendix v1 §4 & §5.
-// Reason for edit: Add privacy, pricing, and speed info modal next to each ranked provider preset.
+// Reason for edit: Add official pricing link in provider info dialog per F-27.
 
 package com.example.whisperremote.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
@@ -368,6 +370,21 @@ fun TranscriptionScreen(
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
+
+                                            if (p.pricingUrl != null) {
+                                                Spacer(modifier = Modifier.height(12.dp))
+                                                Text(
+                                                    text = "View official pricing →",
+                                                    style = MaterialTheme.typography.labelLarge,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.clickable {
+                                                        try {
+                                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(p.pricingUrl)))
+                                                        } catch (_: Exception) {}
+                                                    }
+                                                )
+                                            }
                                         }
                                     },
                                     confirmButton = {

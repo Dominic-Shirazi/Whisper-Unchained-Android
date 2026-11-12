@@ -3,7 +3,7 @@
 // Inputs: User inputs from Settings UI or QR code scan, with sensitive credentials (API keys) protected by hardware-backed KeyStore AES-256-GCM.
 // Outputs: Provider settings (base URL, API key, model, prompt hints), behavioral flags (auto-trim, boot start, Tailscale auto-restart), and injection mode.
 // It resolves endpoints according to the OpenAI standard (/v1/audio/transcriptions, /health, /v1/models) and migrates legacy URLs cleanly.
-// Reason for edit: Expand provider presets with Together AI, split OpenAI/OpenRouter, and add privacy/pricing/speed metadata ranked privacy-first.
+// Reason for edit: Accurate provider info (corrected Together pricing, realistic speed claims, verified privacy summaries, pricing URLs) per F-27.
 
 package com.example.whisperremote.data
 
@@ -42,25 +42,28 @@ enum class ProviderPreset(
     val tagLine: String,
     val privacySummary: String,
     val pricingSummary: String,
-    val speedSummary: String
+    val speedSummary: String,
+    val pricingUrl: String? = null
 ) {
     SELF_HOSTED(
         displayName = "Self-Hosted",
         defaultBaseUrl = "",
         defaultModel = "large-v3-turbo",
         tagLine = "Default · Most Private",
-        privacySummary = "100% Private. Audio stays entirely on your local PC or private Tailscale network. Zero logging, zero cloud tracking, zero model training.",
+        privacySummary = "Audio goes only to your own PC. Your PC keeps a transcript log you control. Nothing goes to a cloud service unless you set one up.",
         pricingSummary = "Free ($0.00). Runs entirely on your own computer hardware.",
-        speedSummary = "Instant local GPU processing."
+        speedSummary = "Instant local GPU processing.",
+        pricingUrl = null
     ),
     GROQ(
         displayName = "Groq Cloud",
         defaultBaseUrl = "https://api.groq.com/openai/v1",
         defaultModel = "whisper-large-v3-turbo",
         tagLine = "Recommended Cloud · Zero Training",
-        privacySummary = "Zero model training. Ephemeral in-memory processing on custom LPUs; recordings are never stored or used to train models. SOC 2 Type II and GDPR compliant.",
+        privacySummary = "Groq says API audio is not used to train models; see Groq's privacy policy.",
         pricingSummary = "~$0.04 / hour of audio (as of Nov 2026). Generous free tier available with your own API key.",
-        speedSummary = "Fastest in the world (~150–250ms round-trip latency)."
+        speedSummary = "Very fast (usually well under a second for short clips).",
+        pricingUrl = "https://groq.com/pricing/"
     ),
     TOGETHER(
         displayName = "Together AI",
@@ -68,8 +71,9 @@ enum class ProviderPreset(
         defaultModel = "whisper-large-v3",
         tagLine = "Zero Training · Dedicated Whisper",
         privacySummary = "Zero model training. Commercial API terms guarantee customer inputs and audio are never used to train models.",
-        pricingSummary = "~$0.006 / minute (~$0.36 / hour as of Nov 2026). Billed directly by Together AI with your own API key.",
-        speedSummary = "High-speed processing on dedicated GPU clusters."
+        pricingSummary = "~$0.0015 / minute (~$0.09 / hour as of Nov 2026). Billed directly by Together AI with your own API key.",
+        speedSummary = "High-speed processing on dedicated GPU clusters.",
+        pricingUrl = "https://www.together.ai/pricing"
     ),
     OPENAI(
         displayName = "OpenAI",
@@ -78,7 +82,8 @@ enum class ProviderPreset(
         tagLine = "Official Whisper",
         privacySummary = "No training on commercial API data. Audio is retained on OpenAI servers for 30 days for abuse monitoring before automatic deletion.",
         pricingSummary = "~$0.006 / minute (~$0.36 / hour as of Nov 2026). Billed directly by OpenAI with your own API key.",
-        speedSummary = "Moderate (~800ms - 1.5s). Occasional peak-hour queue delays."
+        speedSummary = "Moderate (~800ms - 1.5s).",
+        pricingUrl = "https://openai.com/api/pricing/"
     ),
     OPENROUTER(
         displayName = "OpenRouter",
@@ -87,7 +92,8 @@ enum class ProviderPreset(
         tagLine = "Multi-Provider Router",
         privacySummary = "Proxy aggregator. Your request passes through OpenRouter before forwarding to the underlying model provider, subject to both privacy policies.",
         pricingSummary = "Pass-through upstream rates with flexible credit system.",
-        speedSummary = "Slightly slower due to extra proxy routing hop."
+        speedSummary = "Slightly slower due to extra proxy routing hop.",
+        pricingUrl = "https://openrouter.ai/models/openai/whisper-large-v3"
     ),
     CUSTOM(
         displayName = "Custom Endpoint",
@@ -96,7 +102,8 @@ enum class ProviderPreset(
         tagLine = "Your Own Server / Proxy",
         privacySummary = "Controlled entirely by the server or reverse proxy endpoint you specify (e.g. Speaches, Ollama, RunPod, vLLM).",
         pricingSummary = "Determined by your hosting provider or self-hosted server.",
-        speedSummary = "Depends on your server hardware and network connection."
+        speedSummary = "Depends on your server hardware and network connection.",
+        pricingUrl = null
     );
 
     companion object {
