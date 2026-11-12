@@ -103,7 +103,9 @@ fun HomeScreen(
         val presetName = when (repository.providerPreset) {
             ProviderPreset.SELF_HOSTED -> "Your PC"
             ProviderPreset.GROQ -> "Groq"
-            ProviderPreset.OPENROUTER_OPENAI -> "OpenAI"
+            ProviderPreset.TOGETHER -> "Together AI"
+            ProviderPreset.OPENAI -> "OpenAI"
+            ProviderPreset.OPENROUTER -> "OpenRouter"
             ProviderPreset.CUSTOM -> "Custom"
         }
         val model = repository.modelName.ifBlank { "Auto" }

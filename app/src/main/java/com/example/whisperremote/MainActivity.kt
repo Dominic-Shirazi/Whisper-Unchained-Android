@@ -113,7 +113,9 @@ class MainActivity : ComponentActivity() {
         if (repository.providerPreset != ProviderPreset.SELF_HOSTED) {
             val providerName = when (repository.providerPreset) {
                 ProviderPreset.GROQ -> "Groq"
-                ProviderPreset.OPENROUTER_OPENAI -> "OpenAI"
+                ProviderPreset.TOGETHER -> "Together AI"
+                ProviderPreset.OPENAI -> "OpenAI"
+                ProviderPreset.OPENROUTER -> "OpenRouter"
                 ProviderPreset.CUSTOM -> "Custom"
                 else -> "Cloud"
             }

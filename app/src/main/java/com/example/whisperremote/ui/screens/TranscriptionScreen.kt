@@ -3,7 +3,7 @@
 // Inputs: SettingsRepository, ApiClient (for testing connection & health checks), GoogleCodeScanner trigger.
 // Outputs: Pairing-first layout (Scan QR primary button, immediate Test connection status, collapsed Manual setup).
 // Conforms to contracts/04-look-and-feel.md §3.2 and appendix v1 §4 & §5.
-// Reason for edit: Hop to main looper in testConnection for Compose state safety per F-26.
+// Reason for edit: Add privacy, pricing, and speed info modal next to each ranked provider preset.
 
 package com.example.whisperremote.ui.screens
 
@@ -30,9 +30,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -45,6 +47,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -303,6 +306,78 @@ fun TranscriptionScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
 
+                            var infoDialogPreset by remember { mutableStateOf<ProviderPreset?>(null) }
+
+                            if (infoDialogPreset != null) {
+                                val p = infoDialogPreset!!
+                                AlertDialog(
+                                    onDismissRequest = { infoDialogPreset = null },
+                                    title = {
+                                        Text(
+                                            text = p.displayName,
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    },
+                                    text = {
+                                        Column {
+                                            Text(
+                                                text = "PRIVACY",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = p.privacySummary,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+
+                                            Spacer(modifier = Modifier.height(12.dp))
+
+                                            Text(
+                                                text = "PRICING",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = p.pricingSummary,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+
+                                            Spacer(modifier = Modifier.height(12.dp))
+
+                                            Text(
+                                                text = "SPEED",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = p.speedSummary,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+
+                                            Spacer(modifier = Modifier.height(16.dp))
+
+                                            Text(
+                                                text = "Pricing estimates as of November 2026. Billed directly by each provider through your personal API account. Whisper Unchained does not process payments or collect fees.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    confirmButton = {
+                                        TextButton(onClick = { infoDialogPreset = null }) {
+                                            Text("Got it")
+                                        }
+                                    }
+                                )
+                            }
+
                             ProviderPreset.values().forEach { preset ->
                                 Row(
                                     modifier = Modifier
@@ -310,9 +385,13 @@ fun TranscriptionScreen(
                                         .clickable {
                                             selectedPreset = preset
                                             repository.providerPreset = preset
-                                            if (preset == ProviderPreset.GROQ && repository.modelName.isBlank()) {
-                                                repository.modelName = "whisper-large-v3-turbo"
-                                                selectedModel = "whisper-large-v3-turbo"
+                                            if (preset.defaultBaseUrl.isNotBlank() && (serverUrl.isBlank() || ProviderPreset.values().any { it.defaultBaseUrl == serverUrl })) {
+                                                serverUrl = preset.defaultBaseUrl
+                                                repository.baseUrl = preset.defaultBaseUrl
+                                            }
+                                            if (preset.defaultModel.isNotBlank() && (selectedModel.isBlank() || ProviderPreset.values().any { it.defaultModel == selectedModel })) {
+                                                selectedModel = preset.defaultModel
+                                                repository.modelName = preset.defaultModel
                                             }
                                         }
                                         .padding(vertical = 4.dp),
@@ -323,10 +402,36 @@ fun TranscriptionScreen(
                                         onClick = {
                                             selectedPreset = preset
                                             repository.providerPreset = preset
+                                            if (preset.defaultBaseUrl.isNotBlank() && (serverUrl.isBlank() || ProviderPreset.values().any { it.defaultBaseUrl == serverUrl })) {
+                                                serverUrl = preset.defaultBaseUrl
+                                                repository.baseUrl = preset.defaultBaseUrl
+                                            }
+                                            if (preset.defaultModel.isNotBlank() && (selectedModel.isBlank() || ProviderPreset.values().any { it.defaultModel == selectedModel })) {
+                                                selectedModel = preset.defaultModel
+                                                repository.modelName = preset.defaultModel
+                                            }
                                         }
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text(preset.displayName, style = MaterialTheme.typography.bodyLarge)
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(preset.displayName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                                        Text(
+                                            text = preset.tagLine,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (preset == ProviderPreset.SELF_HOSTED || preset == ProviderPreset.GROQ) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { infoDialogPreset = preset },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Info,
+                                            contentDescription = "${preset.displayName} info",
+                                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
 
@@ -424,13 +529,75 @@ fun TranscriptionScreen(
                                         }
                                     }
                                 }
-                                ProviderPreset.OPENROUTER_OPENAI -> {
+                                ProviderPreset.TOGETHER -> {
+                                    val togetherModels = listOf(
+                                        "whisper-large-v3" to "Standard high accuracy",
+                                        "whisper-large-v3-turbo" to "Fast & low cost"
+                                    )
+                                    togetherModels.forEach { (model, desc) ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    selectedModel = model
+                                                    repository.modelName = model
+                                                }
+                                                .padding(vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            RadioButton(
+                                                selected = selectedModel == model,
+                                                onClick = {
+                                                    selectedModel = model
+                                                    repository.modelName = model
+                                                }
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text(model, style = MaterialTheme.typography.bodyLarge)
+                                                Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+                                    }
+                                }
+                                ProviderPreset.OPENAI -> {
                                     val openAiModels = listOf(
                                         "whisper-1" to "Standard Whisper",
                                         "gpt-4o-mini-transcribe" to "Fast multi-modal",
                                         "gpt-4o-transcribe" to "High accuracy"
                                     )
                                     openAiModels.forEach { (model, desc) ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    selectedModel = model
+                                                    repository.modelName = model
+                                                }
+                                                .padding(vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            RadioButton(
+                                                selected = selectedModel == model,
+                                                onClick = {
+                                                    selectedModel = model
+                                                    repository.modelName = model
+                                                }
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text(model, style = MaterialTheme.typography.bodyLarge)
+                                                Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+                                    }
+                                }
+                                ProviderPreset.OPENROUTER -> {
+                                    val openRouterModels = listOf(
+                                        "openai/whisper-large-v3" to "Whisper Large via Router",
+                                        "openai/whisper-1" to "Whisper 1"
+                                    )
+                                    openRouterModels.forEach { (model, desc) ->
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()

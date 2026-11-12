@@ -65,7 +65,7 @@ Both flavors include the Accessibility Service with prominent disclosure for sea
   - Intelligently sets AI Cleanup default based on server or model capability (matching desktop `/health -> cleanup_always` on Self-Hosted, or default ON when cloud editor key is configured).
   - Clear contextual explanation note below the switch ("Following your PC's setting" / "On because an AI model is set up" / "Off: no AI model set up yet").
   - Explicit per-dictation `cleanup=on` or `cleanup=off` sent once the user manually chooses a preference.
-- **Provider Presets**: Instant configuration for Self-Hosted (Faster-Whisper / Speaches), Groq Cloud (`whisper-large-v3-turbo`), OpenAI / OpenRouter (`whisper-1`, `gpt-4o-mini-transcribe`), and Custom Endpoints.
+- **Provider Presets**: Instant configuration ranked by Privacy > Price > Speed: Self-Hosted (100% private, $0), Groq Cloud (Zero training, ~$0.04/hr), Together AI (Zero training, ~$0.006/min), OpenAI (Commercial non-training, 30-day abuse logs), OpenRouter (Multi-model proxy aggregator), and Custom Endpoints, complete with in-app info modals `(i)` detailing privacy, pricing, and speed.
 - **Soft Pause Support**: Seamlessly detects when the desktop PC soft-pauses dictation (for gaming or manual user pause). The app treats the server as reachable (preventing false Tailscale drops), retains the recorded audio, and automatically transcribes and pastes once the desktop PC resumes.
 - **Camera QR Code Scanner**: Integrated Google Code Scanner for point-and-scan camera onboarding directly from the desktop installer or settings QR code, with zero camera permissions needed in the app manifest (plus manual paste fallback).
 - **Desktop-Mirroring 4-Tab Interface (Samsung One UI Dark & Teal `#2FB79A`)**:

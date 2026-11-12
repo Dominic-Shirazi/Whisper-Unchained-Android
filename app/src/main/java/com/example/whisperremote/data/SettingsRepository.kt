@@ -3,6 +3,7 @@
 // Inputs: User inputs from Settings UI or QR code scan, with sensitive credentials (API keys) protected by hardware-backed KeyStore AES-256-GCM.
 // Outputs: Provider settings (base URL, API key, model, prompt hints), behavioral flags (auto-trim, boot start, Tailscale auto-restart), and injection mode.
 // It resolves endpoints according to the OpenAI standard (/v1/audio/transcriptions, /health, /v1/models) and migrates legacy URLs cleanly.
+// Reason for edit: Expand provider presets with Together AI, split OpenAI/OpenRouter, and add privacy/pricing/speed metadata ranked privacy-first.
 
 package com.example.whisperremote.data
 
@@ -34,18 +35,76 @@ enum class InjectionMode {
     CLIPBOARD
 }
 
-enum class ProviderPreset(val displayName: String, val defaultBaseUrl: String, val defaultModel: String) {
-    // Reason for edit: Set SELF_HOSTED defaultBaseUrl to empty so it never clobbers user server URLs with dummy IPs; Groq default updated to whisper-large-v3-turbo per contracts/04 (K-6).
-    SELF_HOSTED("Self-Hosted", "", "large-v3-turbo"),
-    GROQ("Groq Cloud", "https://api.groq.com/openai/v1", "whisper-large-v3-turbo"),
-    OPENROUTER_OPENAI("OpenAI / OpenRouter", "https://api.openai.com/v1", "whisper-1"),
-    CUSTOM("Custom Endpoint", "", "");
+enum class ProviderPreset(
+    val displayName: String,
+    val defaultBaseUrl: String,
+    val defaultModel: String,
+    val tagLine: String,
+    val privacySummary: String,
+    val pricingSummary: String,
+    val speedSummary: String
+) {
+    SELF_HOSTED(
+        displayName = "Self-Hosted",
+        defaultBaseUrl = "",
+        defaultModel = "large-v3-turbo",
+        tagLine = "Default · Most Private",
+        privacySummary = "100% Private. Audio stays entirely on your local PC or private Tailscale network. Zero logging, zero cloud tracking, zero model training.",
+        pricingSummary = "Free ($0.00). Runs entirely on your own computer hardware.",
+        speedSummary = "Instant local GPU processing."
+    ),
+    GROQ(
+        displayName = "Groq Cloud",
+        defaultBaseUrl = "https://api.groq.com/openai/v1",
+        defaultModel = "whisper-large-v3-turbo",
+        tagLine = "Recommended Cloud · Zero Training",
+        privacySummary = "Zero model training. Ephemeral in-memory processing on custom LPUs; recordings are never stored or used to train models. SOC 2 Type II and GDPR compliant.",
+        pricingSummary = "~$0.04 / hour of audio (as of Nov 2026). Generous free tier available with your own API key.",
+        speedSummary = "Fastest in the world (~150–250ms round-trip latency)."
+    ),
+    TOGETHER(
+        displayName = "Together AI",
+        defaultBaseUrl = "https://api.together.xyz/v1",
+        defaultModel = "whisper-large-v3",
+        tagLine = "Zero Training · Dedicated Whisper",
+        privacySummary = "Zero model training. Commercial API terms guarantee customer inputs and audio are never used to train models.",
+        pricingSummary = "~$0.006 / minute (~$0.36 / hour as of Nov 2026). Billed directly by Together AI with your own API key.",
+        speedSummary = "High-speed processing on dedicated GPU clusters."
+    ),
+    OPENAI(
+        displayName = "OpenAI",
+        defaultBaseUrl = "https://api.openai.com/v1",
+        defaultModel = "whisper-1",
+        tagLine = "Official Whisper",
+        privacySummary = "No training on commercial API data. Audio is retained on OpenAI servers for 30 days for abuse monitoring before automatic deletion.",
+        pricingSummary = "~$0.006 / minute (~$0.36 / hour as of Nov 2026). Billed directly by OpenAI with your own API key.",
+        speedSummary = "Moderate (~800ms - 1.5s). Occasional peak-hour queue delays."
+    ),
+    OPENROUTER(
+        displayName = "OpenRouter",
+        defaultBaseUrl = "https://openrouter.ai/api/v1",
+        defaultModel = "openai/whisper-large-v3",
+        tagLine = "Multi-Provider Router",
+        privacySummary = "Proxy aggregator. Your request passes through OpenRouter before forwarding to the underlying model provider, subject to both privacy policies.",
+        pricingSummary = "Pass-through upstream rates with flexible credit system.",
+        speedSummary = "Slightly slower due to extra proxy routing hop."
+    ),
+    CUSTOM(
+        displayName = "Custom Endpoint",
+        defaultBaseUrl = "",
+        defaultModel = "",
+        tagLine = "Your Own Server / Proxy",
+        privacySummary = "Controlled entirely by the server or reverse proxy endpoint you specify (e.g. Speaches, Ollama, RunPod, vLLM).",
+        pricingSummary = "Determined by your hosting provider or self-hosted server.",
+        speedSummary = "Depends on your server hardware and network connection."
+    );
 
     companion object {
         fun fromLegacy(name: String?): ProviderPreset {
             return when (name) {
                 "HEAD_PC" -> SELF_HOSTED
                 "OLLAMA" -> CUSTOM
+                "OPENROUTER_OPENAI" -> OPENAI
                 else -> values().find { it.name == name } ?: SELF_HOSTED
             }
         }
@@ -55,9 +114,20 @@ enum class ProviderPreset(val displayName: String, val defaultBaseUrl: String, v
 // Reason for edit: Added chat presets for cloud dictation cleanup per Q-2
 enum class ChatProviderPreset(val displayName: String, val defaultUrl: String, val defaultModel: String) {
     GROQ("Groq (llama-3.3-70b)", "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile"),
-    OPENROUTER_OPENAI("OpenAI (gpt-4o-mini)", "https://api.openai.com/v1/chat/completions", "gpt-4o-mini"),
+    TOGETHER("Together AI", "https://api.together.xyz/v1/chat/completions", "meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+    OPENAI("OpenAI (gpt-4o-mini)", "https://api.openai.com/v1/chat/completions", "gpt-4o-mini"),
+    OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1/chat/completions", "meta-llama/llama-3.3-70b-instruct"),
     OLLAMA("Ollama / LocalAI (Tailscale/LAN)", "http://100.x.y.z:11434/v1/chat/completions", "llama3.2"),
-    CUSTOM("Custom Endpoint", "", "")
+    CUSTOM("Custom Endpoint", "", "");
+
+    companion object {
+        fun fromLegacy(name: String?): ChatProviderPreset {
+            return when (name) {
+                "OPENROUTER_OPENAI" -> OPENAI
+                else -> values().find { it.name == name } ?: GROQ
+            }
+        }
+    }
 }
 
 class SettingsRepository(context: Context) {
@@ -459,8 +529,8 @@ class SettingsRepository(context: Context) {
 
     var cleanupChatPreset: ChatProviderPreset
         get() {
-            val name = getPlainString("cleanup_chat_preset", ChatProviderPreset.OPENROUTER_OPENAI.name)
-            return ChatProviderPreset.values().find { it.name == name } ?: ChatProviderPreset.OPENROUTER_OPENAI
+            val name = getPlainString("cleanup_chat_preset", ChatProviderPreset.GROQ.name)
+            return ChatProviderPreset.fromLegacy(name)
         }
         set(value) = putPlainString("cleanup_chat_preset", value.name)
 
