@@ -3,6 +3,7 @@
 // Inputs: SettingsRepository (injectionMode), system accessibility service status.
 // Outputs: Selection between Accessibility auto-paste and Clipboard chip, with re-showable prominent disclosure
 //          and shortcut to Android Accessibility Settings. Conforms to contracts/04-look-and-feel.md §3.3 and F-22.
+// Reason for edit: Automatically switch injectionMode to ACCESSIBILITY when service is enabled on resume per F-36 item 6.
 
 package com.example.whisperremote.ui.screens
 
@@ -38,6 +39,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +47,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.whisperremote.DictationAccessibilityService
@@ -65,7 +70,23 @@ fun PasteModeScreen(
     var injectionMode by remember { mutableStateOf(repository.injectionMode) }
     var showDisclosureDialog by remember { mutableStateOf(false) }
 
-    val isAccessibilityActive = DictationAccessibilityService.getInstance() != null
+    val isAccessibilityActive = DictationAccessibilityService.isEnabled(context)
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (DictationAccessibilityService.isEnabled(context)) {
+                    repository.injectionMode = InjectionMode.ACCESSIBILITY
+                    injectionMode = InjectionMode.ACCESSIBILITY
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     Scaffold(
         topBar = {

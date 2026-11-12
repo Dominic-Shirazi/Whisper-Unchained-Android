@@ -4,6 +4,7 @@
 // Outputs: Informative status rows with direct system settings intents and color-blind safe status text ("Allowed ✓" / "Not allowed").
 // Conforms to contracts/04-look-and-feel.md §3.3.
 // Reason for edit: Branch battery optimization in Play flavor to standard list intent without restricted REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission per F-27.
+// Reason for edit: Update Play flavor battery row copy to exact wording per F-36 item 8.
 
 package com.example.whisperremote.ui.screens
 
@@ -212,7 +213,7 @@ fun PermissionsScreen(
                         grantedText = "✓ Unrestricted",
                         deniedText = "⚠ Optimized (may sleep)",
                         description = if (BuildConfig.FLAVOR == "play") {
-                            "Find Whisper Unchained in the list and choose Not optimized / Unrestricted."
+                            "Opens Android's battery list: find Whisper Unchained and choose Unrestricted"
                         } else {
                             "Stops Android from putting the floating mic to sleep"
                         },
