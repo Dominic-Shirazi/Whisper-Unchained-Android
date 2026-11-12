@@ -4,7 +4,7 @@
 //         navigation callbacks to subpages (transcription, words/triggers, ai-editing, paste-mode, permissions, floating-button, about, intro).
 // Outputs: Scrollable list with collapsing LargeTopAppBar, account-style StatusCard, grouped borderless rows,
 //          colored circle icons on top-level rows only, and bottom "Looking for something else?" card.
-// Reason for edit: Center title with app logo in home top bar per user feedback.
+// Reason for edit: Remove redundant Transcription row under StatusCard and group Words & Triggers with AI Editing.
 
 package com.example.whisperremote.ui.screens
 
@@ -63,7 +63,6 @@ import com.example.whisperremote.BuildConfig
 import com.example.whisperremote.FloatingButtonService
 import com.example.whisperremote.R
 import com.example.whisperremote.data.InjectionMode
-import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
 import com.example.whisperremote.ui.components.SettingsDivider
 import com.example.whisperremote.ui.components.SettingsGroup
@@ -97,19 +96,6 @@ fun HomeScreen(
         if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
             FloatingButtonService.getInstance()?.setMediaProjectionData(result.resultCode, result.data!!)
         }
-    }
-
-    val transcriptionSubtitle = remember(repository.providerPreset, repository.modelName) {
-        val presetName = when (repository.providerPreset) {
-            ProviderPreset.SELF_HOSTED -> "Your PC"
-            ProviderPreset.GROQ -> "Groq"
-            ProviderPreset.TOGETHER -> "Together AI"
-            ProviderPreset.OPENAI -> "OpenAI"
-            ProviderPreset.OPENROUTER -> "OpenRouter"
-            ProviderPreset.CUSTOM -> "Custom"
-        }
-        val model = repository.modelName.ifBlank { "Auto" }
-        "$presetName · $model"
     }
 
     val aiEditingSubtitle = remember(repository.cleanupEnabled, repository.cleanupShorten, repository.cleanupTone) {
@@ -185,20 +171,11 @@ fun HomeScreen(
                 )
             }
 
-            // Group 1: Where your voice goes
+            // Group 1: Text modification (Words & Triggers + AI Editing)
             item {
                 SettingsGroup(
                     modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                 ) {
-                    SettingsNavRow(
-                        title = "Transcription",
-                        subtitle = transcriptionSubtitle,
-                        subtitleIsValue = true,
-                        iconPainter = painterResource(R.drawable.ic_mic),
-                        iconBackgroundColor = WhisperTokens.FallbackAccent,
-                        onClick = onNavigateToTranscription
-                    )
-                    SettingsDivider()
                     SettingsNavRow(
                         title = "Words & Triggers",
                         subtitle = "Vocabulary, name corrections & prompts",
@@ -207,14 +184,7 @@ fun HomeScreen(
                         iconBackgroundColor = Color(0xFF8A56E2),
                         onClick = onNavigateToWordsTriggers
                     )
-                }
-            }
-
-            // Group 2: AI Editing
-            item {
-                SettingsGroup(
-                    modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
-                ) {
+                    SettingsDivider()
                     SettingsNavRow(
                         title = "AI Editing",
                         subtitle = aiEditingSubtitle,
@@ -226,7 +196,7 @@ fun HomeScreen(
                 }
             }
 
-            // Group 3: How it types & floats
+            // Group 2: How it types & floats
             item {
                 SettingsGroup(
                     modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)

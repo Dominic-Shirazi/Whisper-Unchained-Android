@@ -41,8 +41,8 @@ android {
         applicationId = "com.cyrus_studio.whisperunchained"
         minSdk = 34
         targetSdk = 36
-        // Reason for edit: Bump versionCode to 15 for privacy-first provider presets with Together AI, split OpenAI/OpenRouter, and info modals
-        versionCode = 15
+        // Reason for edit: Bump versionCode to 16 for streamlined home layout (StatusCard as transcription entry, combined Words & AI Editing)
+        versionCode = 16
         versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
