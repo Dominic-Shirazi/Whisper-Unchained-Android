@@ -127,7 +127,7 @@ The installer and the desktop Settings window will show a QR code the app scans.
 
 ## 8. Shared vocabulary · LIVE (code; Whisper-Unchained-Server `1c3a2b8`)
 
-The Head PC's vocabulary list is **the** list. The app shows it and adds to it, so a word typed on the
+The Head PC's vocabulary list is **the** list. The app shows it and edits it, so a word typed on the
 phone while out also works at the desk later (Dominic, 2026-11-10). Self-hosted preset only; other
 providers have no such endpoint.
 
@@ -136,22 +136,38 @@ providers have no such endpoint.
 { "vocabulary": ["Qwen", "Ollama"], "from_name_corrections": ["Lesley", "Ame"],
   "name_corrections": {"Leslie": "Lesley", "Emma": "Ame"}, "chars": 25, "max_chars": 540 }
 ```
-- `vocabulary`: the user's words. Show these as the editable-by-adding list.
+- `vocabulary`: the user's words. Show these as an editable list (add, change, remove).
 - `from_name_corrections`: hinted automatically from the server's name corrections. **Show them** (greyed, read-only,
   labeled "from name corrections"): hiding them made Dominic think his words were missing (2026-11-10).
-- `name_corrections` (**added 2026-11-10**, additive): the full "heard as → write as" pairs, for a read-only
-  list on the phone's Words screen (contract 04). Edited only in the desktop Settings window.
+- `name_corrections` (**added 2026-11-10**, additive): the full "heard as → write as" pairs. **Editable from the phone
+  since 2026-11-12** (server `659bc0a`), see below.
 - `chars` / `max_chars`: how much of Whisper's hint space is used (~224 tokens ≈ 540 chars). Words past that are ignored by Whisper; warn when `chars` > `max_chars`.
 
-**`POST /v1/vocabulary`** `{"add": ["Kubernetes", "Tailscale"]}` → same body as GET plus `"added": [...]`
-(only the words that were new; dedupe is case-insensitive against both lists, so re-sending is harmless).
-- 1–50 words per call; each under 60 characters, no commas or line breaks. Otherwise `400 invalid_vocabulary`.
-- **Add-only by design.** Removing words is done in the desktop Settings window, so a mis-tap on the phone can't wipe the list.
+**`POST /v1/vocabulary`** `{"add": ["Kubernetes"], "remove": ["Kubernets"]}` → same body as GET plus `"added": [...]`, `"removed": [...]`.
+- `add` and `remove` are both optional, but at least one word is required (1–50 each). Removes run first, so fixing a
+  spelling is one call. Added words: under 60 characters, no commas or line breaks. Otherwise `400 invalid_vocabulary`.
+- Adding dedupes case-insensitively against both lists, so re-sending is harmless. Removing matches case-insensitively
+  and only touches `vocabulary` (to drop a word in `from_name_corrections`, remove its name correction).
 - Takes effect immediately for every dictation (desktop and phone); no restart.
 
+**`POST /v1/name_corrections`** (**new 2026-11-12**) `{"set": {"Corey": "Cory"}, "remove": ["Emma"]}` → same body as GET
+plus `"changed": {...}` (pairs that were new or different) and `"removed": [...]`.
+- "Heard as" matches case-insensitively, like the correction itself: setting `"corey"` replaces an existing `"Corey"` in
+  place. Removes run first, so changing the "heard as" side is one call (`remove` old + `set` new).
+- Rules: 1–50 entries per call; heard-as at least 2 characters (a one-letter rule would rewrite every "a" or "I");
+  each side under 60 characters, no commas or line breaks; not identical on both sides; no "heard as" listed twice.
+  Otherwise `400 invalid_name_corrections` with a readable `message` (show it).
+- Re-sending a pair that's already there is harmless (`changed` is empty).
+- **Safety net:** any call that removes or replaces something first copies the PC's word file to
+  `api/word_list_backups/` (newest 30 kept). Still confirm removals in the app (see below).
+- Older servers return `404` for this route: show the list read-only with "Update the PC app to edit these here".
+
 **Expected app behavior:**
-- Self-hosted preset: the hints field shows the server list (GET on open/refresh). Adding a word POSTs it.
-  **Offline:** queue it locally and POST the queue on the next successful `/health`; clear only the words the response confirms (`added` or already present in `vocabulary`).
+- Self-hosted preset: the hints field shows the server list (GET on open/refresh). Adding, removing and editing POST
+  right away. **Offline:** queue each edit locally, in order, and replay the queue on the next successful `/health`;
+  drop an entry once a response confirms it (or once the list already shows the end state). A `400` drops the entry
+  and shows its message once.
+- Removing (a word or a name correction) shows an **Undo** snackbar for a few seconds; Undo re-sends what was removed.
 - Cloud presets (Groq/OpenAI/...): keep a local list and send it as the `prompt` field, since there is no server list.
   The server-side list is not copied into the pairing QR (it would go stale).
 - Sending per-request `prompt` hints to the Head PC still works and is merged case-insensitively, but with the shared list it's no longer needed.
