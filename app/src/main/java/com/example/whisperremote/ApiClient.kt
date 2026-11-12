@@ -11,6 +11,7 @@ package com.example.whisperremote
 // Reason for edit: Added per-dictation StyleOverrides support for style pill overrides per contract F-6 (contracts/01 §1 & contracts/02 §5).
 // Reason for edit: Ensure all public callbacks dispatch on Looper.getMainLooper() to prevent background thread UI/Toast crashes per F-26.
 // Reason for edit: Configure pinned TLS trust manager and hostname verifier per contract 06 §3 (F-38/F-39).
+// Reason for edit: Scope certificate pinning strictly to paired PC origin per F-40.
 
 import android.content.Context
 import android.os.Handler
@@ -32,6 +33,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.net.URI
 import java.util.concurrent.TimeUnit
 
 sealed class TranscriptionResult {
@@ -81,24 +83,82 @@ class ApiClient(private val context: Context) {
 
     private val repository = SettingsRepository(context)
 
-    // Transcription client with standard 60-second timeouts for GPU/LLM processing
-    // Reason for edit: Configure pinned TLS trust manager and hostname verifier per contract 06 §3
-    private val client = PinnedCertificateHelper.configureClient(
-        OkHttpClient.Builder()
-            .connectTimeout(60, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS),
+    // Standard timeout client (60s) with system CA trust store for cloud endpoints & general web APIs
+    private val publicClient = OkHttpClient.Builder()
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .build()
+
+    // Pinned client for the paired PC origin enforcing SHA-256 leaf cert pin per contract 06 §3 & F-40
+    private val pcClient = PinnedCertificateHelper.configureClient(
+        publicClient.newBuilder(),
         pinProvider = { repository.serverCertSha256 }
     ).build()
 
-    // Fast client for health checks (3-5s timeout per contract §2)
-    // Reason for edit: Configure pinned TLS trust manager and hostname verifier per contract 06 §3
-    private val fastCheckClient = PinnedCertificateHelper.configureClient(
-        OkHttpClient.Builder()
-            .connectTimeout(4, TimeUnit.SECONDS)
-            .readTimeout(4, TimeUnit.SECONDS),
+    // Fast client (4s) for health/vocabulary checks with standard CA trust store
+    private val fastPublicClient = OkHttpClient.Builder()
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
+        .build()
+
+    // Fast pinned client for the paired PC origin
+    private val fastPcClient = PinnedCertificateHelper.configureClient(
+        fastPublicClient.newBuilder(),
         pinProvider = { repository.serverCertSha256 }
     ).build()
+
+    /**
+     * Determines whether the given target URL matches the scheme, host, and port of the paired PC base URL.
+     * Only true when a certificate pin is stored and origin matches exactly per F-40.
+     */
+    fun isPairedPcOrigin(url: String): Boolean {
+        val pin = repository.serverCertSha256
+        if (pin.isNullOrBlank()) return false
+        val base = repository.baseUrl
+        if (base.isBlank()) return false
+        return try {
+            val targetUri = URI(url)
+            val baseUri = URI(base)
+            val targetScheme = targetUri.scheme?.lowercase()
+            val baseScheme = baseUri.scheme?.lowercase()
+            if (targetScheme != baseScheme) return false
+            val targetHost = targetUri.host.orEmpty()
+            val baseHost = baseUri.host.orEmpty()
+            if (!targetHost.equals(baseHost, ignoreCase = true)) return false
+            val targetPort = if (targetUri.port != -1) targetUri.port else (if (targetScheme == "https") 443 else 80)
+            val basePort = if (baseUri.port != -1) baseUri.port else (if (baseScheme == "https") 443 else 80)
+            targetPort == basePort
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Returns the pinned PC client if the target URL matches the paired PC origin and a pin is stored;
+     * otherwise returns the unpinned public client using standard CA trust per contract 06 & F-40.
+     */
+    fun clientFor(url: String): OkHttpClient {
+        return if (isPairedPcOrigin(url)) pcClient else publicClient
+    }
+
+    /**
+     * Returns the fast pinned PC client if the target URL matches the paired PC origin;
+     * otherwise returns the fast public client per contract 06 & F-40.
+     */
+    fun fastClientFor(url: String): OkHttpClient {
+        return if (isPairedPcOrigin(url)) fastPcClient else fastPublicClient
+    }
+
+    /**
+     * Evicts all pooled connections across clients so newly paired pins or endpoints take effect immediately.
+     */
+    fun evictConnections() {
+        pcClient.connectionPool.evictAll()
+        publicClient.connectionPool.evictAll()
+        fastPcClient.connectionPool.evictAll()
+        fastPublicClient.connectionPool.evictAll()
+    }
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -216,7 +276,7 @@ class ApiClient(private val context: Context) {
             requestBuilder.header("Authorization", "Bearer $token")
         }
 
-        client.newCall(requestBuilder.build()).enqueue(object : Callback {
+        clientFor(url).newCall(requestBuilder.build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.e("ApiClient", "Network failure during transcription: ${e.message}", e)
                 callback(TranscriptionResult.NetworkError(mapError(e)))
@@ -311,7 +371,7 @@ class ApiClient(private val context: Context) {
             .get()
             .build()
 
-        fastCheckClient.newCall(request).enqueue(object : Callback {
+        fastClientFor(healthUrl).newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.w("ApiClient", "Health check failed at $healthUrl: ${e.message}")
                 callback(HealthResult.Unreachable(mapError(e)))
@@ -366,7 +426,7 @@ class ApiClient(private val context: Context) {
             requestBuilder.header("Authorization", "Bearer $token")
         }
 
-        fastCheckClient.newCall(requestBuilder.build()).enqueue(object : Callback {
+        fastClientFor(modelsUrl).newCall(requestBuilder.build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 val mapped = mapError(e)
                 callback(false, "Connection failed: ${mapped.localizedMessage ?: e.localizedMessage}")
@@ -404,7 +464,7 @@ class ApiClient(private val context: Context) {
             requestBuilder.header("Authorization", "Bearer $token")
         }
 
-        fastCheckClient.newCall(requestBuilder.build()).enqueue(object : Callback {
+        fastClientFor(url).newCall(requestBuilder.build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 callback(VocabularyResult.NetworkError(mapError(e)))
             }
@@ -476,7 +536,7 @@ class ApiClient(private val context: Context) {
             requestBuilder.header("Authorization", "Bearer $token")
         }
 
-        fastCheckClient.newCall(requestBuilder.build()).enqueue(object : Callback {
+        fastClientFor(url).newCall(requestBuilder.build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 callback(VocabularyResult.NetworkError(mapError(e)))
             }
@@ -610,7 +670,7 @@ class ApiClient(private val context: Context) {
                 requestBuilder.header("Authorization", "Bearer $key")
             }
 
-            fastCheckClient.newCall(requestBuilder.build()).enqueue(object : Callback {
+            fastClientFor(chatUrl).newCall(requestBuilder.build()).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
                     Log.w("ApiClient", "Cloud cleanup LLM call failed; falling back to raw transcript", e)
                     callback(text)
@@ -698,7 +758,7 @@ class ApiClient(private val context: Context) {
                 requestBuilder.header("Authorization", "Bearer $key")
             }
 
-            fastCheckClient.newCall(requestBuilder.build()).enqueue(object : Callback {
+            fastClientFor(chatUrl).newCall(requestBuilder.build()).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
                     Log.w("ApiClient", "Cloud edit command LLM call failed; falling back to content", e)
                     callback(split.content.ifEmpty { split.original })
