@@ -81,11 +81,12 @@ data class VocabularyData(
 
 sealed class VocabularyResult {
     data class Success(val data: VocabularyData) : VocabularyResult()
+    data class ParseError(val message: String) : VocabularyResult()
     data class Error(val code: Int, val message: String) : VocabularyResult()
     data class NetworkError(val error: Throwable) : VocabularyResult()
 }
 
-// Reason for edit: Add NameCorrectionsResult per contract 01 §8 and F-43
+// Reason for edit: Add NameCorrectionsResult with ParseError per contract 01 §8, F-43, and F-46
 sealed class NameCorrectionsResult {
     data class Success(
         val nameCorrections: Map<String, String>,
@@ -93,6 +94,7 @@ sealed class NameCorrectionsResult {
         val removed: List<String> = emptyList()
     ) : NameCorrectionsResult()
     data class Unsupported(val message: String = "Update the PC app to edit these here") : NameCorrectionsResult()
+    data class ParseError(val message: String) : NameCorrectionsResult()
     data class Error(val code: Int, val message: String) : NameCorrectionsResult()
     data class NetworkError(val error: Throwable) : NameCorrectionsResult()
 }
@@ -101,6 +103,7 @@ class ApiClient(private val context: Context) {
 
     private val repository = SettingsRepository(context)
     private val isReplaying = AtomicBoolean(false)
+    val authErrorNotified = AtomicBoolean(false)
 
     // Standard timeout client (60s) with system CA trust store for cloud endpoints & general web APIs
     private val publicClient = OkHttpClient.Builder()
@@ -521,7 +524,7 @@ class ApiClient(private val context: Context) {
 
                             callback(VocabularyResult.Success(VocabularyData(vocabList, nameList, nameCorrectionsMap, chars, maxChars)))
                         } catch (e: Exception) {
-                            callback(VocabularyResult.Error(response.code, "Failed to parse vocabulary response: ${e.message}"))
+                            callback(VocabularyResult.ParseError("Failed to parse vocabulary response: ${e.message}"))
                         }
                     } else {
                         callback(VocabularyResult.Error(response.code, "Server returned HTTP ${response.code}: ${response.message}"))
@@ -606,7 +609,7 @@ class ApiClient(private val context: Context) {
 
                             callback(VocabularyResult.Success(VocabularyData(vocabList, nameList, nameCorrectionsMap, chars, maxChars, addedList, removedList)))
                         } catch (e: Exception) {
-                            callback(VocabularyResult.Error(response.code, "Failed to parse vocabulary response: ${e.message}"))
+                            callback(VocabularyResult.ParseError("Failed to parse vocabulary response: ${e.message}"))
                         }
                     } else {
                         val errMsg = extractErrorMessage(body)
@@ -707,7 +710,7 @@ class ApiClient(private val context: Context) {
 
                             callback(NameCorrectionsResult.Success(nameCorrectionsMap, changedMap, removedList))
                         } catch (e: Exception) {
-                            callback(NameCorrectionsResult.Error(response.code, "Failed to parse name corrections response: ${e.message}"))
+                            callback(NameCorrectionsResult.ParseError("Failed to parse name corrections response: ${e.message}"))
                         }
                     } else {
                         val errMsg = extractErrorMessage(body)
@@ -760,30 +763,54 @@ class ApiClient(private val context: Context) {
                     modifyVocabulary(add = item.addWords, remove = item.removeWords) { result ->
                         when (result) {
                             is VocabularyResult.Success -> {
+                                authErrorNotified.set(false)
                                 repository.removePendingMutation(item.id)
                                 replayNextMutation(onComplete)
                             }
-                            is VocabularyResult.Error -> {
-                                if (result.code == 400) {
+                            is VocabularyResult.ParseError -> {
+                                // 3-strike rule applies ONLY to 2xx parse failures (poison pills) per F-46
+                                val attempts = repository.incrementMutationAttempts(item.id)
+                                if (attempts >= 3) {
                                     repository.removePendingMutation(item.id)
                                     runOnMain {
-                                        Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                        Toast.makeText(
+                                            context,
+                                            "Could not send edit (${item.describe()}) after 3 attempts.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
                                     }
                                     replayNextMutation(onComplete)
                                 } else {
-                                    // 3. Drop poison-pill parse errors after 3 failed attempts per F-45 item 3
-                                    val attempts = repository.incrementMutationAttempts(item.id)
-                                    if (attempts >= 3) {
+                                    isReplaying.set(false)
+                                    onComplete?.invoke(false)
+                                }
+                            }
+                            is VocabularyResult.Error -> {
+                                when {
+                                    result.code == 400 -> {
+                                        // 400 Bad Request: server rejected edit permanently (e.g. invalid chars)
                                         repository.removePendingMutation(item.id)
                                         runOnMain {
-                                            Toast.makeText(
-                                                context,
-                                                "Could not send edit (${item.describe()}) after 3 attempts.",
-                                                Toast.LENGTH_LONG
-                                            ).show()
+                                            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
                                         }
                                         replayNextMutation(onComplete)
-                                    } else {
+                                    }
+                                    result.code == 401 || result.code == 403 -> {
+                                        // 401/403: auth failed. Keep item in queue, stop replay, notify user once per F-46
+                                        if (authErrorNotified.compareAndSet(false, true)) {
+                                            runOnMain {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Your PC didn't accept this phone's key. Scan the pairing code again to send your waiting edits.",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            }
+                                        }
+                                        isReplaying.set(false)
+                                        onComplete?.invoke(false)
+                                    }
+                                    else -> {
+                                        // Any other non-2xx (5xx, 429, etc.): keep item, stop replay, zero strikes per F-46
                                         isReplaying.set(false)
                                         onComplete?.invoke(false)
                                     }
@@ -800,6 +827,7 @@ class ApiClient(private val context: Context) {
                     modifyNameCorrections(set = item.setNameCorrections, remove = item.removeNameCorrections) { result ->
                         when (result) {
                             is NameCorrectionsResult.Success -> {
+                                authErrorNotified.set(false)
                                 repository.removePendingMutation(item.id)
                                 replayNextMutation(onComplete)
                             }
@@ -816,26 +844,50 @@ class ApiClient(private val context: Context) {
                                 getVocabulary { _ -> }
                                 replayNextMutation(onComplete)
                             }
-                            is NameCorrectionsResult.Error -> {
-                                if (result.code == 400) {
+                            is NameCorrectionsResult.ParseError -> {
+                                // 3-strike rule applies ONLY to 2xx parse failures (poison pills) per F-46
+                                val attempts = repository.incrementMutationAttempts(item.id)
+                                if (attempts >= 3) {
                                     repository.removePendingMutation(item.id)
                                     runOnMain {
-                                        Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                        Toast.makeText(
+                                            context,
+                                            "Could not send edit (${item.describe()}) after 3 attempts.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
                                     }
                                     replayNextMutation(onComplete)
                                 } else {
-                                    val attempts = repository.incrementMutationAttempts(item.id)
-                                    if (attempts >= 3) {
+                                    isReplaying.set(false)
+                                    onComplete?.invoke(false)
+                                }
+                            }
+                            is NameCorrectionsResult.Error -> {
+                                when {
+                                    result.code == 400 -> {
+                                        // 400 Bad Request: server rejected edit permanently
                                         repository.removePendingMutation(item.id)
                                         runOnMain {
-                                            Toast.makeText(
-                                                context,
-                                                "Could not send edit (${item.describe()}) after 3 attempts.",
-                                                Toast.LENGTH_LONG
-                                            ).show()
+                                            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
                                         }
                                         replayNextMutation(onComplete)
-                                    } else {
+                                    }
+                                    result.code == 401 || result.code == 403 -> {
+                                        // 401/403: auth failed. Keep item in queue, stop replay, notify user once per F-46
+                                        if (authErrorNotified.compareAndSet(false, true)) {
+                                            runOnMain {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Your PC didn't accept this phone's key. Scan the pairing code again to send your waiting edits.",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            }
+                                        }
+                                        isReplaying.set(false)
+                                        onComplete?.invoke(false)
+                                    }
+                                    else -> {
+                                        // Any other non-2xx (5xx, 429, etc.): keep item, stop replay, zero strikes per F-46
                                         isReplaying.set(false)
                                         onComplete?.invoke(false)
                                     }

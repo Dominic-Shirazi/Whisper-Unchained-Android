@@ -3,6 +3,7 @@
 // Inputs: Word strings, name correction pairs, and queued mutations.
 // Outputs: Verifies client-side validation, queued mutations serialization, and immediate local application.
 // Conforms to contracts/01-transcription-api.md §8 and F-43.
+// Reason for edit: Add 401, 503, and 2xx parse error poison-pill unit tests per F-46.
 // Reason for creation: Unit test suite for helper words & name corrections management per F-43.
 
 package com.example.whisperremote
@@ -283,7 +284,7 @@ class WordListManagementTest {
     }
 
     @Test
-    fun testReplayPendingMutations_dropsPoisonPillAfter3Attempts() {
+    fun testReplayPendingMutations_200WithGarbageDropsOnlyPoisonPillAndSendsNext() {
         val server = okhttp3.mockwebserver.MockWebServer()
         server.start()
         try {
@@ -291,14 +292,17 @@ class WordListManagementTest {
             val apiClient = ApiClient(context)
 
             val mBad = QueuedMutation(id = "mBad", type = "vocab", addWords = listOf("PoisonPill"))
+            val mGood = QueuedMutation(id = "mGood", type = "vocab", addWords = listOf("Ollama"))
             repository.addPendingMutation(mBad)
+            repository.addPendingMutation(mGood)
 
-            // Respond 3 times with malformed JSON causing parse error
-            for (i in 1..3) {
-                server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("Not Valid JSON"))
-            }
+            // Respond 3 times with malformed JSON for mBad, then valid JSON for mGood
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("Not Valid JSON 1"))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("Not Valid JSON 2"))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("Not Valid JSON 3"))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("""{"vocabulary":["Ollama"],"from_name_corrections":[],"chars":6,"max_chars":540}"""))
 
-            // Attempt 1
+            // Attempt 1 for mBad
             var latch = java.util.concurrent.CountDownLatch(1)
             apiClient.replayPendingMutations { _ -> latch.countDown() }
             var start = System.currentTimeMillis()
@@ -306,10 +310,11 @@ class WordListManagementTest {
                 org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
                 Thread.sleep(20)
             }
-            assertEquals(1, repository.getPendingMutations().size)
+            assertEquals(2, repository.getPendingMutations().size)
+            assertEquals("mBad", repository.getPendingMutations()[0].id)
             assertEquals(1, repository.getPendingMutations()[0].attempts)
 
-            // Attempt 2
+            // Attempt 2 for mBad
             latch = java.util.concurrent.CountDownLatch(1)
             apiClient.replayPendingMutations { _ -> latch.countDown() }
             start = System.currentTimeMillis()
@@ -317,10 +322,11 @@ class WordListManagementTest {
                 org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
                 Thread.sleep(20)
             }
-            assertEquals(1, repository.getPendingMutations().size)
+            assertEquals(2, repository.getPendingMutations().size)
+            assertEquals("mBad", repository.getPendingMutations()[0].id)
             assertEquals(2, repository.getPendingMutations()[0].attempts)
 
-            // Attempt 3 -> drops mutation
+            // Attempt 3 for mBad -> drops mBad and automatically replays mGood
             latch = java.util.concurrent.CountDownLatch(1)
             apiClient.replayPendingMutations { _ -> latch.countDown() }
             start = System.currentTimeMillis()
@@ -328,7 +334,82 @@ class WordListManagementTest {
                 org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
                 Thread.sleep(20)
             }
+            // All mutations processed: mBad was dropped on 3rd attempt, and mGood succeeded!
             assertEquals(0, repository.getPendingMutations().size)
+            assertEquals(4, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    // Reason for edit: Verify 401 Unauthorized keeps the mutation queue intact without counting strikes per F-46
+    @Test
+    fun testReplay_401DoesNotDropEdits() {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            repository.baseUrl = server.url("/v1").toString()
+            val apiClient = ApiClient(context)
+
+            val m1 = QueuedMutation(id = "m1", type = "vocab", addWords = listOf("Kubernetes"))
+            repository.addPendingMutation(m1)
+
+            // 5 consecutive 401 Unauthorized responses
+            for (i in 1..5) {
+                server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(401).setBody("""{"error":{"message":"Invalid token"}}"""))
+            }
+
+            for (i in 1..5) {
+                val latch = java.util.concurrent.CountDownLatch(1)
+                apiClient.replayPendingMutations { _ -> latch.countDown() }
+                val start = System.currentTimeMillis()
+                while (latch.count > 0 && System.currentTimeMillis() - start < 5000) {
+                    org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                    Thread.sleep(20)
+                }
+                assertEquals(0, latch.count)
+                // Queue intact, zero strikes recorded
+                assertEquals(1, repository.getPendingMutations().size)
+                assertEquals(0, repository.getPendingMutations()[0].attempts)
+            }
+
+            // authErrorNotified was set to true
+            assertTrue(apiClient.authErrorNotified.get())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    // Reason for edit: Verify 503 Service Unavailable keeps the mutation queue intact without counting strikes per F-46
+    @Test
+    fun testReplay_503DoesNotDropEdits() {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            repository.baseUrl = server.url("/v1").toString()
+            val apiClient = ApiClient(context)
+
+            val m1 = QueuedMutation(id = "m1", type = "vocab", addWords = listOf("Kubernetes"))
+            repository.addPendingMutation(m1)
+
+            // 5 consecutive 503 Service Unavailable responses
+            for (i in 1..5) {
+                server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(503).setBody("Service Temporarily Unavailable"))
+            }
+
+            for (i in 1..5) {
+                val latch = java.util.concurrent.CountDownLatch(1)
+                apiClient.replayPendingMutations { _ -> latch.countDown() }
+                val start = System.currentTimeMillis()
+                while (latch.count > 0 && System.currentTimeMillis() - start < 5000) {
+                    org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                    Thread.sleep(20)
+                }
+                assertEquals(0, latch.count)
+                // Queue intact, zero strikes recorded
+                assertEquals(1, repository.getPendingMutations().size)
+                assertEquals(0, repository.getPendingMutations()[0].attempts)
+            }
         } finally {
             server.shutdown()
         }

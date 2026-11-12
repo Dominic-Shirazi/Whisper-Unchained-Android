@@ -3,6 +3,7 @@
 // Inputs: SettingsRepository, ApiClient for 2-way vocabulary and name corrections synchronization.
 // Outputs: UI for editing helper words and name corrections with offline queueing, undo snackbars, and voice commands.
 // Conforms to contracts/01-transcription-api.md §8 and F-43.
+// Reason for edit: Exhaustive handling of ParseError for vocabulary and name corrections per F-46.
 // Reason for edit: Center-align name correction arrows in a straight vertical column per user feedback.
 // Reason for edit: Interactive Helper Words and Name Corrections editor with offline queueing per contract 01 §8 and F-43.
 
@@ -172,6 +173,9 @@ fun WordsTriggersScreen(
                             serverNameCorrections = result.data.nameCorrections
                             Toast.makeText(context, "Synced with PC (${helperWords.size} words)", Toast.LENGTH_SHORT).show()
                         }
+                        is VocabularyResult.ParseError -> {
+                            Toast.makeText(context, "Could not parse vocabulary: ${result.message}", Toast.LENGTH_SHORT).show()
+                        }
                         is VocabularyResult.Error -> {
                             Toast.makeText(context, "Could not fetch vocabulary: ${result.message}", Toast.LENGTH_SHORT).show()
                         }
@@ -215,6 +219,9 @@ fun WordsTriggersScreen(
                         coroutineScope.launch { snackbarHostState.showSnackbar(result.message) }
                     }
                 }
+                is VocabularyResult.ParseError -> {
+                    // Stays queued with "waiting for your PC"
+                }
                 is VocabularyResult.NetworkError -> {
                     // Stays queued with "waiting for your PC"
                 }
@@ -255,6 +262,9 @@ fun WordsTriggersScreen(
                         coroutineScope.launch { snackbarHostState.showSnackbar(result.message) }
                     }
                 }
+                is VocabularyResult.ParseError -> {
+                    // Stays queued with "waiting for your PC"
+                }
                 is VocabularyResult.NetworkError -> {
                     // Stays queued
                 }
@@ -280,6 +290,9 @@ fun WordsTriggersScreen(
                     if (result.code == 400) {
                         repository.removePendingMutation(mutation.id)
                     }
+                }
+                is VocabularyResult.ParseError -> {
+                    // Stays queued with "waiting for your PC"
                 }
                 is VocabularyResult.NetworkError -> {
                     // Stays queued
@@ -337,6 +350,9 @@ fun WordsTriggersScreen(
                         coroutineScope.launch { snackbarHostState.showSnackbar(result.message) }
                     }
                 }
+                is NameCorrectionsResult.ParseError -> {
+                    // Stays queued with "waiting for your PC"
+                }
                 is NameCorrectionsResult.NetworkError -> {
                     // Stays queued
                 }
@@ -386,6 +402,9 @@ fun WordsTriggersScreen(
                         coroutineScope.launch { snackbarHostState.showSnackbar(result.message) }
                     }
                 }
+                is NameCorrectionsResult.ParseError -> {
+                    // Stays queued with "waiting for your PC"
+                }
                 is NameCorrectionsResult.NetworkError -> {
                     // Stays queued
                 }
@@ -415,6 +434,9 @@ fun WordsTriggersScreen(
                     if (result.code == 400) {
                         repository.removePendingMutation(mutation.id)
                     }
+                }
+                is NameCorrectionsResult.ParseError -> {
+                    // Stays queued with "waiting for your PC"
                 }
                 is NameCorrectionsResult.NetworkError -> {
                     // Stays queued
