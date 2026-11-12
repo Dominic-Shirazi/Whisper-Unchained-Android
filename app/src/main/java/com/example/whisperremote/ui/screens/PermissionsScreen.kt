@@ -3,7 +3,7 @@
 // Inputs: System permission states (Microphone, Overlay, Accessibility, Notifications, Battery).
 // Outputs: Informative status rows with direct system settings intents and color-blind safe status text ("Allowed ✓" / "Not allowed").
 // Conforms to contracts/04-look-and-feel.md §3.3.
-// Reason for edit: Plain explanation for notifications and direct battery exemption intent per user feedback.
+// Reason for edit: Branch battery optimization in Play flavor to standard list intent without restricted REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission per F-27.
 
 package com.example.whisperremote.ui.screens
 
@@ -15,6 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import com.example.whisperremote.BuildConfig
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -210,22 +211,38 @@ fun PermissionsScreen(
                         isGranted = isIgnoringBatteryOptimizations,
                         grantedText = "✓ Unrestricted",
                         deniedText = "⚠ Optimized (may sleep)",
-                        description = "Stops Android from putting the floating mic to sleep",
+                        description = if (BuildConfig.FLAVOR == "play") {
+                            "Find Whisper Unchained in the list and choose Not optimized / Unrestricted."
+                        } else {
+                            "Stops Android from putting the floating mic to sleep"
+                        },
                         onClick = {
-                            try {
-                                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                    data = Uri.parse("package:${context.packageName}")
-                                }
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
+                            if (BuildConfig.FLAVOR == "play") {
                                 try {
+                                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {
                                     val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                         data = Uri.parse("package:${context.packageName}")
                                     }
                                     context.startActivity(intent)
-                                } catch (_: Exception) {
-                                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                }
+                            } else {
+                                try {
+                                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
                                     context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    try {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.parse("package:${context.packageName}")
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {
+                                        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                        context.startActivity(intent)
+                                    }
                                 }
                             }
                         }

@@ -47,7 +47,7 @@ Both flavors include the Accessibility Service with prominent disclosure for sea
 | `RECORD_AUDIO` | Both | Capture microphone input |
 | `SYSTEM_ALERT_WINDOW` | Both | Display the floating microphone button over other apps |
 | `POST_NOTIFICATIONS` | Both | Foreground service notifications (Android 13+) |
-| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Both | Direct battery optimization exemption prompt to prevent service sleep |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | **Full only** | Direct battery optimization exemption prompt to prevent service sleep (Play build uses standard settings list per policy) |
 | `RECEIVE_BOOT_COMPLETED` | Both | Optionally auto-start the floating button service on device reboot |
 | `VIBRATE` | Both | Haptic ticks on recording style pill navigation |
 | `FOREGROUND_SERVICE_MICROPHONE` | Both | Microphone foreground service execution |

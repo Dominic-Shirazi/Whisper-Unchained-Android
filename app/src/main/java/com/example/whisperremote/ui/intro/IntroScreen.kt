@@ -4,7 +4,7 @@
 // Outputs: 7-stage interactive sandbox onboarding with segmented progress bar, in-place practice dictation sandbox,
 //          mic permission requested on first practice mic tap, and Play-compliant prominent accessibility disclosure.
 // Conforms to contracts/04-look-and-feel.md §4 and Play policy requirements in F-22, F-24, F-25.
-// Reason for edit: Replace practice mic with logo button and real AudioRecord dictation; auto-advance QR code scan; direct battery exemption intent; explain notifications.
+// Reason for edit: Branch battery optimization in Play flavor to open standard list settings without restricted REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission per F-27.
 
 package com.example.whisperremote.ui.intro
 
@@ -21,6 +21,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
+import com.example.whisperremote.BuildConfig
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -866,7 +867,8 @@ fun IntroScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = "• Notifications keep Android from closing the app while you're in other apps, and show when recording is active.\n\n" +
-                                        "• Unrestricted battery stops Android from putting the floating microphone to sleep so it is always ready when you tap it.",
+                                        "• Unrestricted battery stops Android from putting the floating microphone to sleep so it is always ready when you tap it." +
+                                        if (BuildConfig.FLAVOR == "play") "\n\nFind Whisper Unchained in the list and choose Not optimized / Unrestricted." else "",
                                 style = MaterialTheme.typography.bodyLarge,
                                 textAlign = TextAlign.Center,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -876,20 +878,32 @@ fun IntroScreen(
 
                             Button(
                                 onClick = {
-                                    try {
-                                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                            data = Uri.parse("package:${context.packageName}")
-                                        }
-                                        context.startActivity(intent)
-                                    } catch (e: Exception) {
+                                    if (BuildConfig.FLAVOR == "play") {
                                         try {
+                                            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {
                                             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                                 data = Uri.parse("package:${context.packageName}")
                                             }
                                             context.startActivity(intent)
-                                        } catch (_: Exception) {
-                                            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                        }
+                                    } else {
+                                        try {
+                                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                                data = Uri.parse("package:${context.packageName}")
+                                            }
                                             context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            try {
+                                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                    data = Uri.parse("package:${context.packageName}")
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {
+                                                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                                context.startActivity(intent)
+                                            }
                                         }
                                     }
                                     currentPage = 7

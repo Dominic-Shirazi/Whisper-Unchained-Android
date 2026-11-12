@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This file provides flavor-specific manifest entries for the "play" build flavor of Whisper Unchained.
+     It removes the restricted REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission to comply with Google Play Developer Policy per F-27.
+     Reason for creation: Remove restricted battery optimization permission in play flavor per F-27. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission
+        android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+        tools:node="remove" />
+
+</manifest>
