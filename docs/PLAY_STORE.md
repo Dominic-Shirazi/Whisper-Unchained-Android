@@ -60,13 +60,11 @@ user configures, so we declare conservatively:
 | App activity → Other user-generated content (dictated text sent for AI cleanup) | **Yes** | No | **Optional** | App functionality | No |
 
 - Nothing else (no identifiers, location, contacts, diagnostics, analytics).
-- **Encrypted in transit:** answer **Yes only if** the app refuses plain `http://` to non-local hosts or we decide
+- **Encrypted in transit:** **Yes** once contract 06 ships (was: Yes only if the app refuses plain `http://` to non-local hosts or we decide
   Tailscale/HTTPS-only. Today a LAN `http://` address is allowed, so the honest answer is **No** unless we change that.
-  **Decision (2026-11-11): launch without forcing HTTPS; answer "No" honestly.** HTTPS isn't required by Play. Traffic
-  over Tailscale is already encrypted (WireGuard) even though the address says http://; cloud services are https://;
-  only a plain home-Wi-Fi (LAN) address is unencrypted. Post-launch: offer HTTPS through `tailscale serve` (gives the PC
-  a real certificate at https://<pc>.<tailnet>.ts.net with no Tailscale breakage), then warn on plain LAN http and
-  revisit the answer.
+  **Decision (Dominic, 2026-11-11): HTTPS is required before launch; the answer will be Yes.** "It's your own, it's
+  secure, it's private": a "No" on the listing would undercut that. Design: contracts/06-https.md (the server makes its
+  own certificate; the pairing QR carries its fingerprint; the Play app refuses http://).
 - **Deletion:** "No data is stored on developer servers. Users delete data on their own computer or with their chosen
   provider; recordings on the phone are deleted after transcription."
 
