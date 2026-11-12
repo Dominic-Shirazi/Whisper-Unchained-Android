@@ -60,6 +60,7 @@ fun SettingsNavRow(
     title: String,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
+    subtitleIsValue: Boolean = false,
     icon: ImageVector? = null,
     iconPainter: Painter? = null,
     iconBackgroundColor: Color? = null,
@@ -132,7 +133,7 @@ fun SettingsNavRow(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    color = if (subtitleIsValue) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -225,7 +226,7 @@ fun SettingsSwitchRow(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -251,6 +252,7 @@ fun SettingsSplitRow(
     onRowClick: () -> Unit,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
+    subtitleIsValue: Boolean = false,
     icon: ImageVector? = null,
     iconPainter: Painter? = null,
     iconBackgroundColor: Color? = null
@@ -332,7 +334,7 @@ fun SettingsSplitRow(
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        color = if (subtitleIsValue) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

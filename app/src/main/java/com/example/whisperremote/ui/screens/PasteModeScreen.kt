@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -86,11 +88,13 @@ fun PasteModeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = 640.dp)
         ) {
             // Group 1: Injection Mode Selection
             item {
                 SettingsGroup(
-                    header = "Text injection method",
+                    header = "How your words get into apps",
                     footer = if (injectionMode == InjectionMode.ACCESSIBILITY) {
                         "Accessibility allows seamless automatic typing into your active text field."
                     } else {
@@ -212,7 +216,7 @@ fun PasteModeScreen(
             onDismissRequest = { showDisclosureDialog = false },
             title = {
                 Text(
-                    text = "Accessibility Service Disclosure",
+                    text = "How Whisper Unchained uses Accessibility",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )

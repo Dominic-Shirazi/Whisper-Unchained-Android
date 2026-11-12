@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -30,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -78,6 +81,8 @@ fun AboutScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = 640.dp)
         ) {
             // Group 1: Version & Product Details
             item {
@@ -92,13 +97,13 @@ fun AboutScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Version 1.2.0 (Build 8) · ${BuildConfig.FLAVOR.replaceFirstChar { it.uppercase() }}",
+                            text = "Version 1.2.0 (Build 9) · ${BuildConfig.FLAVOR.replaceFirstChar { it.uppercase() }}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Fast, private voice dictation powered by OpenAI-compatible Whisper models. Free and open source with zero telemetry.",
+                            text = "Talk instead of typing, in any app. Free and open source, with no account and no tracking.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

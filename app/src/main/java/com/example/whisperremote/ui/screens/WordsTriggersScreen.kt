@@ -9,6 +9,7 @@ package com.example.whisperremote.ui.screens
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +20,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -37,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,7 +72,22 @@ fun WordsTriggersScreen(
     val context = LocalContext.current
     var promptHints by remember { mutableStateOf(repository.promptHints) }
     var autoTrimHints by remember { mutableStateOf(repository.autoTrimHints) }
+    var localNameCorrections by remember { mutableStateOf(repository.localNameCorrections) }
     var isSyncing by remember { mutableStateOf(false) }
+    var fromNameCorrectionsWords by remember { mutableStateOf<List<String>>(emptyList()) }
+    var serverNameCorrections by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+    // Initial background fetch of vocabulary data for self-hosted PC
+    LaunchedEffect(Unit) {
+        if (repository.providerPreset == ProviderPreset.SELF_HOSTED && repository.baseUrl.isNotBlank()) {
+            apiClient.getVocabulary { result ->
+                if (result is VocabularyResult.Success) {
+                    fromNameCorrectionsWords = result.data.fromNameCorrections
+                    serverNameCorrections = result.data.nameCorrections
+                }
+            }
+        }
+    }
 
     // Character budget calculation (540 characters max recommended)
     val charBudgetMax = 540
@@ -85,6 +104,8 @@ fun WordsTriggersScreen(
             isSyncing = false
             when (result) {
                 is VocabularyResult.Success -> {
+                    fromNameCorrectionsWords = result.data.fromNameCorrections
+                    serverNameCorrections = result.data.nameCorrections
                     val currentWords = VocabularySyncHelper.parseWords(promptHints)
                     val merged = VocabularySyncHelper.mergeAndDeduplicate(result.data.vocabulary, currentWords)
                     val mergedString = VocabularySyncHelper.formatForDisplay(merged)
@@ -123,6 +144,8 @@ fun WordsTriggersScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = 640.dp)
         ) {
             // Group 1: Vocabulary Hints
             item {
@@ -177,6 +200,93 @@ fun WordsTriggersScreen(
                                     Text("Sync with PC")
                                 }
                             }
+                        }
+
+                        // From name corrections list on PC (contracts/01 §8 & F-24 item 1)
+                        if (fromNameCorrectionsWords.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = "From name corrections on your PC",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = fromNameCorrectionsWords.joinToString(", "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Group 2: Name Corrections (Heard as -> Write as, contracts/04 §6 & F-24 item 1)
+            item {
+                if (repository.providerPreset == ProviderPreset.SELF_HOSTED) {
+                    SettingsGroup(
+                        header = "Heard as → Write as",
+                        footer = "Edit these in Settings on your PC",
+                        modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            if (serverNameCorrections.isNotEmpty()) {
+                                serverNameCorrections.entries.forEachIndexed { index, entry ->
+                                    if (index > 0) {
+                                        SettingsDivider(insetStart = false)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = entry.key,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = "→",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                        Text(
+                                            text = entry.value,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = "None configured",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    SettingsGroup(
+                        header = "Heard as → Write as",
+                        footer = "Write one replacement per line: Heard as: Write as",
+                        modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            OutlinedTextField(
+                                value = localNameCorrections,
+                                onValueChange = {
+                                    localNameCorrections = it
+                                    repository.localNameCorrections = it
+                                },
+                                placeholder = { Text("Leslie: Lesley\nEmma: Ame") },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 3,
+                                maxLines = 6
+                            )
                         }
                     }
                 }

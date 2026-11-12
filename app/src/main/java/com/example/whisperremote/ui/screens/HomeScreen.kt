@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -120,7 +122,9 @@ fun HomeScreen(
                 title = {
                     Text(
                         text = if (BuildConfig.FLAVOR == "full") "Whisper Unchained Full" else "Whisper Unchained",
-                        style = MaterialTheme.typography.headlineLarge
+                        style = if (BuildConfig.FLAVOR == "full") MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineLarge,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 },
                 scrollBehavior = scrollBehavior,
@@ -136,6 +140,8 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = 640.dp)
         ) {
             // Status Card
             item {
@@ -160,6 +166,7 @@ fun HomeScreen(
                     SettingsNavRow(
                         title = "Transcription",
                         subtitle = transcriptionSubtitle,
+                        subtitleIsValue = true,
                         iconPainter = painterResource(R.drawable.ic_mic),
                         iconBackgroundColor = WhisperTokens.FallbackAccent,
                         onClick = onNavigateToTranscription
@@ -168,6 +175,7 @@ fun HomeScreen(
                     SettingsNavRow(
                         title = "Words & Triggers",
                         subtitle = "Vocabulary, name corrections & prompts",
+                        subtitleIsValue = false,
                         icon = Icons.Default.Edit,
                         iconBackgroundColor = Color(0xFF8A56E2),
                         onClick = onNavigateToWordsTriggers
@@ -183,6 +191,7 @@ fun HomeScreen(
                     SettingsNavRow(
                         title = "AI Editing",
                         subtitle = aiEditingSubtitle,
+                        subtitleIsValue = true,
                         icon = Icons.Default.Build,
                         iconBackgroundColor = WhisperTokens.BrandTeal,
                         onClick = onNavigateToAiEditing
@@ -198,6 +207,7 @@ fun HomeScreen(
                     SettingsNavRow(
                         title = "Paste into apps",
                         subtitle = pasteModeSubtitle,
+                        subtitleIsValue = true,
                         icon = Icons.Default.Check,
                         iconBackgroundColor = Color(0xFFE57E3B),
                         onClick = onNavigateToPasteMode
@@ -206,6 +216,7 @@ fun HomeScreen(
                     SettingsNavRow(
                         title = "Floating button",
                         subtitle = "Overlay behavior & Tailscale auto-restart",
+                        subtitleIsValue = false,
                         icon = Icons.Default.PlayArrow,
                         iconBackgroundColor = Color(0xFF29A6B8),
                         onClick = onNavigateToFloatingButton
@@ -214,6 +225,7 @@ fun HomeScreen(
                     SettingsNavRow(
                         title = "Permissions",
                         subtitle = "Microphone, overlay, accessibility & battery",
+                        subtitleIsValue = false,
                         icon = Icons.Default.Lock,
                         iconBackgroundColor = Color(0xFF38A169),
                         onClick = onNavigateToPermissions
@@ -232,6 +244,7 @@ fun HomeScreen(
                         SettingsNavRow(
                             title = "Transcribe audio playing on this phone",
                             subtitle = "Capture audio from videos and podcasts",
+                            subtitleIsValue = false,
                             icon = Icons.Default.PlayArrow,
                             iconBackgroundColor = Color(0xFF4A6572),
                             onClick = {
@@ -250,7 +263,8 @@ fun HomeScreen(
                 ) {
                     SettingsNavRow(
                         title = "About",
-                        subtitle = "Version 1.2.0 (8) · Privacy policy & licenses",
+                        subtitle = "Version 1.2.0 (Build 9) · Privacy policy & source code",
+                        subtitleIsValue = false,
                         icon = Icons.Default.Info,
                         iconBackgroundColor = Color(0xFF718096),
                         onClick = onNavigateToAbout

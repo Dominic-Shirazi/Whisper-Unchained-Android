@@ -38,7 +38,8 @@ android {
         applicationId = "com.cyrus_studio.whisperunchained"
         minSdk = 34
         targetSdk = 36
-        versionCode = 8
+        // Reason for edit: Bump versionCode to 9 for v1.2 makeover update per F-24
+        versionCode = 9
         versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

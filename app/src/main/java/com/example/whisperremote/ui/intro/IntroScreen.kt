@@ -36,6 +36,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -176,6 +178,8 @@ fun IntroScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(24.dp)
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = 640.dp)
         ) {
             AnimatedContent(
                 targetState = currentPage,
@@ -304,12 +308,12 @@ fun IntroScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            // Mandatory Microphone Disclosure per F-22 item 3
+                            // Mandatory Microphone Disclosure per F-22 item 3 & F-24 item 3
                             Text(
                                 text = "Audio is recorded only while you tap the mic, and goes where you chose: this phone, your PC or your cloud service.",
-                                style = MaterialTheme.typography.bodySmall,
+                                style = MaterialTheme.typography.bodyMedium,
                                 textAlign = TextAlign.Center,
-                                color = MaterialTheme.colorScheme.outline
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
                             Spacer(modifier = Modifier.height(20.dp))
@@ -380,7 +384,8 @@ fun IntroScreen(
                                             Icon(
                                                 painter = painterResource(R.drawable.ic_mic),
                                                 contentDescription = "Tap to speak",
-                                                tint = Color.White
+                                                tint = Color.White,
+                                                modifier = Modifier.size(28.dp)
                                             )
                                         }
                                     }
@@ -490,7 +495,7 @@ fun IntroScreen(
                                             .padding(18.dp)
                                     ) {
                                         Text(
-                                            text = "Prominent Disclosure",
+                                            text = "How Whisper Unchained uses Accessibility",
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.SemiBold
                                         )
