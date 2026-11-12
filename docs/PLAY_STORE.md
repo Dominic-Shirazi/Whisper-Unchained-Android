@@ -62,7 +62,11 @@ user configures, so we declare conservatively:
 - Nothing else (no identifiers, location, contacts, diagnostics, analytics).
 - **Encrypted in transit:** answer **Yes only if** the app refuses plain `http://` to non-local hosts or we decide
   Tailscale/HTTPS-only. Today a LAN `http://` address is allowed, so the honest answer is **No** unless we change that.
-  (Open decision for Dominic.)
+  **Decision (2026-11-11): launch without forcing HTTPS; answer "No" honestly.** HTTPS isn't required by Play. Traffic
+  over Tailscale is already encrypted (WireGuard) even though the address says http://; cloud services are https://;
+  only a plain home-Wi-Fi (LAN) address is unencrypted. Post-launch: offer HTTPS through `tailscale serve` (gives the PC
+  a real certificate at https://<pc>.<tailnet>.ts.net with no Tailscale breakage), then warn on plain LAN http and
+  revisit the answer.
 - **Deletion:** "No data is stored on developer servers. Users delete data on their own computer or with their chosen
   provider; recordings on the phone are deleted after transcription."
 
