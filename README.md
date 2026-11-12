@@ -27,6 +27,8 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - **Canonical Text Rules Port**: Full Kotlin port of server-side name corrections ("heard as → write as", whole-word, case-insensitive) and standalone filler sound removal (`um`, `uh`, `hmm`), verified 100% against canonical server test suites.
 - **Target Selection & Automatic Fallback**: Flexible dictation target choices (*On this phone* / *My PC* / *Cloud service*) with seamless on-device fallback when network or desktop endpoints are unreachable.
 - **Resumable Model Downloads & Management**: Dedicated in-app model manager with HTTP Range resumable downloads (`.part` files), SHA-256 checksum verification, Wi-Fi only toggle with mobile data override, and storage cleanup.
+- **Out-of-the-Box Intro Sandbox**: Interactive first-run onboarding downloading default models in-place with instant local speech transcription—no PC or cloud accounts required out of the box.
+- **Robust Fallback Retention**: Preserves audio files as pending retries when on-device fallback fails (automatically polling and sending when the PC returns), with instant phone fallback when the PC is paused or loading models.
 - **Optimized 64-bit ABI Packaging**: Streamlined native packaging (`arm64-v8a`) reducing release APK sizes by ~95 MB (from 156.8 MB down to 61.9 MB).
 
 ## What's New in v1.2 (UI Makeover + Intro Sandbox)

@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Never lose recordings on fallback failure, instant phone fallback on PC paused/model-loading, target-specific notices, and blank audio deletion per F-31.
 // Reason for edit: Stored audio recordings in app-private cacheDir with immediate deletion after paste/failure and 24h stale purge per F-22.
 // Reason for edit: Check RECORD_AUDIO before starting FGS, wrap startForeground in try/catch stopSelf(), and handle uninitialized managers per F-26.
 // Reason for edit: Gated MediaProjection handling and audio playback callback with BuildConfig.FEATURE_INTERNAL_AUDIO per F-18.
@@ -2336,7 +2337,7 @@ class FloatingButtonService : Service() {
 
         // Reason for edit: Direct on-device transcription when Target is ON_DEVICE per contract 05 §2.3
         if (settingsRepository.transcriptionTarget == TranscriptionTarget.ON_DEVICE.id) {
-            processOnDeviceTranscription(file, fallbackNotice = false)
+            processOnDeviceTranscription(file, fallbackNotice = false, styleOverrides = styleOverrides)
             return
         }
 
@@ -2373,6 +2374,13 @@ class FloatingButtonService : Service() {
                 }
                 is TranscriptionResult.ServerPaused -> {
                     Log.i("FloatingButtonService", "Server paused: ${result.message}")
+                    // Reason for edit: Fallback to on-device immediately when PC is paused per F-31
+                    if (settingsRepository.fallbackToOnDevice && (onDeviceModelManager.isModelReady(settingsRepository.selectedOnDeviceModelId) || onDeviceModelManager.isModelReady(OnDeviceModelManager.DEFAULT_MODEL_ID))) {
+                        Log.i("FloatingButtonService", "Falling back to on-device transcription: PC is paused")
+                        processOnDeviceTranscription(file, fallbackNotice = true, customNotice = "Your PC is paused: transcribed on this phone", styleOverrides = styleOverrides)
+                        return@transcribeDetailed
+                    }
+
                     // Per contract K-4: treat 'paused' as REACHABLE (no Tailscale restart). Keep recording and start polling for resume.
                     pendingRetryAudioFile = file
                     pendingRetryStyleOverrides = styleOverrides
@@ -2384,10 +2392,17 @@ class FloatingButtonService : Service() {
                     }
                 }
                 is TranscriptionResult.ModelUnavailable -> {
+                    Log.w("FloatingButtonService", "Model loading; retry after ${result.retryAfterSeconds}s")
+                    // Reason for edit: Fallback to on-device immediately when PC model is loading per F-31
+                    if (settingsRepository.fallbackToOnDevice && (onDeviceModelManager.isModelReady(settingsRepository.selectedOnDeviceModelId) || onDeviceModelManager.isModelReady(OnDeviceModelManager.DEFAULT_MODEL_ID))) {
+                        Log.i("FloatingButtonService", "Falling back to on-device transcription: PC model loading")
+                        processOnDeviceTranscription(file, fallbackNotice = true, customNotice = "PC model is loading: transcribed on this phone", styleOverrides = styleOverrides)
+                        return@transcribeDetailed
+                    }
+
                     pendingRetryAudioFile = null
                     pendingRetryStyleOverrides = null
                     stopPollingForResume()
-                    Log.w("FloatingButtonService", "Model loading; retry after ${result.retryAfterSeconds}s")
                     mainHandler.post {
                         showTemporaryHint("Model loading (${result.retryAfterSeconds}s)")
                         setState(ButtonState.HIDDEN)
@@ -2411,10 +2426,10 @@ class FloatingButtonService : Service() {
                     stopPollingForResume()
                     Log.e("FloatingButtonService", "Network failure: ${result.error.message}")
 
-                    // Reason for edit: Fallback to on-device transcription when PC/cloud is unreachable per contract 05 §2.3
-                    if (settingsRepository.fallbackToOnDevice && (onDeviceModelManager.isModelReady(settingsRepository.selectedOnDeviceModelId) || onDeviceModelManager.isModelReady(OnDeviceModelManager.DEFAULT_MODEL_ID))) {
-                        Log.i("FloatingButtonService", "Falling back to on-device transcription: PC unreachable")
-                        processOnDeviceTranscription(file, fallbackNotice = true)
+                    // Reason for edit: Fallback to on-device transcription when PC/cloud is unreachable per contract 05 §2.3 & F-31
+                    if (settingsRepository.fallbackToOnDevice) {
+                        Log.i("FloatingButtonService", "Falling back to on-device transcription: Network failure")
+                        processOnDeviceTranscription(file, fallbackNotice = true, styleOverrides = styleOverrides)
                         return@transcribeDetailed
                     }
 
@@ -2433,10 +2448,10 @@ class FloatingButtonService : Service() {
                     stopPollingForResume()
                     Log.e("FloatingButtonService", "Server error ${result.code}: ${result.message}")
 
-                    // Reason for edit: Fallback to on-device transcription on 5xx server errors per contract 05 §2.3
-                    if (result.code >= 500 && settingsRepository.fallbackToOnDevice && (onDeviceModelManager.isModelReady(settingsRepository.selectedOnDeviceModelId) || onDeviceModelManager.isModelReady(OnDeviceModelManager.DEFAULT_MODEL_ID))) {
+                    // Reason for edit: Fallback to on-device transcription on 5xx server errors per contract 05 §2.3 & F-31
+                    if (result.code >= 500 && settingsRepository.fallbackToOnDevice) {
                         Log.i("FloatingButtonService", "Falling back to on-device transcription: Server error ${result.code}")
-                        processOnDeviceTranscription(file, fallbackNotice = true)
+                        processOnDeviceTranscription(file, fallbackNotice = true, styleOverrides = styleOverrides)
                         return@transcribeDetailed
                     }
 
@@ -2454,8 +2469,13 @@ class FloatingButtonService : Service() {
         }
     }
 
-    // Reason for edit: Helper for executing on-device transcription off main thread with optional fallback notice per contract 05 §2.3
-    private fun processOnDeviceTranscription(file: File, fallbackNotice: Boolean) {
+    // Reason for edit: Helper for executing on-device transcription off main thread with fallback retry preservation and target-specific notices per F-31
+    private fun processOnDeviceTranscription(
+        file: File,
+        fallbackNotice: Boolean,
+        customNotice: String? = null,
+        styleOverrides: StyleOverrides? = null
+    ) {
         Thread {
             try {
                 var modelId = settingsRepository.selectedOnDeviceModelId
@@ -2465,11 +2485,7 @@ class FloatingButtonService : Service() {
                 if (!onDeviceEngine.isInitialized || onDeviceEngine.loadedModelId != modelId) {
                     val ok = onDeviceEngine.initialize(modelId)
                     if (!ok) {
-                        mainHandler.post {
-                            showTemporaryHint("Model not ready")
-                            Toast.makeText(applicationContext, "On-device model is not installed", Toast.LENGTH_SHORT).show()
-                            setState(ButtonState.HIDDEN)
-                        }
+                        handleOnDeviceFailure(file, isFallback = fallbackNotice, styleOverrides = styleOverrides, failureReason = "On-device model is not installed")
                         return@Thread
                     }
                 }
@@ -2477,9 +2493,16 @@ class FloatingButtonService : Service() {
                 val text = onDeviceEngine.transcribe(file, removeFillers = settingsRepository.removeFillerSounds)
                 mainHandler.post {
                     if (fallbackNotice) {
-                        Toast.makeText(applicationContext, "Transcribed on this phone: your PC couldn't be reached", Toast.LENGTH_LONG).show()
+                        val notice = customNotice ?: if (settingsRepository.transcriptionTarget == TranscriptionTarget.CLOUD.id) {
+                            "Transcribed on this phone: the cloud service couldn't be reached"
+                        } else {
+                            "Transcribed on this phone: your PC couldn't be reached"
+                        }
+                        Toast.makeText(applicationContext, notice, Toast.LENGTH_LONG).show()
                     }
                     if (text.isBlank()) {
+                        // Per F-31 item 2: Delete recording immediately on blank speech detection
+                        cleanupActiveAudioFile(keepIfPendingRetry = false)
                         showTemporaryHint("No speech detected")
                         setState(ButtonState.HIDDEN)
                     } else {
@@ -2488,12 +2511,32 @@ class FloatingButtonService : Service() {
                 }
             } catch (e: Exception) {
                 Log.e("FloatingButtonService", "On-device transcription failed", e)
-                mainHandler.post {
-                    showTemporaryHint("Transcription failed")
-                    setState(ButtonState.HIDDEN)
-                }
+                handleOnDeviceFailure(file, isFallback = fallbackNotice, styleOverrides = styleOverrides, failureReason = "Transcription failed")
             }
         }.start()
+    }
+
+    // Reason for edit: Never lose recordings when phone fallback fails; preserve file as pendingRetryAudioFile per F-31 item 1
+    private fun handleOnDeviceFailure(
+        file: File,
+        isFallback: Boolean,
+        styleOverrides: StyleOverrides?,
+        failureReason: String
+    ) {
+        mainHandler.post {
+            pendingRetryAudioFile = file
+            pendingRetryStyleOverrides = styleOverrides
+            if (isFallback) {
+                showTemporaryHint("Couldn't transcribe on the phone; will send when your PC is back")
+                Toast.makeText(applicationContext, "Couldn't transcribe on the phone; will send when your PC is back", Toast.LENGTH_LONG).show()
+                setState(ButtonState.IDLE)
+                startPollingForResume()
+            } else {
+                showTemporaryHint(failureReason)
+                Toast.makeText(applicationContext, failureReason, Toast.LENGTH_SHORT).show()
+                setState(ButtonState.IDLE)
+            }
+        }
     }
 
     private fun deliverTranscribedText(text: String) {
@@ -2570,6 +2613,19 @@ class FloatingButtonService : Service() {
             .setContentText("Listening...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()
+    }
+
+    @androidx.annotation.VisibleForTesting
+    fun getPendingRetryAudioFile(): File? = pendingRetryAudioFile
+
+    @androidx.annotation.VisibleForTesting
+    fun setPendingRetryAudioFile(file: File?) {
+        pendingRetryAudioFile = file
+    }
+
+    @androidx.annotation.VisibleForTesting
+    fun triggerOnDeviceFailureForTesting(file: File, isFallback: Boolean, failureReason: String) {
+        handleOnDeviceFailure(file, isFallback, null, failureReason)
     }
 
     override fun onDestroy() {

@@ -4,6 +4,7 @@
 // Outputs: 7-stage interactive sandbox onboarding with segmented progress bar, in-place practice dictation sandbox,
 //          mic permission requested on first practice mic tap, and Play-compliant prominent accessibility disclosure.
 // Conforms to contracts/04-look-and-feel.md §4 and Play policy requirements in F-22, F-24, F-25.
+// Reason for edit: Out-of-the-box offline model download & on-device practice dictation per contract 05 §2.7.
 // Reason for edit: Branch battery optimization in Play flavor to open standard list settings without restricted REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission per F-27.
 
 package com.example.whisperremote.ui.intro
@@ -18,9 +19,12 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
 import com.example.whisperremote.BuildConfig
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -62,6 +66,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -94,10 +99,15 @@ import com.example.whisperremote.R
 import com.example.whisperremote.TranscriptionResult
 import com.example.whisperremote.data.InjectionMode
 import com.example.whisperremote.data.SettingsRepository
+import com.example.whisperremote.data.TranscriptionTarget
 import com.example.whisperremote.ui.theme.WhisperTokens
+import com.example.whisperremote.util.ModelDownloadState
+import com.example.whisperremote.util.OnDeviceModelManager
+import com.example.whisperremote.util.OnDeviceTranscriptionEngine
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
+import java.util.concurrent.atomic.AtomicBoolean
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -230,14 +240,26 @@ fun IntroScreen(
     initialPage: Int = 1
 ) {
     val context = LocalContext.current
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
     var currentPage by remember { mutableIntStateOf(initialPage) }
     val totalPages = 7
 
     val recorder = remember { PracticeAudioRecorder(context.cacheDir) }
 
+    // On-device model manager & transcription engine for out-of-the-box intro practice per contract 05 §2.7
+    val onDeviceModelManager = remember { OnDeviceModelManager(context) }
+    val onDeviceEngine = remember { OnDeviceTranscriptionEngine(context, onDeviceModelManager, repository) }
+    var isDefaultModelReady by remember {
+        mutableStateOf(onDeviceModelManager.isModelReady(OnDeviceModelManager.DEFAULT_MODEL_ID))
+    }
+    var modelDownloadState by remember { mutableStateOf<ModelDownloadState>(ModelDownloadState.Idle) }
+    var activeCancelSignal by remember { mutableStateOf<AtomicBoolean?>(null) }
+
     DisposableEffect(Unit) {
         onDispose {
             recorder.stop()
+            activeCancelSignal?.set(true)
+            onDeviceEngine.release()
         }
     }
 
@@ -257,6 +279,9 @@ fun IntroScreen(
         if (currentPage == 2) {
             isConnected = repository.isServerVerified || repository.baseUrl.isNotBlank()
             connectedBaseUrl = repository.baseUrl
+        }
+        if (currentPage == 3) {
+            isDefaultModelReady = onDeviceModelManager.isModelReady(OnDeviceModelManager.DEFAULT_MODEL_ID)
         }
     }
 
@@ -394,20 +419,20 @@ fun IntroScreen(
                             }
                         }
 
-                        // 2. Connect (§4 item 2)
+                        // 2. Connect (§4 item 2, contract 05 §2.7)
                         2 -> {
                             Spacer(modifier = Modifier.height(24.dp))
                             IntroIllustration(painter = painterResource(R.drawable.ic_qr_code_scanner), tint = WhisperTokens.FallbackAccent)
                             Spacer(modifier = Modifier.height(24.dp))
                             Text(
-                                text = "Connect to your PC",
+                                text = "Use your PC for best accuracy (optional)",
                                 style = MaterialTheme.typography.headlineLarge,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "Scan the QR code displayed in the Whisper Unchained desktop app or installer to connect instantly.",
+                                text = "For the fastest and most accurate transcription with large-v3-turbo, scan the QR code in your PC app. Or skip this step to transcribe completely offline on this phone.",
                                 style = MaterialTheme.typography.bodyLarge,
                                 textAlign = TextAlign.Center,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -485,24 +510,27 @@ fun IntroScreen(
                                 Spacer(modifier = Modifier.height(10.dp))
 
                                 TextButton(
-                                    onClick = { currentPage = 3 },
+                                    onClick = {
+                                        repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
+                                        currentPage = 3
+                                    },
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("Set up later or use cloud")
+                                    Text("Skip — transcribe on this phone")
                                 }
                             }
                         }
 
-                        // 3. Try it (Practice sandbox, §4 item 3 & F-22 item 3)
+                        // 3. Try it (Practice sandbox, §4 item 3 & contract 05 §2.7)
                         3 -> {
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = "Try it out",
                                 style = MaterialTheme.typography.headlineLarge,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = "Tap the button below, speak a few words, then tap again to transcribe.",
                                 style = MaterialTheme.typography.bodyLarge,
@@ -513,12 +541,112 @@ fun IntroScreen(
                             // Mandatory Microphone Disclosure per F-22 item 3 & F-24 item 3
                             Text(
                                 text = "Audio is recorded only while you tap the button, and goes where you chose: this phone, your PC or your cloud service.",
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodySmall,
                                 textAlign = TextAlign.Center,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
-                            Spacer(modifier = Modifier.height(20.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // On-Device Model Download Banner (contract 05 §2.7)
+                            val isDownloading = modelDownloadState is ModelDownloadState.Downloading
+                            if (!isDefaultModelReady) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 10.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_shield),
+                                                contentDescription = null,
+                                                tint = WhisperTokens.BrandTeal,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Offline Model (136 MB)",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Download Parakeet TDT 110M to practice dictation and transcribe completely offline on this phone.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+
+                                        if (isDownloading) {
+                                            val dl = modelDownloadState as ModelDownloadState.Downloading
+                                            val dlMb = (dl.totalBytesDownloaded / (1024 * 1024)).toInt()
+                                            val totalMb = (dl.totalBytesExpected / (1024 * 1024)).toInt()
+                                            val progress = if (dl.totalBytesExpected > 0) dl.totalBytesDownloaded.toFloat() / dl.totalBytesExpected.toFloat() else 0f
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            LinearProgressIndicator(
+                                                progress = { progress },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(6.dp)
+                                                    .clip(RoundedCornerShape(3.dp))
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "Downloading $dlMb of $totalMb MB...",
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                                TextButton(onClick = { activeCancelSignal?.set(true) }) {
+                                                    Text("Cancel", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                                }
+                                            }
+                                        } else {
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Button(
+                                                onClick = {
+                                                    val cancelSig = AtomicBoolean(false)
+                                                    activeCancelSignal = cancelSig
+                                                    Thread {
+                                                        onDeviceModelManager.downloadModel(
+                                                            modelId = OnDeviceModelManager.DEFAULT_MODEL_ID,
+                                                            allowMobileData = true,
+                                                            cancelSignal = cancelSig
+                                                        ) { state ->
+                                                            mainHandler.post {
+                                                                modelDownloadState = state
+                                                                if (state is ModelDownloadState.Ready) {
+                                                                    isDefaultModelReady = true
+                                                                    repository.selectedOnDeviceModelId = OnDeviceModelManager.DEFAULT_MODEL_ID
+                                                                    activeCancelSignal = null
+                                                                    Toast.makeText(context, "Model ready! Tap the mic to practice.", Toast.LENGTH_SHORT).show()
+                                                                } else if (state is ModelDownloadState.Failed || state is ModelDownloadState.Cancelled) {
+                                                                    activeCancelSignal = null
+                                                                }
+                                                            }
+                                                        }
+                                                    }.start()
+                                                },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(12.dp)
+                                            ) {
+                                                Text("Download offline model (136 MB)")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
                             // Mock Message Sandbox Card
                             Card(
@@ -565,7 +693,7 @@ fun IntroScreen(
                                                 .clip(CircleShape)
                                                 .background(
                                                     if (isPracticeRecording) Color(0xFFD9694A).copy(alpha = 0.2f)
-                                                    else WhisperTokens.BrandTeal.copy(alpha = 0.12f)
+                                                     else WhisperTokens.BrandTeal.copy(alpha = 0.12f)
                                                 )
                                                 .clickable {
                                                     val hasMic = ContextCompat.checkSelfPermission(
@@ -587,38 +715,77 @@ fun IntroScreen(
                                                             isPracticeRecording = false
                                                             val audioFile = recorder.stop()
                                                             if (audioFile != null && audioFile.length() > 44) {
-                                                                val url = repository.getTranscribeUrl()
-                                                                if (url.isNotBlank() && url.startsWith("http")) {
+                                                                val useOnDevice = repository.transcriptionTarget == TranscriptionTarget.ON_DEVICE.id || repository.baseUrl.isBlank()
+                                                                if (useOnDevice) {
+                                                                    if (!isDefaultModelReady) {
+                                                                        practiceText = "Please download the offline model above first to transcribe on this phone."
+                                                                    } else {
+                                                                        isPracticeTranscribing = true
+                                                                        practiceText = "Transcribing on this phone..."
+                                                                        Thread {
+                                                                            try {
+                                                                                if (!onDeviceEngine.isInitialized) {
+                                                                                    onDeviceEngine.initialize(OnDeviceModelManager.DEFAULT_MODEL_ID)
+                                                                                }
+                                                                                val text = onDeviceEngine.transcribe(audioFile, removeFillers = repository.removeFillerSounds)
+                                                                                mainHandler.post {
+                                                                                    isPracticeTranscribing = false
+                                                                                    practiceText = text.ifBlank { "(No speech detected - try speaking closer to the mic)" }
+                                                                                    practiceSuccessCelebration = text.isNotBlank()
+                                                                                }
+                                                                            } catch (e: Exception) {
+                                                                                Log.e("IntroScreen", "On-device practice transcription failed", e)
+                                                                                mainHandler.post {
+                                                                                    isPracticeTranscribing = false
+                                                                                    practiceText = "Transcription failed: ${e.message}"
+                                                                                }
+                                                                            }
+                                                                        }.start()
+                                                                    }
+                                                                } else {
                                                                     isPracticeTranscribing = true
-                                                                    practiceText = "Transcribing audio from your mic..."
+                                                                    practiceText = "Transcribing audio with your PC..."
                                                                     apiClient.transcribeDetailed(audioFile) { result ->
-                                                                        isPracticeTranscribing = false
                                                                         when (result) {
                                                                             is TranscriptionResult.Success -> {
+                                                                                isPracticeTranscribing = false
                                                                                 practiceText = result.text.ifBlank { "(No speech detected)" }
                                                                                 practiceSuccessCelebration = true
                                                                             }
                                                                             is TranscriptionResult.Empty -> {
+                                                                                isPracticeTranscribing = false
                                                                                 practiceText = "(No speech detected - try speaking closer to the mic)"
                                                                                 practiceSuccessCelebration = false
                                                                             }
-                                                                            is TranscriptionResult.ServerError -> {
-                                                                                practiceText = "Recorded ${(audioFile.length() - 44) / 1024} KB of audio!\nServer replied (${result.code}): ${result.message}"
-                                                                                practiceSuccessCelebration = true
-                                                                            }
-                                                                            is TranscriptionResult.NetworkError -> {
-                                                                                practiceText = "Recorded ${(audioFile.length() - 44) / 1024} KB of audio!\nCould not reach server: ${result.error.localizedMessage ?: "Connection error"}"
-                                                                                practiceSuccessCelebration = true
-                                                                            }
                                                                             else -> {
-                                                                                practiceText = "Recorded ${(audioFile.length() - 44) / 1024} KB of audio!"
-                                                                                practiceSuccessCelebration = true
+                                                                                if (isDefaultModelReady) {
+                                                                                    practiceText = "PC unreachable. Transcribing on this phone instead..."
+                                                                                    Thread {
+                                                                                        try {
+                                                                                            if (!onDeviceEngine.isInitialized) {
+                                                                                                onDeviceEngine.initialize(OnDeviceModelManager.DEFAULT_MODEL_ID)
+                                                                                            }
+                                                                                            val text = onDeviceEngine.transcribe(audioFile, removeFillers = repository.removeFillerSounds)
+                                                                                            mainHandler.post {
+                                                                                                isPracticeTranscribing = false
+                                                                                                practiceText = "$text\n\n(Transcribed on this phone: PC unreachable)"
+                                                                                                practiceSuccessCelebration = text.isNotBlank()
+                                                                                            }
+                                                                                        } catch (e: Exception) {
+                                                                                            mainHandler.post {
+                                                                                                isPracticeTranscribing = false
+                                                                                                practiceText = "Transcription failed"
+                                                                                            }
+                                                                                        }
+                                                                                    }.start()
+                                                                                } else {
+                                                                                    isPracticeTranscribing = false
+                                                                                    practiceText = "Recorded ${(audioFile.length() - 44) / 1024} KB of audio!\nCould not reach server: ${(result as? TranscriptionResult.NetworkError)?.error?.localizedMessage ?: "Connection error"}"
+                                                                                    practiceSuccessCelebration = true
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
-                                                                } else {
-                                                                    practiceText = "Recorded ${(audioFile.length() - 44) / 1024} KB of audio!\n(Connect to PC in Step 2 to transcribe audio into text)"
-                                                                    practiceSuccessCelebration = true
                                                                 }
                                                             } else {
                                                                 practiceText = "Recording was too short. Tap again and speak a phrase."
@@ -952,6 +1119,9 @@ fun IntroScreen(
 
                             Button(
                                 onClick = {
+                                    if (repository.baseUrl.isBlank() && isDefaultModelReady) {
+                                        repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
+                                    }
                                     repository.hasCompletedFirstRunChecklist = true
                                     onFinishIntro()
                                 },
