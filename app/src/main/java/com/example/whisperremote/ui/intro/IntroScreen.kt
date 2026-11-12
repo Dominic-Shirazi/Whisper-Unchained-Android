@@ -8,6 +8,7 @@
 // Reason for edit: Branch battery optimization in Play flavor to open standard list settings without restricted REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission per F-27.
 // Reason for edit: Delete practice audio recordings after transcription per F-35.
 // Reason for edit: Update intro flow with logo on page 1, 3 transcription choices on page 2, read-only demo practice box with floating button and celebration continue on page 3, scrollable accessibility disclosure on page 5, status bars padding and BackHandler, and backup model card on page 7 per F-36 items 1-7.
+// Reason for edit: Add post-scan Tailscale connection check and failure diagnostics per F-37.
 
 package com.example.whisperremote.ui.intro
 
@@ -110,6 +111,8 @@ import com.example.whisperremote.data.InjectionMode
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
 import com.example.whisperremote.data.TranscriptionTarget
+import com.example.whisperremote.net.TailscaleDiagnosis
+import com.example.whisperremote.net.TailscaleManager
 import com.example.whisperremote.ui.theme.WhisperTokens
 import com.example.whisperremote.util.ModelDownloadState
 import com.example.whisperremote.util.OnDeviceModelManager
@@ -259,13 +262,30 @@ fun IntroScreen(
         currentPage--
     }
 
+    val tailscaleManager = remember { TailscaleManager(context) }
+    var connectionDiagnosis by remember { mutableStateOf<TailscaleDiagnosis?>(null) }
+    var isTestingConnection by remember { mutableStateOf(false) }
+
     // Auto-switch to Accessibility mode on return from Android Settings per F-36 item 6
+    // Auto re-test Tailscale connection when returning to app per F-37 item 2
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 if (DictationAccessibilityService.isEnabled(context)) {
                     repository.injectionMode = InjectionMode.ACCESSIBILITY
+                }
+                if (currentPage == 2 && connectionDiagnosis is TailscaleDiagnosis.TailscaleNotConnected) {
+                    isTestingConnection = true
+                    apiClient.checkHealth { health ->
+                        isTestingConnection = false
+                        if (health is HealthResult.Ok) {
+                            connectionDiagnosis = null
+                            currentPage = 3
+                        } else {
+                            connectionDiagnosis = tailscaleManager.diagnoseConnectionFailure(repository.baseUrl)
+                        }
+                    }
                 }
             }
         }
@@ -496,10 +516,20 @@ fun IntroScreen(
                                     Card(
                                         onClick = {
                                             onScanQrCode {
-                                                isConnected = true
                                                 connectedBaseUrl = repository.baseUrl
                                                 repository.transcriptionTarget = TranscriptionTarget.PC.id
-                                                currentPage = 3
+                                                isTestingConnection = true
+                                                connectionDiagnosis = null
+                                                apiClient.checkHealth { health ->
+                                                    isTestingConnection = false
+                                                    if (health is HealthResult.Ok) {
+                                                        isConnected = true
+                                                        currentPage = 3
+                                                    } else {
+                                                        isConnected = false
+                                                        connectionDiagnosis = tailscaleManager.diagnoseConnectionFailure(repository.baseUrl)
+                                                    }
+                                                }
                                             }
                                         },
                                         modifier = Modifier.fillMaxWidth(),
@@ -640,6 +670,145 @@ fun IntroScreen(
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
+                                            }
+                                        }
+                                    }
+
+                                    if (isTestingConnection) {
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                strokeWidth = 2.dp,
+                                                color = WhisperTokens.BrandTeal
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Testing connection to PC...", style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                    }
+
+                                    // Tailscale failure diagnosis card per F-37
+                                    if (connectionDiagnosis != null) {
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(16.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.surface
+                                            ),
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(16.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                when (connectionDiagnosis) {
+                                                    is TailscaleDiagnosis.TailscaleNotInstalled -> {
+                                                        Icon(
+                                                            painter = painterResource(R.drawable.ic_cloud),
+                                                            contentDescription = "Tailscale not installed",
+                                                            tint = WhisperTokens.BrandTeal,
+                                                            modifier = Modifier.size(36.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.height(8.dp))
+                                                        Text(
+                                                            text = "Your PC is shared through Tailscale. Install Tailscale on this phone and sign in with the same account as your PC.",
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            textAlign = TextAlign.Center
+                                                        )
+                                                        Spacer(modifier = Modifier.height(12.dp))
+                                                        Button(
+                                                            onClick = { tailscaleManager.openPlayStoreForTailscale() },
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            shape = RoundedCornerShape(26.dp)
+                                                        ) {
+                                                            Text("Get Tailscale")
+                                                        }
+                                                    }
+                                                    is TailscaleDiagnosis.TailscaleNotConnected -> {
+                                                        Icon(
+                                                            painter = painterResource(R.drawable.ic_cloud),
+                                                            contentDescription = "Tailscale not connected",
+                                                            tint = WhisperTokens.BrandTeal,
+                                                            modifier = Modifier.size(36.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.height(8.dp))
+                                                        Text(
+                                                            text = "Tailscale is installed but not connected.",
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            textAlign = TextAlign.Center
+                                                        )
+                                                        Spacer(modifier = Modifier.height(12.dp))
+                                                        Button(
+                                                            onClick = { tailscaleManager.openTailscaleApp() },
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            shape = RoundedCornerShape(26.dp)
+                                                        ) {
+                                                            Text("Open Tailscale")
+                                                        }
+                                                    }
+                                                    is TailscaleDiagnosis.ServerUnreachable -> {
+                                                        Icon(
+                                                            painter = painterResource(R.drawable.ic_computer),
+                                                            contentDescription = "PC didn't answer",
+                                                            tint = WhisperTokens.BrandTeal,
+                                                            modifier = Modifier.size(36.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.height(8.dp))
+                                                        Text(
+                                                            text = "Your PC didn't answer. Make sure Whisper Unchained Server is running and this phone is on the same Wi-Fi (or Tailscale).",
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            textAlign = TextAlign.Center
+                                                        )
+                                                        Spacer(modifier = Modifier.height(12.dp))
+                                                        Button(
+                                                            onClick = {
+                                                                isTestingConnection = true
+                                                                apiClient.checkHealth { health ->
+                                                                    isTestingConnection = false
+                                                                    if (health is HealthResult.Ok) {
+                                                                        isConnected = true
+                                                                        connectionDiagnosis = null
+                                                                        currentPage = 3
+                                                                    } else {
+                                                                        connectionDiagnosis = tailscaleManager.diagnoseConnectionFailure(repository.baseUrl)
+                                                                    }
+                                                                }
+                                                            },
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            shape = RoundedCornerShape(26.dp)
+                                                        ) {
+                                                            Text("Try again")
+                                                        }
+                                                    }
+                                                    else -> {}
+                                                }
+
+                                                Spacer(modifier = Modifier.height(10.dp))
+
+                                                // Always offer a way forward per F-37 item 2
+                                                TextButton(
+                                                    onClick = {
+                                                        repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
+                                                        currentPage = 3
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text("Use this phone instead for now")
+                                                }
+
+                                                TextButton(
+                                                    onClick = {
+                                                        currentPage = 3
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text("Skip")
+                                                }
                                             }
                                         }
                                     }

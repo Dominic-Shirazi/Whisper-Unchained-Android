@@ -13,6 +13,7 @@
 // Reason for edit: Add transcription target selector, PC fallback toggle, and on-device model download/management per contract 05 §2.3 & §2.6.
 // Reason for edit: Use ic_download vector icon for model download buttons per F-35.
 // Reason for edit: Add backup offline model card and collapsed row at top of transcription settings per F-36 item 7.
+// Reason for edit: Add post-scan Tailscale connection check and failure diagnostics per F-37.
 
 package com.example.whisperremote.ui.screens
 
@@ -90,6 +91,8 @@ import com.example.whisperremote.R
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
 import com.example.whisperremote.data.TranscriptionTarget
+import com.example.whisperremote.net.TailscaleDiagnosis
+import com.example.whisperremote.net.TailscaleManager
 import com.example.whisperremote.ui.components.SettingsDivider
 import com.example.whisperremote.ui.components.SettingsGroup
 import com.example.whisperremote.ui.components.SettingsRadioRow
@@ -149,6 +152,8 @@ fun TranscriptionScreen(
     }
 
     // PC Connection test state
+    val tailscaleManager = remember { TailscaleManager(context) }
+    var connectionDiagnosis by remember { mutableStateOf<TailscaleDiagnosis?>(null) }
     var isTestingConnection by remember { mutableStateOf(false) }
     var connectionResultText by remember { mutableStateOf<String?>(null) }
     var isConnectionSuccess by remember { mutableStateOf<Boolean?>(null) }
@@ -176,6 +181,7 @@ fun TranscriptionScreen(
         isTestingConnection = true
         connectionResultText = "Testing connection..."
         isConnectionSuccess = null
+        connectionDiagnosis = null
 
         apiClient.checkHealth { health ->
             mainHandler.post {
@@ -183,6 +189,7 @@ fun TranscriptionScreen(
                 when (health) {
                     is HealthResult.Ok -> {
                         isConnectionSuccess = true
+                        connectionDiagnosis = null
                         connectionResultText = if (!health.model.isNullOrBlank()) {
                             repository.modelName = health.model
                             selectedModel = health.model
@@ -193,16 +200,27 @@ fun TranscriptionScreen(
                     }
                     is HealthResult.Paused -> {
                         isConnectionSuccess = true
+                        connectionDiagnosis = null
                         val reason = health.reason.orEmpty()
                         connectionResultText = "Paused on your PC (${if (reason.isNotBlank()) reason else "Ready to resume"})"
                     }
                     is HealthResult.ServiceError -> {
                         isConnectionSuccess = false
+                        connectionDiagnosis = null
                         connectionResultText = "Server error: ${health.message}"
                     }
                     is HealthResult.Unreachable -> {
                         isConnectionSuccess = false
-                        connectionResultText = "Can't reach server: is Tailscale on or PC awake?"
+                        val diag = tailscaleManager.diagnoseConnectionFailure(serverUrl)
+                        connectionDiagnosis = diag
+                        connectionResultText = when (diag) {
+                            is TailscaleDiagnosis.TailscaleNotInstalled ->
+                                "Your PC is shared through Tailscale. Install Tailscale on this phone and sign in with the same account as your PC."
+                            is TailscaleDiagnosis.TailscaleNotConnected ->
+                                "Tailscale is installed but not connected."
+                            is TailscaleDiagnosis.ServerUnreachable ->
+                                "Your PC didn't answer. Make sure Whisper Unchained Server is running and this phone is on the same Wi-Fi (or Tailscale)."
+                        }
                     }
                 }
             }
@@ -551,6 +569,25 @@ fun TranscriptionScreen(
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = statusColor
                                         )
+                                    }
+                                    if (connectionDiagnosis is TailscaleDiagnosis.TailscaleNotInstalled) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Button(
+                                            onClick = { tailscaleManager.openPlayStoreForTailscale() },
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Text("Get Tailscale")
+                                        }
+                                    } else if (connectionDiagnosis is TailscaleDiagnosis.TailscaleNotConnected) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Button(
+                                            onClick = { tailscaleManager.openTailscaleApp() },
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Text("Open Tailscale")
+                                        }
                                     }
                                 }
                             }
@@ -1013,6 +1050,25 @@ fun TranscriptionScreen(
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = statusColor
                                         )
+                                    }
+                                    if (connectionDiagnosis is TailscaleDiagnosis.TailscaleNotInstalled) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Button(
+                                            onClick = { tailscaleManager.openPlayStoreForTailscale() },
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Text("Get Tailscale")
+                                        }
+                                    } else if (connectionDiagnosis is TailscaleDiagnosis.TailscaleNotConnected) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Button(
+                                            onClick = { tailscaleManager.openTailscaleApp() },
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Text("Open Tailscale")
+                                        }
                                     }
                                 }
                             }
