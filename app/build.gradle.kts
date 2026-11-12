@@ -41,8 +41,8 @@ android {
         applicationId = "com.cyrus_studio.whisperunchained"
         minSdk = 34
         targetSdk = 36
-        // Reason for edit: Bump versionCode to 19 and versionName to 1.3.0 for v1.3 on-device transcription final release per F-35
-        versionCode = 19
+        // Reason for edit: Bump versionCode to 20 and versionName to 1.3.0 for v1.3 intro walkthrough fixes per F-36
+        versionCode = 20
         versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
