@@ -30,7 +30,7 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - **Out-of-the-Box Intro Sandbox**: Interactive first-run onboarding downloading default models in-place with instant local speech transcription—no PC or cloud accounts required out of the box.
 - **Robust Fallback Retention**: Preserves audio files as pending retries when on-device fallback fails (automatically polling and sending when the PC returns), with instant phone fallback when the PC is paused or loading models.
 - **Optimized 64-bit ABI Packaging**: Streamlined native packaging (`arm64-v8a`) reducing release APK sizes by ~97 MB (from 156.8 MB down to 59.2 MB).
-- **Play Release & S25 Support**: Official `play` flavor distribution (`com.cyrus_studio.whisperunchained`, versionCode 18, versionName 1.3.0) with clean first-run intro, on-device speech model downloading, practice sandbox, and decimal MB indicators.
+- **Play Release & S25 Support**: Official `play` flavor distribution (`com.cyrus_studio.whisperunchained`, versionCode 19, versionName 1.3.0) with clean first-run intro, on-device speech model downloading, practice sandbox, and decimal MB indicators.
 
 ## What's New in v1.2 (UI Makeover + Intro Sandbox)
 

@@ -11,6 +11,7 @@
 //          4. On-device model manager (download progress, Wi-Fi only toggle, SHA-256 verification, and deletion).
 // Conforms to contracts/04-look-and-feel.md §3.2 and contract 05 §2.3 & §2.6.
 // Reason for edit: Add transcription target selector, PC fallback toggle, and on-device model download/management per contract 05 §2.3 & §2.6.
+// Reason for edit: Use ic_download vector icon for model download buttons per F-35.
 
 package com.example.whisperremote.ui.screens
 
@@ -1077,7 +1078,7 @@ fun TranscriptionScreen(
                                         },
                                         shape = RoundedCornerShape(16.dp)
                                     ) {
-                                        Icon(painter = painterResource(R.drawable.ic_mic), contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Icon(painter = painterResource(R.drawable.ic_download), contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text("Download ($sizeMb MB)", style = MaterialTheme.typography.labelSmall)
                                     }

@@ -6,6 +6,7 @@
 // Conforms to contracts/04-look-and-feel.md §4 and Play policy requirements in F-22, F-24, F-25.
 // Reason for edit: Out-of-the-box offline model download & on-device practice dictation per contract 05 §2.7.
 // Reason for edit: Branch battery optimization in Play flavor to open standard list settings without restricted REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission per F-27.
+// Reason for edit: Delete practice audio recordings after transcription per F-35.
 
 package com.example.whisperremote.ui.intro
 
@@ -720,6 +721,7 @@ fun IntroScreen(
                                                                 if (useOnDevice) {
                                                                     if (!isDefaultModelReady) {
                                                                         practiceText = "Please download the offline model above first to transcribe on this phone."
+                                                                        audioFile.delete()
                                                                     } else {
                                                                         isPracticeTranscribing = true
                                                                         practiceText = "Transcribing on this phone..."
@@ -740,6 +742,9 @@ fun IntroScreen(
                                                                                     isPracticeTranscribing = false
                                                                                     practiceText = "Transcription failed: ${e.message}"
                                                                                 }
+                                                                            } finally {
+                                                                                // Reason for edit: Delete practice recording after use per F-35
+                                                                                audioFile.delete()
                                                                             }
                                                                         }.start()
                                                                     }
@@ -752,11 +757,13 @@ fun IntroScreen(
                                                                                 isPracticeTranscribing = false
                                                                                 practiceText = result.text.ifBlank { "(No speech detected)" }
                                                                                 practiceSuccessCelebration = true
+                                                                                audioFile.delete()
                                                                             }
                                                                             is TranscriptionResult.Empty -> {
                                                                                 isPracticeTranscribing = false
                                                                                 practiceText = "(No speech detected - try speaking closer to the mic)"
                                                                                 practiceSuccessCelebration = false
+                                                                                audioFile.delete()
                                                                             }
                                                                             else -> {
                                                                                 if (isDefaultModelReady) {
@@ -777,18 +784,23 @@ fun IntroScreen(
                                                                                                 isPracticeTranscribing = false
                                                                                                 practiceText = "Transcription failed"
                                                                                             }
+                                                                                        } finally {
+                                                                                            // Reason for edit: Delete practice recording after use per F-35
+                                                                                            audioFile.delete()
                                                                                         }
                                                                                     }.start()
                                                                                 } else {
                                                                                     isPracticeTranscribing = false
                                                                                     practiceText = "Recorded ${(audioFile.length() - 44) / 1024} KB of audio!\nCould not reach server: ${(result as? TranscriptionResult.NetworkError)?.error?.localizedMessage ?: "Connection error"}"
                                                                                     practiceSuccessCelebration = true
+                                                                                    audioFile.delete()
                                                                                 }
                                                                             }
                                                                         }
                                                                     }
                                                                 }
                                                             } else {
+                                                                audioFile?.delete()
                                                                 practiceText = "Recording was too short. Tap again and speak a phrase."
                                                             }
                                                         }
