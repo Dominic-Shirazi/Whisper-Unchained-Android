@@ -1,6 +1,6 @@
 // This file provides the About subpage for Whisper Unchained.
 // Updated to match F-23 site and privacy policy URLs.
-// Reason for edit: Bump displayed build to Build 16 for streamlined home layout.
+// Reason for edit: Bump displayed build to Build 17 for Play release readiness per F-27.
 // It is called by HomeScreen.
 // Inputs: Version info, GitHub links, callbacks to reopen First-Run Intro.
 // Outputs: About screen with Privacy Policy link, Website link, Contact link, and "Run setup again" trigger.
@@ -98,7 +98,7 @@ fun AboutScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Version 1.2.0 (Build 16) · ${BuildConfig.FLAVOR.replaceFirstChar { it.uppercase() }}",
+                            text = "Version 1.2.0 (Build 17) · ${BuildConfig.FLAVOR.replaceFirstChar { it.uppercase() }}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.primary
                         )
