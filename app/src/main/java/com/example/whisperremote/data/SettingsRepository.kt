@@ -35,6 +35,19 @@ enum class InjectionMode {
     CLIPBOARD
 }
 
+// Reason for edit: Add TranscriptionTarget enum for On this phone / My PC / Cloud service per contract 05 §2.3
+enum class TranscriptionTarget(val id: String, val displayName: String) {
+    ON_DEVICE("phone", "On this phone"),
+    PC("pc", "My PC"),
+    CLOUD("cloud", "Cloud service");
+
+    companion object {
+        fun fromId(id: String): TranscriptionTarget {
+            return entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: PC
+        }
+    }
+}
+
 enum class ProviderPreset(
     val displayName: String,
     val defaultBaseUrl: String,
@@ -602,6 +615,31 @@ class SettingsRepository(context: Context) {
     var localNameCorrections: String
         get() = getPlainString("local_name_corrections", "")
         set(value) = putPlainString("local_name_corrections", value.trim())
+
+    // Reason for edit: On-device transcription configuration & offline vocabulary cache per contract 05 §2
+    var cachedServerVocabulary: Set<String>
+        get() = prefs.getStringSet("cached_server_vocabulary", emptySet()) ?: emptySet()
+        set(value) = prefs.edit().putStringSet("cached_server_vocabulary", value).apply()
+
+    var cachedServerNameCorrectionsJson: String
+        get() = getPlainString("cached_server_name_corrections_json", "")
+        set(value) = putPlainString("cached_server_name_corrections_json", value)
+
+    var removeFillerSounds: Boolean
+        get() = prefs.getBoolean("remove_filler_sounds", false)
+        set(value) = prefs.edit().putBoolean("remove_filler_sounds", value).apply()
+
+    var transcriptionTarget: String
+        get() = getPlainString("transcription_target", TranscriptionTarget.PC.id)
+        set(value) = putPlainString("transcription_target", value)
+
+    var fallbackToOnDevice: Boolean
+        get() = prefs.getBoolean("fallback_to_on_device", true)
+        set(value) = prefs.edit().putBoolean("fallback_to_on_device", value).apply()
+
+    var selectedOnDeviceModelId: String
+        get() = getPlainString("selected_on_device_model_id", "parakeet-tdt-110m-en-int8")
+        set(value) = putPlainString("selected_on_device_model_id", value)
 
     fun queueVocabularyAddition(word: String) {
         val clean = word.trim()

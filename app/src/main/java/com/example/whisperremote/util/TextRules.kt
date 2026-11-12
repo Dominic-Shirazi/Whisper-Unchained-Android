@@ -105,4 +105,35 @@ object TextRules {
 
         return Pair(out, removed)
     }
+
+    // Reason for edit: Add parseCorrectionsText helper for parsing multi-line Heard:WriteAs pairs per contract 05 §2.4
+    /**
+     * Parses multi-line name corrections (e.g. "Heard as: Write as", "Leslie -> Lesley", "C plus plus = C++").
+     * Ignores comments (lines starting with #) and empty lines.
+     */
+    fun parseCorrectionsText(text: String): Map<String, String> {
+        if (text.isBlank()) return emptyMap()
+        val map = mutableMapOf<String, String>()
+        text.lineSequence().forEach { line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEach
+            val delimiter = when {
+                trimmed.contains("->") -> "->"
+                trimmed.contains(":") -> ":"
+                trimmed.contains("=") -> "="
+                else -> null
+            }
+            if (delimiter != null) {
+                val parts = trimmed.split(delimiter, limit = 2)
+                if (parts.size == 2) {
+                    val heard = parts[0].trim()
+                    val writeAs = parts[1].trim()
+                    if (heard.isNotEmpty() && writeAs.isNotEmpty()) {
+                        map[heard] = writeAs
+                    }
+                }
+            }
+        }
+        return map
+    }
 }

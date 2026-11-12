@@ -423,6 +423,12 @@ class ApiClient(private val context: Context) {
                             val chars = json.optInt("chars", 0)
                             val maxChars = json.optInt("max_chars", 540)
 
+                            // Reason for edit: Cache shared vocabulary and server name corrections in SettingsRepository for on-device offline use per contract 05 §2.4
+                            repository.cachedServerVocabulary = vocabList.toSet()
+                            if (nameCorrectionsObj != null) {
+                                repository.cachedServerNameCorrectionsJson = nameCorrectionsObj.toString()
+                            }
+
                             callback(VocabularyResult.Success(VocabularyData(vocabList, nameList, nameCorrectionsMap, chars, maxChars)))
                         } catch (e: Exception) {
                             callback(VocabularyResult.Error(response.code, "Failed to parse vocabulary response: ${e.message}"))

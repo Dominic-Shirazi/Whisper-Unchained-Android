@@ -16,8 +16,16 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 ## Requirements
 
 - Android 14+ (API 34)
-- A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches) or cloud provider (Groq, OpenAI, OpenRouter)
-- Network access to the server — [Tailscale](https://tailscale.com/) works seamlessly for remote access
+- A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
+- Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
+
+## What's New in v1.3 (On-Device Transcription)
+
+- **Local Offline Transcription Engine**: Embedded `sherpa-onnx` (2.0.1) engine running quantized NVIDIA Parakeet TDT 110M int8 (NeMo transducer) entirely on-device with zero network requests or API keys required.
+- **Silero VAD Chunking**: Bounded audio chunking using Silero VAD (cutting speech into $\le 25\text{ s}$ pause-separated segments) for reliable decoding of arbitrarily long dictations.
+- **Dynamic Hotwords & Beam Search**: Automatic compilation of shared vocabulary and name correction target words into hotword definitions with `modified_beam_search` (score 2.0) and graceful fallback to greedy search.
+- **Canonical Text Rules Port**: Full Kotlin port of server-side name corrections ("heard as → write as", whole-word, case-insensitive) and standalone filler sound removal (`um`, `uh`, `hmm`), verified 100% against canonical server test suites.
+- **Target Selection & Automatic Fallback**: Flexible dictation target choices (*On this phone* / *My PC* / *Cloud service*) with seamless on-device fallback when network or desktop endpoints are unreachable.
 
 ## What's New in v1.2 (UI Makeover + Intro Sandbox)
 
