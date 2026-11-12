@@ -320,13 +320,13 @@ Amical's Android bubble uses Amical's paid cloud models, not your desktop). That
 1. **Sharper, easier-to-read text on the desktop.** Next to the Claude app our letters look thin (one-pixel stems, jagged diagonals). Try in this order: one size larger and a sturdier font (Segoe UI Variable, or semibold for labels); per-monitor DPI awareness (2) in every window before Tk starts (`settings_gui.py` sets only system-level awareness, the wizard sets none) so Windows doesn't stretch the windows as a picture. Compare screenshots side by side on Head-PC's monitors.
 
 **Group B: "what you said, your way" (server text rules, shared by phone and desktop)**
-2. **Smart Replace**: spoken phrase → text ("enter my email" → `you@example.com`, so "let me give you my email enter my email" becomes "let me give you my email you@example.com"). One list on the server, synced to the app like the vocabulary (also used in the app's cloud mode). Broader version of name corrections.
+2. **Smart Replace** (partly there, 2026-11-12: a name correction's "heard as" can be a phrase, and the phone can now add, change and remove them, server `659bc0a` / F-43): spoken phrase → text ("enter my email" → `you@example.com`, so "let me give you my email enter my email" becomes "let me give you my email you@example.com"). One list on the server, synced to the app like the vocabulary (also used in the app's cloud mode). Broader version of name corrections.
 3. **Per-app styles**: e.g. casual in Messages, professional in Outlook. The desktop knows the foreground program, the phone knows the app's package name; each sends it and the server picks the style. Reuses the existing style presets.
 4. **Dictionary that learns from your corrections** (OpenWhispr does this, MIT: `src/utils/correctionLearner.js`): after a paste, watch the field briefly, diff what we pasted against what's there now (word-level LCS), keep swaps that look like mishearings (skip common words, words under 3 letters, unrelated words), and offer them for the vocabulary / name corrections. The Android accessibility service can already read the field; the desktop needs UI Automation. Suggest, don't silently add.
 
 **Group C: a "results" window on the desktop (one window, three uses)**
-5. **Transcribe a file**: a button in the desktop app (not only the right-click menu): drag-and-drop or "Select file", audio or video, result in a text box with Copy / Save.
-6. **Subtitles** for files: SRT/VTT export (segments already have timestamps). (Translate-to-English: not a goal, plenty of apps do that.)
+5. **DONE 2026-11-12 (server `45e7778`): Transcribe a file**: a button in the desktop app (not only the right-click menu): drag-and-drop or "Select file", audio or video, result in a text box with Copy / Save.
+6. **DONE 2026-11-12 (server `45e7778`): Subtitles** for files: SRT/VTT export (segments already have timestamps). (Translate-to-English: not a goal, plenty of apps do that.)
 7. **History**: search past dictations, paste or copy again, raw vs. cleaned side by side, re-run cleanup. The transcript log already has the data.
 
 **Group D: voice editing**
@@ -336,4 +336,5 @@ Amical's Android bubble uses Amical's paid cloud models, not your desktop). That
 9. **Auto-updates** with stable and beta channels, plus a **model manager** screen (§2.4).
 
 **Group F: reach (largest)**
-10. **PCs without an NVIDIA GPU**: CPU Parakeet (sherpa-onnx) or whisper.cpp with Vulkan for AMD/Intel. Our biggest install blocker (Handy and OpenWhispr already do this).
+10. **Linux server**: handed to the AI-Worker3 session on 2026-11-12 (headless Ubuntu server: systemd, install script, pairing QR in the terminal; branch `linux`). Desktop hotkey/tray on Linux later.
+11. **PCs without an NVIDIA GPU**: CPU Parakeet (sherpa-onnx) or whisper.cpp with Vulkan for AMD/Intel. Our biggest install blocker (Handy and OpenWhispr already do this).
