@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Stored audio recordings in app-private cacheDir with immediate deletion after paste/failure and 24h stale purge per F-22.
 // Reason for edit: Gated MediaProjection handling and audio playback callback with BuildConfig.FEATURE_INTERNAL_AUDIO per F-18.
 // Reason for edit: Replaced stop button with large Done button and consumed scrim outside-taps via StyleSheetOverlayLayout per contract F-17.
 // Reason for edit: Added missing setup check on floating button tap with actionable one-tap fix overlay per contract F-16.
@@ -343,6 +344,7 @@ class FloatingButtonService : Service() {
         apiClient = ApiClient(this)
         settingsRepository = SettingsRepository(this)
         tailscaleManager = TailscaleManager(this)
+        cleanOldRecordings()
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         if (BuildConfig.FEATURE_INTERNAL_AUDIO) {
             audioManager.registerAudioPlaybackCallback(audioPlaybackCallback, mainHandler)
@@ -356,6 +358,32 @@ class FloatingButtonService : Service() {
         }
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         setupOverlay()
+    }
+
+    private fun cleanOldRecordings() {
+        try {
+            val dir = cacheDir ?: return
+            val now = System.currentTimeMillis()
+            val maxAge = 24 * 60 * 60 * 1000L // 24 hours
+            dir.listFiles { f -> f.name.startsWith("recording") && f.name.endsWith(".wav") }?.forEach { f ->
+                if (now - f.lastModified() > maxAge) {
+                    f.delete()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("FloatingButtonService", "Error cleaning old recordings", e)
+        }
+    }
+
+    private fun cleanupActiveAudioFile(keepIfPendingRetry: Boolean = false) {
+        if (!keepIfPendingRetry || pendingRetryAudioFile != audioFile) {
+            try {
+                audioFile?.delete()
+            } catch (e: Exception) {
+                Log.e("FloatingButtonService", "Error deleting active audio file", e)
+            }
+            audioFile = null
+        }
     }
 
     fun setMediaProjectionData(resultCode: Int, data: Intent): Boolean {
@@ -1933,7 +1961,7 @@ class FloatingButtonService : Service() {
         stopPollingForResume()
         pendingRetryAudioFile = null
         pendingRetryStyleOverrides = null
-        audioFile = File(externalCacheDir, "recording.wav")
+        audioFile = File(cacheDir, "recording_${System.currentTimeMillis()}.wav")
         pauseActiveMedia()
 
         recordingStartTimeMs = System.currentTimeMillis()
@@ -2339,10 +2367,14 @@ class FloatingButtonService : Service() {
                     }
                 }
             }
+            if (result !is TranscriptionResult.ServerPaused) {
+                cleanupActiveAudioFile(keepIfPendingRetry = false)
+            }
         }
     }
 
     private fun deliverTranscribedText(text: String) {
+        cleanupActiveAudioFile(keepIfPendingRetry = false)
         if (text.isBlank()) {
             setState(ButtonState.HIDDEN)
             return

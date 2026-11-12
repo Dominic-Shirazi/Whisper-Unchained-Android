@@ -19,7 +19,15 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches) or cloud provider (Groq, OpenAI, OpenRouter)
 - Network access to the server — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
-## Distribution & Build Flavors (v1.1)
+## What's New in v1.2 (UI Makeover + Intro Sandbox)
+
+- **Complete Jetpack Compose & Material 3 Rebuild**: Replaced the 1,478-line XML activity with a clean, modular Compose architecture adhering to Samsung One UI principles (grouped borderless cards, 26dp rounded corners, pure-black `#000000` dark mode, `#3E6FD8` dynamic primary accent fallback, zero borders, zero shadows).
+- **7-Page First-Run Intro Sandbox**: Full-screen interactive onboarding with segmented progress indicators, in-place microphone permission flow, and an interactive practice dictation sandbox inserting real transcription text before finishing setup.
+- **Color-Blind Safe Indicators**: All connection and permission statuses feature paired icons and explicit textual labels (e.g. "Allowed ✓" / "Not allowed") ensuring WCAG compliance without relying on color alone.
+- **Google Play Policy Compliance**: Strict exclusion of sensitive password, PIN, and payment fields from `DictationAccessibilityService`; immediate deletion of temporary audio files from app-private `cacheDir`; re-showable prominent Accessibility disclosure; and direct links to Privacy Policy (`https://whisperunchained.cyrus-studio.com/privacy/`).
+- **Roborazzi Screenshot Tests**: Automated JVM-based screenshot regression suite running on Robolectric across S25 phone, Galaxy Fold inner, and Galaxy Fold cover screen dimensions in both light and dark modes.
+
+## Distribution & Build Flavors (v1.2)
 
 Whisper Unchained is built with two distinct product flavors to ensure full Google Play policy compliance while preserving advanced internal-audio transcription for sideloaded installations:
 

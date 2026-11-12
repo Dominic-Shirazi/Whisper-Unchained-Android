@@ -8,6 +8,7 @@ package com.example.whisperremote
 
 // Reason for edit: Added isEnabled helper checking Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES per contract F-16.
 // Reason for edit: Splice text at cursor with ACTION_SET_SELECTION restore (never clobbering field content), and prune unused event types per contract F-12.
+// Reason for edit: Added sensitive password and payment field detection, skipping insertion and reading per Play policy and F-22.
 // Reason for edit: Gate dictated text log behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9.
 // Reason for edit: Updated product name to Whisper Unchained and added file documentation header.
 
@@ -110,6 +111,31 @@ class DictationAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun isSensitiveNode(node: AccessibilityNodeInfo?): Boolean {
+        if (node == null) return false
+        if (node.isPassword) return true
+        val inputType = node.inputType
+        val textClass = (inputType and android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT
+        val numberClass = (inputType and android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_NUMBER
+        val textVariation = inputType and android.text.InputType.TYPE_MASK_VARIATION
+
+        if (textClass) {
+            if (textVariation == android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                textVariation == android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
+                textVariation == android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+            ) return true
+        }
+        if (numberClass) {
+            if (textVariation == android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD) return true
+        }
+
+        val id = node.viewIdResourceName?.lowercase() ?: ""
+        if (id.contains("password") || id.contains("pin") || id.contains("creditcard") || id.contains("card_number") || id.contains("cvv") || id.contains("cvc")) {
+            return true
+        }
+        return false
+    }
+
     private fun isEditableNode(node: AccessibilityNodeInfo?): Boolean {
         if (node == null) return false
         if (node.isEditable) return true
@@ -166,6 +192,13 @@ class DictationAccessibilityService : AccessibilityService() {
             ?: findEditableInTree(rootInActiveWindow)
 
         Log.d("DictationService", "Target node found: ${targetNode != null}")
+
+        if (targetNode != null && isSensitiveNode(targetNode)) {
+            Log.w("DictationService", "Sensitive (password/payment) field detected. Refusing to read or insert; falling back to clipboard per Play policy.")
+            FloatingButtonService.getInstance()?.showTemporaryHint("Password field protected: copied to clipboard")
+            FloatingButtonService.getInstance()?.onPasteComplete(hasFocusedEditable)
+            return
+        }
 
         targetNode?.let { node ->
             if (isEditableNode(node)) {

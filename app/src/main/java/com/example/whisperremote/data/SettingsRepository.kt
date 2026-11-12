@@ -359,6 +359,14 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean("setup_dismissed_manually", false)
         set(value) = prefs.edit().putBoolean("setup_dismissed_manually", value).apply()
 
+    // Reason for edit: Added hasCompletedFirstRunChecklist per contracts/04-look-and-feel.md §4
+    var hasCompletedFirstRunChecklist: Boolean
+        get() = prefs.getBoolean("has_completed_first_run_checklist", false) || isSetupDismissedManually
+        set(value) {
+            prefs.edit().putBoolean("has_completed_first_run_checklist", value).apply()
+            if (value) isSetupDismissedManually = true
+        }
+
     var providerPreset: ProviderPreset
         get() {
             val name = getPlainString(KEY_PRESET, ProviderPreset.SELF_HOSTED.name)

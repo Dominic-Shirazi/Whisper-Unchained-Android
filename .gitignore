@@ -35,6 +35,7 @@ local.properties
 .idea/deploymentTargetSelector.xml
 .idea/deviceManager.xml
 .idea/appInsightsSettings.xml
+.idea/.name
 
 # Signing keys — NEVER commit these
 *.jks
