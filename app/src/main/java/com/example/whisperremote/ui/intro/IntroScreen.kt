@@ -719,7 +719,7 @@ fun IntroScreen(
                                                         )
                                                         Spacer(modifier = Modifier.height(8.dp))
                                                         Text(
-                                                            text = "Your PC is shared through Tailscale. Install Tailscale on this phone and sign in with the same account as your PC.",
+                                                            text = "Your PC is reached securely through Tailscale. Install Tailscale on this phone and sign in with the same account as your PC.",
                                                             style = MaterialTheme.typography.bodyMedium,
                                                             textAlign = TextAlign.Center
                                                         )
@@ -741,7 +741,7 @@ fun IntroScreen(
                                                         )
                                                         Spacer(modifier = Modifier.height(8.dp))
                                                         Text(
-                                                            text = "Tailscale is installed but not connected.",
+                                                            text = "Tailscale is installed but not connected. Open it and turn it on to reach your PC securely.",
                                                             style = MaterialTheme.typography.bodyMedium,
                                                             textAlign = TextAlign.Center
                                                         )

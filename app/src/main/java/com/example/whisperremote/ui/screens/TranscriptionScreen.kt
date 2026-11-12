@@ -219,9 +219,9 @@ fun TranscriptionScreen(
                             connectionDiagnosis = diag
                             connectionResultText = when (diag) {
                                 is TailscaleDiagnosis.TailscaleNotInstalled ->
-                                    "Your PC is shared through Tailscale. Install Tailscale on this phone and sign in with the same account as your PC."
+                                    "Your PC is reached securely through Tailscale. Install Tailscale on this phone and sign in with the same account as your PC."
                                 is TailscaleDiagnosis.TailscaleNotConnected ->
-                                    "Tailscale is installed but not connected."
+                                    "Tailscale is installed but not connected. Open it and turn it on to reach your PC securely."
                                 is TailscaleDiagnosis.ServerUnreachable ->
                                     "Your PC didn't answer. Make sure Whisper Unchained Server is running and this phone is on the same Wi-Fi (or Tailscale)."
                             }
