@@ -7,6 +7,7 @@
 package com.example.whisperremote
 
 // Reason for edit: Stored audio recordings in app-private cacheDir with immediate deletion after paste/failure and 24h stale purge per F-22.
+// Reason for edit: Check RECORD_AUDIO before starting FGS, wrap startForeground in try/catch stopSelf(), and handle uninitialized managers per F-26.
 // Reason for edit: Gated MediaProjection handling and audio playback callback with BuildConfig.FEATURE_INTERNAL_AUDIO per F-18.
 // Reason for edit: Replaced stop button with large Done button and consumed scrim outside-taps via StyleSheetOverlayLayout per contract F-17.
 // Reason for edit: Added missing setup check on floating button tap with actionable one-tap fix overlay per contract F-16.
@@ -350,14 +351,50 @@ class FloatingButtonService : Service() {
             audioManager.registerAudioPlaybackCallback(audioPlaybackCallback, mainHandler)
         }
 
-        createNotificationChannel()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-        } else {
-            startForeground(1, createNotification())
+        // Reason for edit: Verify RECORD_AUDIO permission before starting FGS to prevent SecurityException per F-26
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Log.e("FloatingButtonService", "RECORD_AUDIO permission not granted; stopping self.")
+            mainHandler.post {
+                Toast.makeText(
+                    applicationContext,
+                    "Microphone permission is required for the floating button.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            stopSelf()
+            return
         }
+
+        try {
+            createNotificationChannel()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(1, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            } else {
+                startForeground(1, createNotification())
+            }
+        } catch (e: Exception) {
+            Log.e("FloatingButtonService", "Failed to start foreground service: ${e.message}", e)
+            mainHandler.post {
+                Toast.makeText(
+                    applicationContext,
+                    "Cannot start service: microphone permission or foreground eligibility missing.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            stopSelf()
+            return
+        }
+
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         setupOverlay()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        return START_NOT_STICKY
     }
 
     private fun cleanOldRecordings() {
@@ -2455,39 +2492,45 @@ class FloatingButtonService : Service() {
         stopPollingForResume()
         closeStyleSheet()
         closeSetupMissingPrompt()
-        sheetOverlayView?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (e: Exception) {
-                Log.e("FloatingButtonService", "Error removing sheet overlay on destroy", e)
+        if (::windowManager.isInitialized) {
+            sheetOverlayView?.let {
+                try {
+                    windowManager.removeView(it)
+                } catch (e: Exception) {
+                    Log.e("FloatingButtonService", "Error removing sheet overlay on destroy", e)
+                }
+                sheetOverlayView = null
             }
-            sheetOverlayView = null
         }
         pendingRetryAudioFile = null
         pendingRetryStyleOverrides = null
         snapAnimator?.cancel()
         snapAnimator = null
 
-        try {
-            audioManager.unregisterAudioPlaybackCallback(audioPlaybackCallback)
-        } catch (e: Exception) {
-            Log.e("FloatingButtonService", "Error unregistering audio playback callback", e)
-        }
-
-        releaseAudioFocus()
-        if (BuildConfig.FEATURE_INTERNAL_AUDIO) {
+        if (::audioManager.isInitialized) {
             try {
                 audioManager.unregisterAudioPlaybackCallback(audioPlaybackCallback)
             } catch (e: Exception) {
                 Log.e("FloatingButtonService", "Error unregistering audio playback callback", e)
             }
+
+            releaseAudioFocus()
+            if (BuildConfig.FEATURE_INTERNAL_AUDIO) {
+                try {
+                    audioManager.unregisterAudioPlaybackCallback(audioPlaybackCallback)
+                } catch (e: Exception) {
+                    Log.e("FloatingButtonService", "Error unregistering audio playback callback", e)
+                }
+            }
         }
 
-        container?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (e: Exception) {
-                Log.e("FloatingButtonService", "Error removing overlay", e)
+        if (::windowManager.isInitialized) {
+            container?.let {
+                try {
+                    windowManager.removeView(it)
+                } catch (e: Exception) {
+                    Log.e("FloatingButtonService", "Error removing overlay", e)
+                }
             }
         }
         isRecording = false

@@ -3,9 +3,12 @@
 // Inputs: SettingsRepository, ApiClient (for testing connection & health checks), GoogleCodeScanner trigger.
 // Outputs: Pairing-first layout (Scan QR primary button, immediate Test connection status, collapsed Manual setup).
 // Conforms to contracts/04-look-and-feel.md §3.2 and appendix v1 §4 & §5.
+// Reason for edit: Hop to main looper in testConnection for Compose state safety per F-26.
 
 package com.example.whisperremote.ui.screens
 
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -101,36 +104,40 @@ fun TranscriptionScreen(
     var chatKey by remember { mutableStateOf(repository.cleanupChatKey) }
     var chatModel by remember { mutableStateOf(repository.cleanupChatModel) }
 
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+
     fun testConnection() {
         isTestingConnection = true
         connectionResultText = "Testing connection..."
         isConnectionSuccess = null
 
         apiClient.checkHealth { health ->
-            isTestingConnection = false
-            when (health) {
-                is HealthResult.Ok -> {
-                    isConnectionSuccess = true
-                    connectionResultText = if (!health.model.isNullOrBlank()) {
-                        repository.modelName = health.model
-                        selectedModel = health.model
-                        "Connected: your PC runs ${health.model}"
-                    } else {
-                        "Connected successfully"
+            mainHandler.post {
+                isTestingConnection = false
+                when (health) {
+                    is HealthResult.Ok -> {
+                        isConnectionSuccess = true
+                        connectionResultText = if (!health.model.isNullOrBlank()) {
+                            repository.modelName = health.model
+                            selectedModel = health.model
+                            "Connected: your PC runs ${health.model}"
+                        } else {
+                            "Connected successfully"
+                        }
                     }
-                }
-                is HealthResult.Paused -> {
-                    isConnectionSuccess = true
-                    val reason = health.reason.orEmpty()
-                    connectionResultText = "Paused on your PC (${if (reason.isNotBlank()) reason else "Ready to resume"})"
-                }
-                is HealthResult.ServiceError -> {
-                    isConnectionSuccess = false
-                    connectionResultText = "Server error: ${health.message}"
-                }
-                is HealthResult.Unreachable -> {
-                    isConnectionSuccess = false
-                    connectionResultText = "Can't reach server: is Tailscale on or PC awake?"
+                    is HealthResult.Paused -> {
+                        isConnectionSuccess = true
+                        val reason = health.reason.orEmpty()
+                        connectionResultText = "Paused on your PC (${if (reason.isNotBlank()) reason else "Ready to resume"})"
+                    }
+                    is HealthResult.ServiceError -> {
+                        isConnectionSuccess = false
+                        connectionResultText = "Server error: ${health.message}"
+                    }
+                    is HealthResult.Unreachable -> {
+                        isConnectionSuccess = false
+                        connectionResultText = "Can't reach server: is Tailscale on or PC awake?"
+                    }
                 }
             }
         }

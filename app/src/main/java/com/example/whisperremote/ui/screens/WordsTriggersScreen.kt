@@ -4,9 +4,12 @@
 // Outputs: Vocabulary hints with character budget (540 chars), server name-correction hints,
 //          sync button, name corrections editor (local for cloud / read-only for PC), and voice edit trigger info.
 // Conforms to contracts/04-look-and-feel.md §3.3 and Appendix v1 §6.
+// Reason for edit: Hop to main looper for Toast and state in vocabulary sync per F-26.
 
 package com.example.whisperremote.ui.screens
 
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -70,6 +73,7 @@ fun WordsTriggersScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
     var promptHints by remember { mutableStateOf(repository.promptHints) }
     var autoTrimHints by remember { mutableStateOf(repository.autoTrimHints) }
     var localNameCorrections by remember { mutableStateOf(repository.localNameCorrections) }
@@ -81,9 +85,11 @@ fun WordsTriggersScreen(
     LaunchedEffect(Unit) {
         if (repository.providerPreset == ProviderPreset.SELF_HOSTED && repository.baseUrl.isNotBlank()) {
             apiClient.getVocabulary { result ->
-                if (result is VocabularyResult.Success) {
-                    fromNameCorrectionsWords = result.data.fromNameCorrections
-                    serverNameCorrections = result.data.nameCorrections
+                mainHandler.post {
+                    if (result is VocabularyResult.Success) {
+                        fromNameCorrectionsWords = result.data.fromNameCorrections
+                        serverNameCorrections = result.data.nameCorrections
+                    }
                 }
             }
         }
@@ -101,23 +107,25 @@ fun WordsTriggersScreen(
         }
         isSyncing = true
         apiClient.getVocabulary { result ->
-            isSyncing = false
-            when (result) {
-                is VocabularyResult.Success -> {
-                    fromNameCorrectionsWords = result.data.fromNameCorrections
-                    serverNameCorrections = result.data.nameCorrections
-                    val currentWords = VocabularySyncHelper.parseWords(promptHints)
-                    val merged = VocabularySyncHelper.mergeAndDeduplicate(result.data.vocabulary, currentWords)
-                    val mergedString = VocabularySyncHelper.formatForDisplay(merged)
-                    promptHints = mergedString
-                    repository.promptHints = mergedString
-                    Toast.makeText(context, "Vocabulary synced with PC (${merged.size} words)", Toast.LENGTH_SHORT).show()
-                }
-                is VocabularyResult.Error -> {
-                    Toast.makeText(context, "Could not fetch vocabulary: ${result.message}", Toast.LENGTH_SHORT).show()
-                }
-                is VocabularyResult.NetworkError -> {
-                    Toast.makeText(context, "Network error: ${result.error.localizedMessage}", Toast.LENGTH_SHORT).show()
+            mainHandler.post {
+                isSyncing = false
+                when (result) {
+                    is VocabularyResult.Success -> {
+                        fromNameCorrectionsWords = result.data.fromNameCorrections
+                        serverNameCorrections = result.data.nameCorrections
+                        val currentWords = VocabularySyncHelper.parseWords(promptHints)
+                        val merged = VocabularySyncHelper.mergeAndDeduplicate(result.data.vocabulary, currentWords)
+                        val mergedString = VocabularySyncHelper.formatForDisplay(merged)
+                        promptHints = mergedString
+                        repository.promptHints = mergedString
+                        Toast.makeText(context, "Vocabulary synced with PC (${merged.size} words)", Toast.LENGTH_SHORT).show()
+                    }
+                    is VocabularyResult.Error -> {
+                        Toast.makeText(context, "Could not fetch vocabulary: ${result.message}", Toast.LENGTH_SHORT).show()
+                    }
+                    is VocabularyResult.NetworkError -> {
+                        Toast.makeText(context, "Network error: ${result.error.localizedMessage}", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }

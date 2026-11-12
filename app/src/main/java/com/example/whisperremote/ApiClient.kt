@@ -9,8 +9,11 @@ package com.example.whisperremote
 // Reason for edit: Added cleanup form field and cleanup_always parsing from /health per contract K-10.
 // Reason for edit: Gate transcription response body behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9.
 // Reason for edit: Added per-dictation StyleOverrides support for style pill overrides per contract F-6 (contracts/01 §1 & contracts/02 §5).
+// Reason for edit: Ensure all public callbacks dispatch on Looper.getMainLooper() to prevent background thread UI/Toast crashes per F-26.
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
@@ -89,6 +92,16 @@ class ApiClient(private val context: Context) {
         .readTimeout(4, TimeUnit.SECONDS)
         .build()
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private fun runOnMain(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post(block)
+        }
+    }
+
     /**
      * Legacy callback signature for backward compatibility with FloatingButtonService.
      * Returns transcribed text on success, "" on silence, or null on error.
@@ -110,8 +123,9 @@ class ApiClient(private val context: Context) {
     fun transcribeDetailed(
         file: File,
         styleOverrides: StyleOverrides? = null,
-        callback: (TranscriptionResult) -> Unit
+        rawCallback: (TranscriptionResult) -> Unit
     ) {
+        val callback: (TranscriptionResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
         val url = repository.getTranscribeUrl()
         // Reason for edit: Added validation to prevent crashes when server URL is blank or unconfigured
         if (url.isBlank() || !url.startsWith("http")) {
@@ -277,7 +291,8 @@ class ApiClient(private val context: Context) {
      * Checks server health via GET /health (unauthenticated, cheap check).
      * Reason for edit: Treat 'status: paused' as reachable per contract K-4.
      */
-    fun checkHealth(callback: (HealthResult) -> Unit) {
+    fun checkHealth(rawCallback: (HealthResult) -> Unit) {
+        val callback: (HealthResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
         val healthUrl = repository.getHealthUrl()
         if (healthUrl.isBlank() || !healthUrl.startsWith("http")) {
             callback(HealthResult.ServiceError("Server URL is not configured"))
@@ -329,7 +344,8 @@ class ApiClient(private val context: Context) {
     /**
      * Validates API credentials and connection against GET /v1/models.
      */
-    fun testConnection(callback: (Boolean, String) -> Unit) {
+    fun testConnection(rawCallback: (Boolean, String) -> Unit) {
+        val callback: (Boolean, String) -> Unit = { ok, msg -> runOnMain { rawCallback(ok, msg) } }
         val modelsUrl = repository.getModelsUrl()
         if (modelsUrl.isBlank() || !modelsUrl.startsWith("http")) {
             callback(false, "Server URL is not configured. Please enter your server endpoint or scan pairing code.")
@@ -365,7 +381,8 @@ class ApiClient(private val context: Context) {
      * Retrieves shared vocabulary from GET /v1/vocabulary (contracts/01-transcription-api.md §8).
      * Reason for edit: Added support for shared vocabulary lookup per K-2.
      */
-    fun getVocabulary(callback: (VocabularyResult) -> Unit) {
+    fun getVocabulary(rawCallback: (VocabularyResult) -> Unit) {
+        val callback: (VocabularyResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
         val url = repository.getVocabularyUrl()
         if (url.isBlank() || !url.startsWith("http")) {
             callback(VocabularyResult.Error(400, "Server URL is not configured"))
@@ -421,7 +438,8 @@ class ApiClient(private val context: Context) {
     /**
      * Adds words to shared vocabulary via POST /v1/vocabulary (contracts/01-transcription-api.md §8).
      */
-    fun addVocabulary(words: List<String>, callback: (VocabularyResult) -> Unit) {
+    fun addVocabulary(words: List<String>, rawCallback: (VocabularyResult) -> Unit) {
+        val callback: (VocabularyResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
         if (words.isEmpty()) return
 
         val url = repository.getVocabularyUrl()

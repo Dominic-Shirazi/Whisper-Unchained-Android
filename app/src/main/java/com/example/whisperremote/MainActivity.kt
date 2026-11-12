@@ -1,5 +1,6 @@
 // This file is the primary activity and settings coordinator for Whisper Unchained.
 // Rebuilt in Jetpack Compose + Material 3 per contracts/04-look-and-feel.md version 2 (F-20, F-21, F-22).
+// Reason for edit: Verify RECORD_AUDIO before startForegroundService and handle missing mic gracefully per F-26.
 // Inputs: User configurations, camera QR code scanning (Google Code Scanner), Android system permissions.
 // Outputs: Complete Compose UI hosting HomeScreen, subpages (Transcription, Words/Triggers, AI Editing, Paste Mode,
 //          Floating Button, Permissions, About), and the 7-page First-Run Intro Sandbox.
@@ -15,6 +16,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -64,6 +66,7 @@ class MainActivity : ComponentActivity() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
+        updateStatusCardState()
         if (permissions[Manifest.permission.RECORD_AUDIO] == true) {
             checkOverlayAndStartService()
         }
@@ -194,6 +197,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkInitialPermissions() {
+        if (!repository.hasCompletedFirstRunChecklist) {
+            // First run intro guides user through mic permission sandbox
+            return
+        }
         val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
@@ -209,12 +216,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkOverlayAndStartService() {
+        val hasMic = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasMic) {
+            Log.d("MainActivity", "Mic permission missing; requesting permission before starting service.")
+            permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+            return
+        }
         if (Settings.canDrawOverlays(this)) {
             val intent = Intent(this, FloatingButtonService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Failed to start FloatingButtonService", e)
             }
         }
     }
