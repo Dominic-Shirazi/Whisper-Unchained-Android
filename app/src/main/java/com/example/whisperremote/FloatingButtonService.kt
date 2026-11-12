@@ -1240,7 +1240,7 @@ class FloatingButtonService : Service() {
         // Populate card contents
         buildStyleSheetCard(card)
 
-        // Reason for edit: Use FLAG_NOT_FOCUSABLE to prevent keyboard dismissal/jitter and keep focus in target input field per F-9
+        // Reason for edit: Use FLAG_NOT_FOCUSABLE + FLAG_ALT_FOCUSABLE_IM to place style sheet on top of IME keyboard without stealing focus
         val sheetParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -1251,7 +1251,8 @@ class FloatingButtonService : Service() {
                 WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_DIM_BEHIND or
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
             PixelFormat.TRANSLUCENT
         ).apply {
             // Reason for edit: Fallback dim 0.45 for devices without cross-window blur (e.g. Samsung One UI) per F-9

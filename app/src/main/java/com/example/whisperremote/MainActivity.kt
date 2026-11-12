@@ -1,6 +1,6 @@
 // This file is the primary activity and settings coordinator for Whisper Unchained.
 // Rebuilt in Jetpack Compose + Material 3 per contracts/04-look-and-feel.md version 2 (F-20, F-21, F-22).
-// Reason for edit: Verify RECORD_AUDIO before startForegroundService and handle missing mic gracefully per F-26.
+// Reason for edit: Support QR scan success callback for automatic intro advance, and fix setup steps remaining calculation.
 // Inputs: User configurations, camera QR code scanning (Google Code Scanner), Android system permissions.
 // Outputs: Complete Compose UI hosting HomeScreen, subpages (Transcription, Words/Triggers, AI Editing, Paste Mode,
 //          Floating Button, Permissions, About), and the 7-page First-Run Intro Sandbox.
@@ -89,7 +89,7 @@ class MainActivity : ComponentActivity() {
                     apiClient = apiClient,
                     tailscaleManager = tailscaleManager,
                     statusCardState = statusCardState,
-                    onScanQrCode = { startQrCodeScan() },
+                    onScanQrCode = { cb -> startQrCodeScan(cb) },
                     onRefreshStatus = { updateStatusCardState() }
                 )
             }
@@ -156,16 +156,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var pendingQrSuccessCallback: (() -> Unit)? = null
+
     private fun calculateSetupStepsLeft(): Int {
         var stepsLeft = 4
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) stepsLeft--
         if (repository.isServerVerified || repository.baseUrl.isNotBlank()) stepsLeft--
         if (Settings.canDrawOverlays(this)) stepsLeft--
         if (DictationAccessibilityService.getInstance() != null || repository.injectionMode == com.example.whisperremote.data.InjectionMode.CLIPBOARD) stepsLeft--
-        return maxOf(1, stepsLeft)
+        val actual = maxOf(0, stepsLeft)
+        if (actual == 0) {
+            repository.hasCompletedFirstRunChecklist = true
+        }
+        return actual
     }
 
-    private fun startQrCodeScan() {
+    private fun startQrCodeScan(onSuccess: (() -> Unit)? = null) {
+        pendingQrSuccessCallback = onSuccess
         val options = GmsBarcodeScannerOptions.Builder()
             .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
             .enableAutoZoom()
@@ -176,7 +183,10 @@ class MainActivity : ComponentActivity() {
             .addOnSuccessListener { barcode ->
                 val rawValue = barcode.rawValue
                 if (!rawValue.isNullOrBlank()) {
-                    handleScannedQrPayload(rawValue)
+                    val ok = handleScannedQrPayload(rawValue)
+                    if (ok) {
+                        pendingQrSuccessCallback?.invoke()
+                    }
                 }
             }
             .addOnFailureListener { e ->
@@ -184,15 +194,17 @@ class MainActivity : ComponentActivity() {
             }
     }
 
-    private fun handleScannedQrPayload(raw: String) {
+    private fun handleScannedQrPayload(raw: String): Boolean {
         val payload = repository.parseAndValidateQrPayload(raw)
-        if (payload != null) {
+        return if (payload != null) {
             repository.applyQrPayload(payload)
             repository.isServerVerified = true
             updateStatusCardState()
             Toast.makeText(this, "Connected to ${payload.hostDisplay}!", Toast.LENGTH_SHORT).show()
+            true
         } else {
             Toast.makeText(this, "Invalid pairing code: not a Whisper Unchained payload", Toast.LENGTH_LONG).show()
+            false
         }
     }
 
@@ -245,7 +257,7 @@ private fun MainAppNavHost(
     apiClient: ApiClient,
     tailscaleManager: TailscaleManager,
     statusCardState: StatusCardState,
-    onScanQrCode: () -> Unit,
+    onScanQrCode: ((onSuccess: (() -> Unit)?) -> Unit),
     onRefreshStatus: () -> Unit
 ) {
     val navController = rememberNavController()
@@ -288,7 +300,7 @@ private fun MainAppNavHost(
             TranscriptionScreen(
                 repository = repository,
                 apiClient = apiClient,
-                onScanQrCode = onScanQrCode,
+                onScanQrCode = { onScanQrCode(null) },
                 onNavigateBack = { navController.popBackStack() }
             )
         }

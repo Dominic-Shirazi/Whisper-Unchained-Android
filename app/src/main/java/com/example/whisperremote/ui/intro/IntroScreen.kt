@@ -4,18 +4,23 @@
 // Outputs: 7-stage interactive sandbox onboarding with segmented progress bar, in-place practice dictation sandbox,
 //          mic permission requested on first practice mic tap, and Play-compliant prominent accessibility disclosure.
 // Conforms to contracts/04-look-and-feel.md §4 and Play policy requirements in F-22, F-24, F-25.
-// Reason for edit: Enlarge practice mic button to 64dp with 0dp content padding and 28dp icon per F-25.
+// Reason for edit: Replace practice mic with logo button and real AudioRecord dictation; auto-advance QR code scan; direct battery exemption intent; explain notifications.
 
 package com.example.whisperremote.ui.intro
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -24,6 +29,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -62,6 +68,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -83,15 +90,140 @@ import com.example.whisperremote.ApiClient
 import com.example.whisperremote.DictationAccessibilityService
 import com.example.whisperremote.HealthResult
 import com.example.whisperremote.R
+import com.example.whisperremote.TranscriptionResult
 import com.example.whisperremote.data.InjectionMode
 import com.example.whisperremote.data.SettingsRepository
 import com.example.whisperremote.ui.theme.WhisperTokens
+import java.io.File
+import java.io.FileOutputStream
+import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+
+private class PracticeAudioRecorder(private val cacheDir: File) {
+    private var audioRecord: AudioRecord? = null
+    @Volatile
+    private var isRecording = false
+    private var recordingThread: Thread? = null
+    val targetFile = File(cacheDir, "practice_sample.wav")
+
+    @SuppressLint("MissingPermission")
+    fun start(): Boolean {
+        try {
+            val sampleRate = 16000
+            val channelConfig = AudioFormat.CHANNEL_IN_MONO
+            val audioFormat = AudioFormat.ENCODING_PCM_16BIT
+            val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+            val bufferSize = maxOf(minBufferSize, 2048)
+
+            val record = AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                sampleRate,
+                channelConfig,
+                audioFormat,
+                bufferSize
+            )
+            if (record.state != AudioRecord.STATE_INITIALIZED) {
+                record.release()
+                return false
+            }
+            audioRecord = record
+            record.startRecording()
+            isRecording = true
+
+            recordingThread = Thread {
+                val data = ByteArray(bufferSize)
+                var fos: FileOutputStream? = null
+                var totalAudioLen = 0L
+                try {
+                    fos = FileOutputStream(targetFile)
+                    fos.write(ByteArray(44)) // reserve 44-byte WAV header
+                    while (isRecording) {
+                        val rec = audioRecord
+                        if (rec != null && rec.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                            val read = rec.read(data, 0, data.size)
+                            if (read > 0) {
+                                fos.write(data, 0, read)
+                                totalAudioLen += read
+                            }
+                        } else {
+                            Thread.sleep(20)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("IntroScreen", "Error recording practice audio", e)
+                } finally {
+                    try {
+                        fos?.close()
+                    } catch (_: Exception) {}
+                }
+                writeWavHeader(targetFile, totalAudioLen, 16000, 1, 16)
+            }.apply { start() }
+            return true
+        } catch (e: Exception) {
+            Log.e("IntroScreen", "Failed to start practice recording", e)
+            return false
+        }
+    }
+
+    fun stop(): File? {
+        isRecording = false
+        try {
+            audioRecord?.stop()
+            audioRecord?.release()
+        } catch (e: Exception) {
+            Log.e("IntroScreen", "Error stopping practice AudioRecord", e)
+        }
+        audioRecord = null
+        try {
+            recordingThread?.join(1000)
+        } catch (_: Exception) {}
+        recordingThread = null
+        return if (targetFile.exists() && targetFile.length() > 44) targetFile else null
+    }
+
+    private fun writeWavHeader(
+        file: File,
+        totalAudioLen: Long,
+        sampleRate: Int,
+        channels: Int,
+        bitsPerSample: Int
+    ) {
+        val totalDataLen = totalAudioLen + 36
+        val byteRate = sampleRate * channels * bitsPerSample / 8
+        val header = ByteArray(44)
+        val buffer = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
+
+        buffer.put("RIFF".toByteArray(Charsets.US_ASCII))
+        buffer.putInt(totalDataLen.toInt())
+        buffer.put("WAVE".toByteArray(Charsets.US_ASCII))
+        buffer.put("fmt ".toByteArray(Charsets.US_ASCII))
+        buffer.putInt(16)
+        buffer.putShort(1.toShort())
+        buffer.putShort(channels.toShort())
+        buffer.putInt(sampleRate)
+        buffer.putInt(byteRate)
+        buffer.putShort((channels * bitsPerSample / 8).toShort())
+        buffer.putShort(bitsPerSample.toShort())
+        buffer.put("data".toByteArray(Charsets.US_ASCII))
+        buffer.putInt(totalAudioLen.toInt())
+
+        try {
+            RandomAccessFile(file, "rw").use { raf ->
+                raf.seek(0)
+                raf.write(header)
+            }
+        } catch (e: Exception) {
+            Log.e("IntroScreen", "Error writing practice WAV header", e)
+        }
+    }
+}
 
 @Composable
 fun IntroScreen(
     repository: SettingsRepository,
     apiClient: ApiClient,
-    onScanQrCode: () -> Unit,
+    onScanQrCode: ((onSuccess: () -> Unit) -> Unit),
     onFinishIntro: () -> Unit,
     modifier: Modifier = Modifier,
     initialPage: Int = 1
@@ -99,6 +231,14 @@ fun IntroScreen(
     val context = LocalContext.current
     var currentPage by remember { mutableIntStateOf(initialPage) }
     val totalPages = 7
+
+    val recorder = remember { PracticeAudioRecorder(context.cacheDir) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            recorder.stop()
+        }
+    }
 
     // Practice sandbox states
     var practiceText by remember { mutableStateOf("") }
@@ -117,8 +257,12 @@ fun IntroScreen(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            // Permission granted on tap! Trigger sandbox recording
-            isPracticeRecording = true
+            val started = recorder.start()
+            if (started) {
+                isPracticeRecording = true
+                practiceSuccessCelebration = false
+                practiceText = "Listening... say 'testing, testing, testing'"
+            }
         }
     }
 
@@ -259,7 +403,16 @@ fun IntroScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
-                            if (!connectionStatusText.isNullOrBlank()) {
+                            val isConnected = repository.isServerVerified || repository.baseUrl.isNotBlank()
+                            if (isConnected) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "✓ Connected to PC (${repository.baseUrl})",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = WhisperTokens.BrandTeal,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            } else if (!connectionStatusText.isNullOrBlank()) {
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
                                     text = connectionStatusText!!,
@@ -271,25 +424,59 @@ fun IntroScreen(
 
                             Spacer(modifier = Modifier.weight(1f))
 
-                            Button(
-                                onClick = onScanQrCode,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(52.dp),
-                                shape = RoundedCornerShape(26.dp)
-                            ) {
-                                Icon(painter = painterResource(R.drawable.ic_qr_code_scanner), contentDescription = null, modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Scan pairing code")
-                            }
+                            if (isConnected) {
+                                Button(
+                                    onClick = { currentPage = 3 },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(52.dp),
+                                    shape = RoundedCornerShape(26.dp)
+                                ) {
+                                    Text("Continue to practice")
+                                }
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                                Spacer(modifier = Modifier.height(10.dp))
 
-                            TextButton(
-                                onClick = { currentPage = 3 },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Set up later or use cloud")
+                                OutlinedButton(
+                                    onClick = {
+                                        onScanQrCode {
+                                            currentPage = 3
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(52.dp),
+                                    shape = RoundedCornerShape(26.dp)
+                                ) {
+                                    Icon(painter = painterResource(R.drawable.ic_qr_code_scanner), contentDescription = null, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Scan a different code")
+                                }
+                            } else {
+                                Button(
+                                    onClick = {
+                                        onScanQrCode {
+                                            currentPage = 3
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(52.dp),
+                                    shape = RoundedCornerShape(26.dp)
+                                ) {
+                                    Icon(painter = painterResource(R.drawable.ic_qr_code_scanner), contentDescription = null, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Scan pairing code")
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                TextButton(
+                                    onClick = { currentPage = 3 },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Set up later or use cloud")
+                                }
                             }
                         }
 
@@ -304,7 +491,7 @@ fun IntroScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Tap the box, then tap the mic to practice.",
+                                text = "Tap the button below, speak a few words, then tap again to transcribe.",
                                 style = MaterialTheme.typography.bodyLarge,
                                 textAlign = TextAlign.Center,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -312,7 +499,7 @@ fun IntroScreen(
                             Spacer(modifier = Modifier.height(4.dp))
                             // Mandatory Microphone Disclosure per F-22 item 3 & F-24 item 3
                             Text(
-                                text = "Audio is recorded only while you tap the mic, and goes where you chose: this phone, your PC or your cloud service.",
+                                text = "Audio is recorded only while you tap the button, and goes where you chose: this phone, your PC or your cloud service.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 textAlign = TextAlign.Center,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -336,7 +523,7 @@ fun IntroScreen(
                                         .padding(16.dp)
                                 ) {
                                     Text(
-                                        text = "Mock Chat Box",
+                                        text = "Practice Chat Box",
                                         style = MaterialTheme.typography.labelLarge,
                                         color = MaterialTheme.colorScheme.primary
                                     )
@@ -345,58 +532,129 @@ fun IntroScreen(
                                     OutlinedTextField(
                                         value = practiceText,
                                         onValueChange = { practiceText = it },
-                                        placeholder = { Text("Spoken words appear right here...") },
+                                        placeholder = { Text("Your spoken words will appear here in real time...") },
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .weight(1f)
                                     )
 
-                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Spacer(modifier = Modifier.height(16.dp))
 
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.Center,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        // Mic tap button for practice
-                                        Button(
-                                            onClick = {
-                                                val hasMic = ContextCompat.checkSelfPermission(
-                                                    context, Manifest.permission.RECORD_AUDIO
-                                                ) == PackageManager.PERMISSION_GRANTED
-                                                if (!hasMic) {
-                                                    // Request mic permission on first mic tap per §4 item 3!
-                                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                                } else {
-                                                    if (!isPracticeRecording) {
-                                                        isPracticeRecording = true
+                                        // App logo button for practice dictation
+                                        Box(
+                                            modifier = Modifier
+                                                .size(64.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    if (isPracticeRecording) Color(0xFFD9694A).copy(alpha = 0.2f)
+                                                    else WhisperTokens.BrandTeal.copy(alpha = 0.12f)
+                                                )
+                                                .clickable {
+                                                    val hasMic = ContextCompat.checkSelfPermission(
+                                                        context, Manifest.permission.RECORD_AUDIO
+                                                    ) == PackageManager.PERMISSION_GRANTED
+                                                    if (!hasMic) {
+                                                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                                     } else {
-                                                        isPracticeRecording = false
-                                                        practiceText = "Hello from Whisper Unchained! Practice dictation successful."
-                                                        practiceSuccessCelebration = true
+                                                        if (!isPracticeRecording) {
+                                                            val started = recorder.start()
+                                                            if (started) {
+                                                                isPracticeRecording = true
+                                                                practiceSuccessCelebration = false
+                                                                practiceText = "Listening... say 'testing, testing, testing'"
+                                                            } else {
+                                                                practiceText = "Could not initialize microphone. Please check permissions."
+                                                            }
+                                                        } else {
+                                                            isPracticeRecording = false
+                                                            val audioFile = recorder.stop()
+                                                            if (audioFile != null && audioFile.length() > 44) {
+                                                                val url = repository.getTranscribeUrl()
+                                                                if (url.isNotBlank() && url.startsWith("http")) {
+                                                                    isPracticeTranscribing = true
+                                                                    practiceText = "Transcribing audio from your mic..."
+                                                                    apiClient.transcribeDetailed(audioFile) { result ->
+                                                                        isPracticeTranscribing = false
+                                                                        when (result) {
+                                                                            is TranscriptionResult.Success -> {
+                                                                                practiceText = result.text.ifBlank { "(No speech detected)" }
+                                                                                practiceSuccessCelebration = true
+                                                                            }
+                                                                            is TranscriptionResult.Empty -> {
+                                                                                practiceText = "(No speech detected - try speaking closer to the mic)"
+                                                                                practiceSuccessCelebration = false
+                                                                            }
+                                                                            is TranscriptionResult.ServerError -> {
+                                                                                practiceText = "Recorded ${(audioFile.length() - 44) / 1024} KB of audio!\nServer replied (${result.code}): ${result.message}"
+                                                                                practiceSuccessCelebration = true
+                                                                            }
+                                                                            is TranscriptionResult.NetworkError -> {
+                                                                                practiceText = "Recorded ${(audioFile.length() - 44) / 1024} KB of audio!\nCould not reach server: ${result.error.localizedMessage ?: "Connection error"}"
+                                                                                practiceSuccessCelebration = true
+                                                                            }
+                                                                            else -> {
+                                                                                practiceText = "Recorded ${(audioFile.length() - 44) / 1024} KB of audio!"
+                                                                                practiceSuccessCelebration = true
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                } else {
+                                                                    practiceText = "Recorded ${(audioFile.length() - 44) / 1024} KB of audio!\n(Connect to PC in Step 2 to transcribe audio into text)"
+                                                                    practiceSuccessCelebration = true
+                                                                }
+                                                            } else {
+                                                                practiceText = "Recording was too short. Tap again and speak a phrase."
+                                                            }
+                                                        }
                                                     }
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (isPracticeRecording) Color(0xFFD9694A) else WhisperTokens.BrandTeal
-                                            ),
-                                            contentPadding = PaddingValues(0.dp),
-                                            modifier = Modifier.size(64.dp)
+                                                },
+                                            contentAlignment = Alignment.Center
                                         ) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.ic_mic),
-                                                contentDescription = "Tap to speak",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(28.dp)
+                                            Image(
+                                                painter = painterResource(
+                                                    if (isPracticeRecording) R.drawable.whisper_remote_record else R.drawable.whisper_remote
+                                                ),
+                                                contentDescription = if (isPracticeRecording) "Stop recording" else "Tap here to practice speaking",
+                                                modifier = Modifier.size(54.dp)
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(14.dp))
+
+                                        if (isPracticeTranscribing) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(18.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = WhisperTokens.BrandTeal
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = "Transcribing...",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = WhisperTokens.BrandTeal
+                                                )
+                                            }
+                                        } else {
+                                            Text(
+                                                text = if (isPracticeRecording) "← Tap to stop" else "← Tap here to practice",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (isPracticeRecording) Color(0xFFD9694A) else MaterialTheme.colorScheme.primary
                                             )
                                         }
                                     }
 
                                     if (practiceSuccessCelebration) {
-                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Spacer(modifier = Modifier.height(10.dp))
                                         Text(
-                                            text = "✓ Real transcription received and inserted!",
+                                            text = "✓ Practice dictation captured successfully!",
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = WhisperTokens.BrandTeal,
                                             fontWeight = FontWeight.Medium,
@@ -595,7 +853,8 @@ fun IntroScreen(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Enable notifications so you know when recording is active or when your PC is unreachable. Grant unrestricted battery so Android doesn't kill the button.",
+                                text = "Notifications let Android keep the floating microphone active in the background as a foreground service and display recording status in your status bar.\n\n" +
+                                        "Unrestricted battery prevents Android from putting the background mic service to sleep when your screen turns off.",
                                 style = MaterialTheme.typography.bodyLarge,
                                 textAlign = TextAlign.Center,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -605,10 +864,21 @@ fun IntroScreen(
 
                             Button(
                                 onClick = {
-                                    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-                                    if (!powerManager.isIgnoringBatteryOptimizations(context.packageName)) {
-                                        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                    try {
+                                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                            data = Uri.parse("package:${context.packageName}")
+                                        }
                                         context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        try {
+                                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                data = Uri.parse("package:${context.packageName}")
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {
+                                            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                            context.startActivity(intent)
+                                        }
                                     }
                                     currentPage = 7
                                 },
@@ -617,7 +887,7 @@ fun IntroScreen(
                                     .height(52.dp),
                                 shape = RoundedCornerShape(26.dp)
                             ) {
-                                Text("Configure battery & notifications")
+                                Text("Configure battery exemption")
                             }
 
                             Spacer(modifier = Modifier.height(10.dp))

@@ -22,7 +22,9 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 ## What's New in v1.2 (UI Makeover + Intro Sandbox)
 
 - **Complete Jetpack Compose & Material 3 Rebuild**: Replaced the 1,478-line XML activity with a clean, modular Compose architecture adhering to Samsung One UI principles (grouped borderless cards, 26dp rounded corners, pure-black `#000000` dark mode, `#3E6FD8` dynamic primary accent fallback, zero borders, zero shadows).
-- **7-Page First-Run Intro Sandbox**: Full-screen interactive onboarding with segmented progress indicators, in-place microphone permission flow, and an interactive practice dictation sandbox inserting real transcription text before finishing setup.
+- **7-Page First-Run Intro Sandbox**: Full-screen interactive onboarding with segmented progress indicators, in-place microphone permission flow, app logo practice button with direction indicator (`← Tap here to practice`), live microphone recording (`AudioRecord`), and real transcription through the configured server.
+- **Seamless Setup Navigation & Direct Battery Exemption**: Automatic advance from QR scanning to practice; direct system battery optimization exemption dialog avoiding buried app lists; and incomplete setup card tap navigation straight to missing permissions or server setup.
+- **Overlay & IME Keyboard Layering**: Recording style sheet rendered on top of active soft keyboards with `FLAG_ALT_FOCUSABLE_IM` without stealing text input focus.
 - **Color-Blind Safe Indicators**: All connection and permission statuses feature paired icons and explicit textual labels (e.g. "Allowed ✓" / "Not allowed") ensuring WCAG compliance without relying on color alone.
 - **Google Play Policy Compliance**: Strict exclusion of sensitive password, PIN, and payment fields from `DictationAccessibilityService`; immediate deletion of temporary audio files from app-private `cacheDir`; re-showable prominent Accessibility disclosure; and direct links to Privacy Policy (`https://whisperunchained.cyrus-studio.com/privacy/`).
 - **Roborazzi Screenshot Tests**: Automated JVM-based screenshot regression suite running on Robolectric across S25 phone, Galaxy Fold inner, and Galaxy Fold cover screen dimensions in both light and dark modes.
@@ -45,6 +47,7 @@ Both flavors include the Accessibility Service with prominent disclosure for sea
 | `RECORD_AUDIO` | Both | Capture microphone input |
 | `SYSTEM_ALERT_WINDOW` | Both | Display the floating microphone button over other apps |
 | `POST_NOTIFICATIONS` | Both | Foreground service notifications (Android 13+) |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Both | Direct battery optimization exemption prompt to prevent service sleep |
 | `RECEIVE_BOOT_COMPLETED` | Both | Optionally auto-start the floating button service on device reboot |
 | `VIBRATE` | Both | Haptic ticks on recording style pill navigation |
 | `FOREGROUND_SERVICE_MICROPHONE` | Both | Microphone foreground service execution |

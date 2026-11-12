@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Updated for ROADMAP Phase 1: auto-start on reboot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Reason for edit: Direct battery optimization exemption prompt per user feedback -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Updated for ROADMAP §3.4: Tailscale package visibility on Android 11+ -->
     <queries>

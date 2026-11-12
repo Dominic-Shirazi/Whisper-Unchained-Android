@@ -4,6 +4,7 @@
 //         navigation callbacks to subpages (transcription, words/triggers, ai-editing, paste-mode, permissions, floating-button, about, intro).
 // Outputs: Scrollable list with collapsing LargeTopAppBar, account-style StatusCard, grouped borderless rows,
 //          colored circle icons on top-level rows only, and bottom "Looking for something else?" card.
+// Reason for edit: Direct incomplete setup card clicks to missing setup step (transcription or permissions) instead of intro restart.
 
 package com.example.whisperremote.ui.screens
 
@@ -149,7 +150,7 @@ fun HomeScreen(
                     state = statusCardState,
                     onClick = {
                         if (statusCardState is StatusCardState.IncompleteSetup) {
-                            onLaunchIntro()
+                            if (repository.baseUrl.isBlank()) onNavigateToTranscription() else onNavigateToPermissions()
                         } else {
                             onNavigateToTranscription()
                         }

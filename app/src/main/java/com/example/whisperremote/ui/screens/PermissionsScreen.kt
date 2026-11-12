@@ -3,6 +3,7 @@
 // Inputs: System permission states (Microphone, Overlay, Accessibility, Notifications, Battery).
 // Outputs: Informative status rows with direct system settings intents and color-blind safe status text ("Allowed ✓" / "Not allowed").
 // Conforms to contracts/04-look-and-feel.md §3.3.
+// Reason for edit: Plain explanation for notifications and direct battery exemption intent per user feedback.
 
 package com.example.whisperremote.ui.screens
 
@@ -187,7 +188,7 @@ fun PermissionsScreen(
                     PermissionRow(
                         title = "Notifications",
                         isGranted = hasNotificationPermission,
-                        description = "Displays the foreground recording notification",
+                        description = "Required by Android to keep the floating mic active in background and show status in status bar",
                         onClick = {
                             val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                 Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
@@ -209,10 +210,24 @@ fun PermissionsScreen(
                         isGranted = isIgnoringBatteryOptimizations,
                         grantedText = "✓ Unrestricted",
                         deniedText = "⚠ Optimized (may sleep)",
-                        description = "Prevents Android from killing the floating button service",
+                        description = "Prevents Android from putting the floating mic service to sleep",
                         onClick = {
-                            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                            context.startActivity(intent)
+                            try {
+                                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                try {
+                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {
+                                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                    context.startActivity(intent)
+                                }
+                            }
                         }
                     )
                 }

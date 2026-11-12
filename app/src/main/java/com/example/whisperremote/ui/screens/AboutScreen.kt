@@ -1,6 +1,6 @@
 // This file provides the About subpage for Whisper Unchained.
 // Updated to match F-23 site and privacy policy URLs.
-// Reason for edit: Bump displayed build to Build 11 per F-26.
+// Reason for edit: Bump displayed build to Build 12 for live practice mic recording, QR auto-advance, and battery intent.
 // It is called by HomeScreen.
 // Inputs: Version info, GitHub links, callbacks to reopen First-Run Intro.
 // Outputs: About screen with Privacy Policy link, Website link, Contact link, and "Run setup again" trigger.
@@ -98,7 +98,7 @@ fun AboutScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Version 1.2.0 (Build 11) · ${BuildConfig.FLAVOR.replaceFirstChar { it.uppercase() }}",
+                            text = "Version 1.2.0 (Build 12) · ${BuildConfig.FLAVOR.replaceFirstChar { it.uppercase() }}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.primary
                         )

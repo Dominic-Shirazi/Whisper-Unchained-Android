@@ -1,6 +1,7 @@
 // This file defines build configuration and dependencies for the Whisper Remote Android application module (:app).
 // It configures compileSdk, minSdk, signingConfigs, build features (BuildConfig generation), and dependencies.
 
+// Reason for edit: Bump versionCode to 12 for live practice mic recording, QR scan auto-advance, battery intent, and IME style sheet fix
 // Reason for edit: Bump versionCode to 11 for OkHttp main looper dispatch & FGS mic permission crash fix per F-26
 // Reason for edit: Bump versionCode to 10 for Page 3 mic glyph size fix per F-25
 // Reason for edit: Bumped versionCode = 8, versionName = "1.2.0" and configured Jetpack Compose for v1.2 makeover per F-20, F-21.
@@ -40,8 +41,8 @@ android {
         applicationId = "com.cyrus_studio.whisperunchained"
         minSdk = 34
         targetSdk = 36
-        // Reason for edit: Bump versionCode to 11 for v1.2 stability fixes per F-26
-        versionCode = 11
+        // Reason for edit: Bump versionCode to 12 for live practice mic recording, QR scan auto-advance, battery intent, and IME style sheet fix
+        versionCode = 12
         versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
