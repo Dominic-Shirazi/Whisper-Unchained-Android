@@ -1,6 +1,7 @@
 // This file defines build configuration and dependencies for the Whisper Remote Android application module (:app).
 // It configures compileSdk, minSdk, signingConfigs, build features (BuildConfig generation), and dependencies.
 
+// Reason for edit: Bump versionCode to 10 for Page 3 mic glyph size fix per F-25
 // Reason for edit: Bumped versionCode = 8, versionName = "1.2.0" and configured Jetpack Compose for v1.2 makeover per F-20, F-21.
 // Reason for edit: Added dist flavor dimension (play and full flavors) with versionCode = 7, versionName = "1.1.0" per contract F-18.
 // Reason for edit: Bumped versionCode = 6, versionName = "1.0.3" for Done button and outside tap consumption (F-17).
@@ -38,8 +39,8 @@ android {
         applicationId = "com.cyrus_studio.whisperunchained"
         minSdk = 34
         targetSdk = 36
-        // Reason for edit: Bump versionCode to 9 for v1.2 makeover update per F-24
-        versionCode = 9
+        // Reason for edit: Bump versionCode to 10 for v1.2 makeover update per F-25
+        versionCode = 10
         versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

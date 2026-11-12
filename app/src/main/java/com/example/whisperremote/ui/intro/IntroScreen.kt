@@ -3,7 +3,8 @@
 // Inputs: SettingsRepository, ApiClient (for sandbox dictation & health check), system permissions, completion callback.
 // Outputs: 7-stage interactive sandbox onboarding with segmented progress bar, in-place practice dictation sandbox,
 //          mic permission requested on first practice mic tap, and Play-compliant prominent accessibility disclosure.
-// Conforms to contracts/04-look-and-feel.md §4 and Play policy requirements in F-22.
+// Conforms to contracts/04-look-and-feel.md §4 and Play policy requirements in F-22, F-24, F-25.
+// Reason for edit: Enlarge practice mic button to 64dp with 0dp content padding and 28dp icon per F-25.
 
 package com.example.whisperremote.ui.intro
 
@@ -28,6 +29,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -379,7 +381,8 @@ fun IntroScreen(
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = if (isPracticeRecording) Color(0xFFD9694A) else WhisperTokens.BrandTeal
                                             ),
-                                            modifier = Modifier.size(56.dp)
+                                            contentPadding = PaddingValues(0.dp),
+                                            modifier = Modifier.size(64.dp)
                                         ) {
                                             Icon(
                                                 painter = painterResource(R.drawable.ic_mic),
