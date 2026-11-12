@@ -247,8 +247,17 @@ fun IntroScreen(
     var practiceSuccessCelebration by remember { mutableStateOf(false) }
 
     // Connect page state
+    var isConnected by remember { mutableStateOf(repository.isServerVerified || repository.baseUrl.isNotBlank()) }
+    var connectedBaseUrl by remember { mutableStateOf(repository.baseUrl) }
     var connectionStatusText by remember { mutableStateOf<String?>(null) }
     var isTestingConnection by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(currentPage) {
+        if (currentPage == 2) {
+            isConnected = repository.isServerVerified || repository.baseUrl.isNotBlank()
+            connectedBaseUrl = repository.baseUrl
+        }
+    }
 
     // Accessibility page state (false = disclosure card; true = visual step guide)
     var accessibilityAgreed by remember { mutableStateOf(false) }
@@ -403,11 +412,10 @@ fun IntroScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
-                            val isConnected = repository.isServerVerified || repository.baseUrl.isNotBlank()
                             if (isConnected) {
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    text = "✓ Connected to PC (${repository.baseUrl})",
+                                    text = "✓ Connected to PC ($connectedBaseUrl)",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = WhisperTokens.BrandTeal,
                                     fontWeight = FontWeight.Medium
@@ -440,6 +448,8 @@ fun IntroScreen(
                                 OutlinedButton(
                                     onClick = {
                                         onScanQrCode {
+                                            isConnected = true
+                                            connectedBaseUrl = repository.baseUrl
                                             currentPage = 3
                                         }
                                     },
@@ -456,6 +466,8 @@ fun IntroScreen(
                                 Button(
                                     onClick = {
                                         onScanQrCode {
+                                            isConnected = true
+                                            connectedBaseUrl = repository.baseUrl
                                             currentPage = 3
                                         }
                                     },
@@ -853,8 +865,8 @@ fun IntroScreen(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Notifications let Android keep the floating microphone active in the background as a foreground service and display recording status in your status bar.\n\n" +
-                                        "Unrestricted battery prevents Android from putting the background mic service to sleep when your screen turns off.",
+                                text = "• Notifications keep Android from closing the app while you're in other apps, and show when recording is active.\n\n" +
+                                        "• Unrestricted battery stops Android from putting the floating microphone to sleep so it is always ready when you tap it.",
                                 style = MaterialTheme.typography.bodyLarge,
                                 textAlign = TextAlign.Center,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant

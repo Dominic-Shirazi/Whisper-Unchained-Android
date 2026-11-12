@@ -220,6 +220,30 @@ class SettingsRepository(context: Context) {
          * Returns a valid QrPayload if compliant, null otherwise.
          */
         fun parseAndValidateQrPayload(jsonStr: String): QrPayload? {
+            val trimmed = jsonStr.trim()
+            if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+                return try {
+                    val uri = java.net.URI(trimmed)
+                    val host = uri.host
+                    if (host.isNullOrBlank()) return null
+                    var cleanUrl = trimmed
+                    if (!cleanUrl.endsWith("/v1")) {
+                        cleanUrl = if (cleanUrl.endsWith("/")) "${cleanUrl}v1" else "$cleanUrl/v1"
+                    }
+                    val hostDisplay = if (uri.port != -1) "$host:${uri.port}" else host
+                    QrPayload(
+                        baseUrl = cleanUrl,
+                        apiKey = null,
+                        model = null,
+                        name = "Your PC",
+                        hostDisplay = hostDisplay
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to parse raw URL QR code", e)
+                    null
+                }
+            }
+
             return try {
                 val json = JSONObject(jsonStr)
                 val version = json.optInt("v", -1)

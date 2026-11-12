@@ -188,7 +188,7 @@ fun PermissionsScreen(
                     PermissionRow(
                         title = "Notifications",
                         isGranted = hasNotificationPermission,
-                        description = "Required by Android to keep the floating mic active in background and show status in status bar",
+                        description = "Keeps Android from closing the app while you're in other apps",
                         onClick = {
                             val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                 Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
@@ -210,7 +210,7 @@ fun PermissionsScreen(
                         isGranted = isIgnoringBatteryOptimizations,
                         grantedText = "✓ Unrestricted",
                         deniedText = "⚠ Optimized (may sleep)",
-                        description = "Prevents Android from putting the floating mic service to sleep",
+                        description = "Stops Android from putting the floating mic to sleep",
                         onClick = {
                             try {
                                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
