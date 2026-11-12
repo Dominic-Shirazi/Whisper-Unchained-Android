@@ -211,15 +211,20 @@ fun TranscriptionScreen(
                     }
                     is HealthResult.Unreachable -> {
                         isConnectionSuccess = false
-                        val diag = tailscaleManager.diagnoseConnectionFailure(serverUrl)
-                        connectionDiagnosis = diag
-                        connectionResultText = when (diag) {
-                            is TailscaleDiagnosis.TailscaleNotInstalled ->
-                                "Your PC is shared through Tailscale. Install Tailscale on this phone and sign in with the same account as your PC."
-                            is TailscaleDiagnosis.TailscaleNotConnected ->
-                                "Tailscale is installed but not connected."
-                            is TailscaleDiagnosis.ServerUnreachable ->
-                                "Your PC didn't answer. Make sure Whisper Unchained Server is running and this phone is on the same Wi-Fi (or Tailscale)."
+                        if (ApiClient.isCertMismatch(health.error)) {
+                            connectionDiagnosis = null
+                            connectionResultText = ApiClient.CERT_MISMATCH_MESSAGE
+                        } else {
+                            val diag = tailscaleManager.diagnoseConnectionFailure(serverUrl)
+                            connectionDiagnosis = diag
+                            connectionResultText = when (diag) {
+                                is TailscaleDiagnosis.TailscaleNotInstalled ->
+                                    "Your PC is shared through Tailscale. Install Tailscale on this phone and sign in with the same account as your PC."
+                                is TailscaleDiagnosis.TailscaleNotConnected ->
+                                    "Tailscale is installed but not connected."
+                                is TailscaleDiagnosis.ServerUnreachable ->
+                                    "Your PC didn't answer. Make sure Whisper Unchained Server is running and this phone is on the same Wi-Fi (or Tailscale)."
+                            }
                         }
                     }
                 }

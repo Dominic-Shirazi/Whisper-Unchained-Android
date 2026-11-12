@@ -135,8 +135,9 @@ dependencies {
     testImplementation(libs.junit)
     // Updated to match new dependency: org.json for JVM unit testing of JSON parsing
     testImplementation("org.json:json:20240303")
-    // Reason for edit: Add MockWebServer for resumable download unit testing per F-29
+    // Reason for edit: Add MockWebServer and okhttp-tls for HTTPS & resumable download unit testing per F-29 & contract 06
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
     testImplementation(libs.roborazzi.core)
     testImplementation(libs.roborazzi.compose)
     testImplementation(libs.roborazzi.junit.rule)

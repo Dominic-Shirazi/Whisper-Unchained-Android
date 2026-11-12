@@ -10,6 +10,7 @@ package com.example.whisperremote
 // Reason for edit: Gate transcription response body behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9.
 // Reason for edit: Added per-dictation StyleOverrides support for style pill overrides per contract F-6 (contracts/01 §1 & contracts/02 §5).
 // Reason for edit: Ensure all public callbacks dispatch on Looper.getMainLooper() to prevent background thread UI/Toast crashes per F-26.
+// Reason for edit: Configure pinned TLS trust manager and hostname verifier per contract 06 §3 (F-38/F-39).
 
 import android.content.Context
 import android.os.Handler
@@ -17,6 +18,7 @@ import android.os.Looper
 import android.util.Log
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
+import com.example.whisperremote.net.PinnedCertificateHelper
 import com.example.whisperremote.util.CleanupOptions
 import com.example.whisperremote.util.EditCommandProcessor
 import com.example.whisperremote.util.EditCommandSplit
@@ -80,17 +82,23 @@ class ApiClient(private val context: Context) {
     private val repository = SettingsRepository(context)
 
     // Transcription client with standard 60-second timeouts for GPU/LLM processing
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .build()
+    // Reason for edit: Configure pinned TLS trust manager and hostname verifier per contract 06 §3
+    private val client = PinnedCertificateHelper.configureClient(
+        OkHttpClient.Builder()
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS),
+        pinProvider = { repository.serverCertSha256 }
+    ).build()
 
     // Fast client for health checks (3-5s timeout per contract §2)
-    private val fastCheckClient = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(4, TimeUnit.SECONDS)
-        .build()
+    // Reason for edit: Configure pinned TLS trust manager and hostname verifier per contract 06 §3
+    private val fastCheckClient = PinnedCertificateHelper.configureClient(
+        OkHttpClient.Builder()
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(4, TimeUnit.SECONDS),
+        pinProvider = { repository.serverCertSha256 }
+    ).build()
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -211,7 +219,7 @@ class ApiClient(private val context: Context) {
         client.newCall(requestBuilder.build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.e("ApiClient", "Network failure during transcription: ${e.message}", e)
-                callback(TranscriptionResult.NetworkError(e))
+                callback(TranscriptionResult.NetworkError(mapError(e)))
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -306,7 +314,7 @@ class ApiClient(private val context: Context) {
         fastCheckClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.w("ApiClient", "Health check failed at $healthUrl: ${e.message}")
-                callback(HealthResult.Unreachable(e))
+                callback(HealthResult.Unreachable(mapError(e)))
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -360,7 +368,8 @@ class ApiClient(private val context: Context) {
 
         fastCheckClient.newCall(requestBuilder.build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                callback(false, "Connection failed: ${e.localizedMessage}")
+                val mapped = mapError(e)
+                callback(false, "Connection failed: ${mapped.localizedMessage ?: e.localizedMessage}")
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -397,7 +406,7 @@ class ApiClient(private val context: Context) {
 
         fastCheckClient.newCall(requestBuilder.build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                callback(VocabularyResult.NetworkError(e))
+                callback(VocabularyResult.NetworkError(mapError(e)))
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -469,7 +478,7 @@ class ApiClient(private val context: Context) {
 
         fastCheckClient.newCall(requestBuilder.build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                callback(VocabularyResult.NetworkError(e))
+                callback(VocabularyResult.NetworkError(mapError(e)))
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -719,6 +728,48 @@ class ApiClient(private val context: Context) {
         } catch (e: Exception) {
             Log.e("ApiClient", "Failed to execute edit command", e)
             callback(split.content.ifEmpty { split.original })
+        }
+    }
+
+    companion object {
+        const val CERT_MISMATCH_MESSAGE =
+            "Your PC's security certificate changed. If you reinstalled Whisper Unchained Server, scan its pairing code again."
+
+        /**
+         * Returns true if the given error was caused by a pinned certificate mismatch or TLS handshake failure.
+         */
+        fun isCertMismatch(e: Throwable?): Boolean {
+            var cur: Throwable? = e
+            while (cur != null) {
+                val msg = cur.message.orEmpty()
+                if (msg.contains("security certificate changed", ignoreCase = true) ||
+                    msg.contains("Pin mismatch", ignoreCase = true)
+                ) {
+                    return true
+                }
+                if (cur is java.security.cert.CertificateException ||
+                    cur is javax.net.ssl.SSLHandshakeException ||
+                    cur is javax.net.ssl.SSLException
+                ) {
+                    if (msg.contains("certificate", ignoreCase = true) ||
+                        msg.contains("CertPathValidatorException", ignoreCase = true)
+                    ) {
+                        return true
+                    }
+                }
+                cur = cur.cause
+            }
+            return false
+        }
+
+        /**
+         * Wraps TLS/pin-mismatch exceptions with user-friendly actionable text per contract 06 §3.4.
+         */
+        fun mapError(e: IOException): IOException {
+            if (isCertMismatch(e)) {
+                return IOException(CERT_MISMATCH_MESSAGE, e)
+            }
+            return e
         }
     }
 }

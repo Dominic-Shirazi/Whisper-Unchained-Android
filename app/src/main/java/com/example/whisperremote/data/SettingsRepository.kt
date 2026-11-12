@@ -28,7 +28,9 @@ data class QrPayload(
     val apiKey: String?,
     val model: String?,
     val name: String?,
-    val hostDisplay: String
+    val hostDisplay: String,
+    val certSha256: String? = null,
+    val version: Int = 1
 )
 
 enum class InjectionMode {
@@ -133,6 +135,7 @@ enum class ProviderPreset(
 }
 
 // Reason for edit: Added chat presets for cloud dictation cleanup per Q-2
+// Reason for edit: Add serverCertSha256 and QR payload v2 parsing with pinned TLS certificate support per contract 06.
 enum class ChatProviderPreset(val displayName: String, val defaultUrl: String, val defaultModel: String) {
     GROQ("Groq (llama-3.3-70b)", "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile"),
     TOGETHER("Together AI", "https://api.together.xyz/v1/chat/completions", "meta-llama/Llama-3.3-70B-Instruct-Turbo"),
@@ -338,9 +341,19 @@ class SettingsRepository(context: Context) {
             return try {
                 val json = JSONObject(jsonStr)
                 val version = json.optInt("v", -1)
-                if (version != 1) {
+                if (version != 1 && version != 2) {
                     Log.w(TAG, "Unsupported QR payload version: $version")
                     return null
+                }
+
+                var certSha256: String? = null
+                if (version == 2) {
+                    val rawPin = json.optString("cert_sha256", "").trim().lowercase()
+                    if (rawPin.length != 64 || !rawPin.matches(Regex("^[0-9a-f]{64}$"))) {
+                        Log.w(TAG, "Invalid cert_sha256 in v2 payload: $rawPin")
+                        return null
+                    }
+                    certSha256 = rawPin
                 }
 
                 var importedBaseUrl = json.optString("base_url", "").trim()
@@ -365,8 +378,19 @@ class SettingsRepository(context: Context) {
 
                 val host = uri.host
                 if (host.isNullOrBlank()) {
-                    Log.w(TAG, "Invalid QR base_url host: $host")
+                    Log.w(TAG, "Missing host in QR base_url: $importedBaseUrl")
                     return null
+                }
+
+                if (version == 2 && scheme != "https") {
+                    Log.w(TAG, "v2 payload must use https scheme: $importedBaseUrl")
+                    return null
+                }
+
+                // In Play flavor, reject v1 cleartext/unpinned payloads per contract 06 §2 & §3.3
+                if (BuildConfig.FLAVOR == "play" && (scheme == "http" || version == 1)) {
+                    Log.w(TAG, "Play flavor rejects unpinned v1 or http payload")
+                    throw IllegalArgumentException("This pairing code is from an older server. Update Whisper Unchained Server, then scan again.")
                 }
 
                 // Ensure path ends with /v1 (or append it)
@@ -388,8 +412,12 @@ class SettingsRepository(context: Context) {
                     apiKey = key,
                     model = model,
                     name = name,
-                    hostDisplay = hostDisplay
+                    hostDisplay = hostDisplay,
+                    certSha256 = certSha256,
+                    version = version
                 )
+            } catch (e: IllegalArgumentException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to parse QR payload", e)
                 null
@@ -428,6 +456,13 @@ class SettingsRepository(context: Context) {
             val clean = value.trim().trimEnd('/')
             putPlainString(KEY_BASE_URL, clean)
             putPlainString(KEY_LEGACY_API_URL, clean)
+        }
+
+    var serverCertSha256: String?
+        get() = prefs.getString("server_cert_sha256", null)
+        set(value) {
+            if (value != null) putPlainString("server_cert_sha256", value.trim().lowercase())
+            else prefs.edit().remove("server_cert_sha256").apply()
         }
 
     var apiKey: String
@@ -674,6 +709,7 @@ class SettingsRepository(context: Context) {
         baseUrl = payload.baseUrl
         payload.apiKey?.let { apiKey = it }
         payload.model?.let { modelName = it }
+        serverCertSha256 = payload.certSha256
         providerPreset = ProviderPreset.SELF_HOSTED
         isServerVerified = true
     }

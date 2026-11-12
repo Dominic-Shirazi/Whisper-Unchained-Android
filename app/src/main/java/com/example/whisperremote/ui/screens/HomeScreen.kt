@@ -5,6 +5,7 @@
 // Outputs: Scrollable list with collapsing LargeTopAppBar, account-style StatusCard, grouped borderless rows,
 //          colored circle icons on top-level rows only, and bottom "Looking for something else?" card.
 // Reason for edit: Remove redundant Transcription row under StatusCard and group Words & Triggers with AI Editing.
+// Reason for edit: Add backward-compatibility upgrade banner for old http:// pairings per contract 06 §3.5.
 
 package com.example.whisperremote.ui.screens
 
@@ -40,7 +41,11 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -64,6 +69,7 @@ import com.example.whisperremote.FloatingButtonService
 import com.example.whisperremote.R
 import com.example.whisperremote.data.InjectionMode
 import com.example.whisperremote.data.SettingsRepository
+import com.example.whisperremote.data.TranscriptionTarget
 import com.example.whisperremote.ui.components.SettingsDivider
 import com.example.whisperremote.ui.components.SettingsGroup
 import com.example.whisperremote.ui.components.SettingsNavRow
@@ -171,6 +177,54 @@ fun HomeScreen(
                 )
             }
 
+            // Backward-compatibility banner for older http:// pairings per contract 06 §3.5
+            val isOldHttpPairing = repository.transcriptionTarget == TranscriptionTarget.PC.id &&
+                repository.baseUrl.isNotBlank() &&
+                repository.baseUrl.startsWith("http://", ignoreCase = true)
+            if (isOldHttpPairing) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "Connection Encryption Available",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Your PC connection is now encrypted. Update Whisper Unchained Server on your PC, then scan its new pairing code.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = onNavigateToTranscription,
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
+                                Text("Scan new code")
+                            }
+                        }
+                    }
+                }
+            }
+
             // Group 1: Text modification (Words & Triggers + AI Editing)
             item {
                 SettingsGroup(
@@ -260,7 +314,7 @@ fun HomeScreen(
                 ) {
                     SettingsNavRow(
                         title = "About",
-                        subtitle = "Version 1.2.0 (Build 9) · Privacy policy & source code",
+                        subtitle = "Version ${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE}) · Privacy policy & source code",
                         subtitleIsValue = false,
                         icon = Icons.Default.Info,
                         iconBackgroundColor = Color(0xFF718096),
