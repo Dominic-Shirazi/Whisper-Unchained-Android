@@ -124,9 +124,14 @@ dependencies {
     implementation(libs.navigation.compose)
     implementation(libs.lifecycle.viewmodel.compose)
 
+    // Reason for edit: Add sherpa-onnx AAR for on-device transcription per contract 05 §2.1
+    implementation(files("libs/sherpa-onnx-2.0.1.aar"))
+
     testImplementation(libs.junit)
     // Updated to match new dependency: org.json for JVM unit testing of JSON parsing
     testImplementation("org.json:json:20240303")
+    // Reason for edit: Add MockWebServer for resumable download unit testing per F-29
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation(libs.roborazzi.core)
     testImplementation(libs.roborazzi.compose)
     testImplementation(libs.roborazzi.junit.rule)

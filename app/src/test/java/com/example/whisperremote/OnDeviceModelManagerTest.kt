@@ -8,8 +8,11 @@ package com.example.whisperremote
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.whisperremote.util.ModelDownloadState
 import com.example.whisperremote.util.ModelFileSpec
 import com.example.whisperremote.util.OnDeviceModelManager
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -122,5 +125,80 @@ class OnDeviceModelManagerTest {
     @Test
     fun testIsModelReady_falseWhenMissing() {
         assertFalse(modelManager.isModelReady(OnDeviceModelManager.DEFAULT_MODEL_ID))
+    }
+
+    @Test
+    fun testResumableDownload_withMockWebServer206() {
+        val server = MockWebServer()
+        server.start()
+
+        try {
+            val fullContent = "Whisper Unchained Resumable Download Test Buffer Content"
+            val totalBytes = fullContent.toByteArray(Charsets.UTF_8).size
+            val halfBytes = totalBytes / 2
+            val part1 = fullContent.substring(0, halfBytes)
+            val part2 = fullContent.substring(halfBytes)
+
+            val fullHash = MessageDigest.getInstance("SHA-256")
+                .digest(fullContent.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+
+            val customManifest = """
+            {
+             "version": 1,
+             "models": {
+              "parakeet-tdt-110m-en-int8": {
+               "encoder": { "file": "enc.bin", "bytes": $totalBytes, "sha256": "$fullHash" },
+               "decoder": { "file": "dec.bin", "bytes": $totalBytes, "sha256": "$fullHash" },
+               "joiner": { "file": "jnr.bin", "bytes": $totalBytes, "sha256": "$fullHash" },
+               "tokens": { "file": "tok.txt", "bytes": $totalBytes, "sha256": "$fullHash" }
+              }
+             },
+             "vad": { "file": "vad.bin", "bytes": $totalBytes, "sha256": "$fullHash" }
+            }
+            """.trimIndent()
+
+            val manager = OnDeviceModelManager(context, customManifest, server.url("/").toString())
+
+            // Seed an existing .part file for VAD with half the bytes
+            val vadDir = manager.getVadDir()
+            val partFile = File(vadDir, "vad.bin.part")
+            partFile.writeText(part1)
+
+            // VAD request: server returns 206 Partial Content with part2
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Range", "bytes $halfBytes-${totalBytes - 1}/$totalBytes")
+                    .setBody(part2)
+            )
+            // Model files (enc, dec, jnr, tok): return 200 OK with full content
+            for (i in 1..4) {
+                server.enqueue(
+                    MockResponse()
+                        .setResponseCode(200)
+                        .setBody(fullContent)
+                )
+            }
+
+            var downloadSuccess = false
+            manager.downloadModel("parakeet-tdt-110m-en-int8", allowMobileData = true) { state ->
+                if (state is ModelDownloadState.Ready) {
+                    downloadSuccess = true
+                }
+            }
+
+            val recordedRequest = server.takeRequest()
+            assertEquals("bytes=$halfBytes-", recordedRequest.getHeader("Range"))
+            assertTrue(downloadSuccess)
+
+            val finalVad = manager.getVadFile()
+            assertTrue(finalVad.exists())
+            assertEquals(totalBytes.toLong(), finalVad.length())
+            assertEquals(fullContent, finalVad.readText())
+            assertTrue(manager.isModelReady("parakeet-tdt-110m-en-int8"))
+        } finally {
+            server.shutdown()
+        }
     }
 }

@@ -3,7 +3,7 @@
 // Inputs: models-manifest.json assets/string, app Context, download cancellation/progress callbacks, Wi-Fi override preferences.
 // Outputs: Model file resolution, SHA-256 hash validation, resumable/cancellable HTTP downloads, and corrupt file purging.
 // Strictly conforms to contracts/05-on-device.md §2.2 & §2.6 and tag models-v1 release manifests.
-// Reason for creation: Model download manager and SHA-256 verification for on-device v1.3 per F-28.
+// Reason for edit: Add HTTP Range resumable downloads with .part persistence and corrupt hash purging per F-29.
 
 package com.example.whisperremote.util
 
@@ -63,7 +63,8 @@ sealed interface ModelDownloadState {
 
 class OnDeviceModelManager(
     private val context: Context,
-    manifestJsonString: String? = null
+    manifestJsonString: String? = null,
+    val baseUrl: String = BASE_DOWNLOAD_URL
 ) {
     companion object {
         private const val TAG = "OnDeviceModelManager"
@@ -275,7 +276,7 @@ class OnDeviceModelManager(
             }
 
             val partFile = File(targetFile.parentFile, "${fileSpec.fileName}.part")
-            val url = "$BASE_DOWNLOAD_URL${fileSpec.fileName}"
+            val url = "$baseUrl${fileSpec.fileName}"
 
             try {
                 downloadFile(
@@ -300,7 +301,6 @@ class OnDeviceModelManager(
                 }
 
                 if (cancelSignal.get()) {
-                    partFile.delete()
                     onProgress(ModelDownloadState.Cancelled)
                     return
                 }
@@ -325,7 +325,7 @@ class OnDeviceModelManager(
                 totalBytesDownloaded += fileSpec.expectedBytes
 
             } catch (e: Exception) {
-                partFile.delete()
+                // Keep the .part file on failure or cancel to support resuming per F-29
                 if (cancelSignal.get()) {
                     onProgress(ModelDownloadState.Cancelled)
                 } else {
@@ -346,16 +346,34 @@ class OnDeviceModelManager(
         cancelSignal: AtomicBoolean,
         onFileProgress: (Long) -> Unit
     ) {
-        val request = Request.Builder().url(url).build()
+        val existingBytes = if (targetPartFile.exists()) targetPartFile.length() else 0L
+
+        // If part file is larger than expected, it's invalid so delete and start over
+        val resumeFrom = if (existingBytes in 1 until expectedBytes) existingBytes else 0L
+        if (resumeFrom == 0L && targetPartFile.exists()) {
+            targetPartFile.delete()
+        }
+
+        val requestBuilder = Request.Builder().url(url)
+        if (resumeFrom > 0) {
+            requestBuilder.header("Range", "bytes=$resumeFrom-")
+        }
+        val request = requestBuilder.build()
+
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IOException("Server returned HTTP ${response.code} for $url")
             }
             val body = response.body ?: throw IOException("Empty response body for $url")
-            var downloaded = 0L
+
+            val isPartial = response.code == 206
+            val appendMode = isPartial && resumeFrom > 0
+            var downloaded = if (appendMode) resumeFrom else 0L
+
+            onFileProgress(downloaded)
 
             body.byteStream().use { input ->
-                FileOutputStream(targetPartFile).use { output ->
+                FileOutputStream(targetPartFile, appendMode).use { output ->
                     val buffer = ByteArray(32768)
                     var read: Int
                     while (input.read(buffer).also { read = it } != -1) {
