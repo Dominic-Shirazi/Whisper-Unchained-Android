@@ -25,19 +25,47 @@ import com.example.whisperremote.util.KeyStoreCryptoHelper
 import org.json.JSONArray
 import org.json.JSONObject
 
-// Reason for edit: Add QueuedMutation model for offline word and name corrections queue per F-43
+// Reason for edit: Add QueuedMutation model with retry attempts and human-readable describe() per F-43 & F-45
 data class QueuedMutation(
     val id: String = java.util.UUID.randomUUID().toString(),
     val type: String, // "vocab" or "name"
     val addWords: List<String> = emptyList(),
     val removeWords: List<String> = emptyList(),
     val setNameCorrections: Map<String, String> = emptyMap(),
-    val removeNameCorrections: List<String> = emptyList()
+    val removeNameCorrections: List<String> = emptyList(),
+    val attempts: Int = 0
 ) {
+    fun describe(): String {
+        return when (type) {
+            "vocab" -> {
+                when {
+                    addWords.isNotEmpty() && removeWords.isNotEmpty() ->
+                        "change '${removeWords.first()}' to '${addWords.first()}'"
+                    addWords.isNotEmpty() ->
+                        "add '${addWords.joinToString()}'"
+                    else ->
+                        "remove '${removeWords.joinToString()}'"
+                }
+            }
+            "name" -> {
+                when {
+                    setNameCorrections.isNotEmpty() && removeNameCorrections.isNotEmpty() ->
+                        "change '${removeNameCorrections.first()}' to '${setNameCorrections.entries.first().let { "${it.key} → ${it.value}" }}'"
+                    setNameCorrections.isNotEmpty() ->
+                        "set '${setNameCorrections.entries.joinToString { "${it.key} → ${it.value}" }}'"
+                    else ->
+                        "remove '${removeNameCorrections.joinToString()}'"
+                }
+            }
+            else -> "item $id"
+        }
+    }
+
     fun toJson(): JSONObject {
         return JSONObject().apply {
             put("id", id)
             put("type", type)
+            if (attempts > 0) put("attempts", attempts)
             if (addWords.isNotEmpty()) put("addWords", JSONArray(addWords))
             if (removeWords.isNotEmpty()) put("removeWords", JSONArray(removeWords))
             if (setNameCorrections.isNotEmpty()) {
@@ -53,6 +81,7 @@ data class QueuedMutation(
         fun fromJson(json: JSONObject): QueuedMutation {
             val id = json.optString("id", java.util.UUID.randomUUID().toString())
             val type = json.optString("type", "vocab")
+            val attempts = json.optInt("attempts", 0)
             val addArray = json.optJSONArray("addWords") ?: JSONArray()
             val addWords = (0 until addArray.length()).map { addArray.getString(it) }
             val removeArray = json.optJSONArray("removeWords") ?: JSONArray()
@@ -75,7 +104,8 @@ data class QueuedMutation(
                 addWords = addWords,
                 removeWords = removeWords,
                 setNameCorrections = setNameCorrections,
-                removeNameCorrections = removeNameCorrections
+                removeNameCorrections = removeNameCorrections,
+                attempts = attempts
             )
         }
     }
@@ -740,6 +770,18 @@ class SettingsRepository(context: Context) {
 
     fun clearPendingMutations() {
         savePendingMutations(emptyList())
+    }
+
+    // Reason for edit: Add incrementMutationAttempts for dropping poison-pill mutations after 3 attempts per F-45
+    fun incrementMutationAttempts(id: String): Int {
+        val list = getPendingMutations().toMutableList()
+        val index = list.indexOfFirst { it.id == id }
+        if (index == -1) return 0
+        val current = list[index]
+        val updated = current.copy(attempts = current.attempts + 1)
+        list[index] = updated
+        savePendingMutations(list)
+        return updated.attempts
     }
 
     private fun savePendingMutations(mutations: List<QueuedMutation>) {

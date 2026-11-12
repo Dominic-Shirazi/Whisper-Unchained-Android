@@ -226,4 +226,111 @@ class WordListManagementTest {
             server.shutdown()
         }
     }
+
+    // Reason for edit: Add tests for F-45 replay hardening (empty item dropping, early success, 3-strike drop)
+    @Test
+    fun testModify_earlyReturnOnEmptyCallsBackSuccess() {
+        val apiClient = ApiClient(context)
+        var vocabCallbackCalled = false
+        apiClient.modifyVocabulary(emptyList(), emptyList()) { res ->
+            if (res is VocabularyResult.Success) vocabCallbackCalled = true
+        }
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertTrue(vocabCallbackCalled)
+
+        var nameCallbackCalled = false
+        apiClient.modifyNameCorrections(emptyMap(), emptyList()) { res ->
+            if (res is NameCorrectionsResult.Success) nameCallbackCalled = true
+        }
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertTrue(nameCallbackCalled)
+    }
+
+    @Test
+    fun testReplayPendingMutations_dropsEmptyItems() {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            repository.baseUrl = server.url("/v1").toString()
+            val apiClient = ApiClient(context)
+
+            // Queue an empty mutation followed by a valid mutation
+            val mEmpty = QueuedMutation(id = "mEmpty", type = "vocab", addWords = emptyList(), removeWords = emptyList())
+            val mValid = QueuedMutation(id = "mValid", type = "vocab", addWords = listOf("Ollama"))
+            repository.addPendingMutation(mEmpty)
+            repository.addPendingMutation(mValid)
+
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("""{"vocabulary":["Ollama"],"from_name_corrections":[],"chars":6,"max_chars":540}"""))
+
+            val latch = java.util.concurrent.CountDownLatch(1)
+            apiClient.replayPendingMutations { _ -> latch.countDown() }
+
+            val start = System.currentTimeMillis()
+            while (latch.count > 0 && System.currentTimeMillis() - start < 5000) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                Thread.sleep(20)
+            }
+            assertEquals(0, latch.count)
+
+            // Server only received 1 request (for the valid mutation)
+            assertEquals(1, server.requestCount)
+            val req = server.takeRequest()
+            assertTrue(req.body.readUtf8().contains(""""add":["Ollama"]"""))
+            assertEquals(0, repository.getPendingMutations().size)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun testReplayPendingMutations_dropsPoisonPillAfter3Attempts() {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            repository.baseUrl = server.url("/v1").toString()
+            val apiClient = ApiClient(context)
+
+            val mBad = QueuedMutation(id = "mBad", type = "vocab", addWords = listOf("PoisonPill"))
+            repository.addPendingMutation(mBad)
+
+            // Respond 3 times with malformed JSON causing parse error
+            for (i in 1..3) {
+                server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody("Not Valid JSON"))
+            }
+
+            // Attempt 1
+            var latch = java.util.concurrent.CountDownLatch(1)
+            apiClient.replayPendingMutations { _ -> latch.countDown() }
+            var start = System.currentTimeMillis()
+            while (latch.count > 0 && System.currentTimeMillis() - start < 5000) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                Thread.sleep(20)
+            }
+            assertEquals(1, repository.getPendingMutations().size)
+            assertEquals(1, repository.getPendingMutations()[0].attempts)
+
+            // Attempt 2
+            latch = java.util.concurrent.CountDownLatch(1)
+            apiClient.replayPendingMutations { _ -> latch.countDown() }
+            start = System.currentTimeMillis()
+            while (latch.count > 0 && System.currentTimeMillis() - start < 5000) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                Thread.sleep(20)
+            }
+            assertEquals(1, repository.getPendingMutations().size)
+            assertEquals(2, repository.getPendingMutations()[0].attempts)
+
+            // Attempt 3 -> drops mutation
+            latch = java.util.concurrent.CountDownLatch(1)
+            apiClient.replayPendingMutations { _ -> latch.countDown() }
+            start = System.currentTimeMillis()
+            while (latch.count > 0 && System.currentTimeMillis() - start < 5000) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                Thread.sleep(20)
+            }
+            assertEquals(0, repository.getPendingMutations().size)
+        } finally {
+            server.shutdown()
+        }
+    }
 }

@@ -542,7 +542,10 @@ class ApiClient(private val context: Context) {
         rawCallback: (VocabularyResult) -> Unit
     ) {
         val callback: (VocabularyResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
-        if (add.isEmpty() && remove.isEmpty()) return
+        if (add.isEmpty() && remove.isEmpty()) {
+            callback(VocabularyResult.Success(VocabularyData(repository.cachedServerVocabulary.toList(), emptyList(), repository.parseCachedServerNameCorrections(), 0, 540)))
+            return
+        }
 
         val url = repository.getVocabularyUrl()
         if (url.isBlank() || !url.startsWith("http")) {
@@ -629,7 +632,10 @@ class ApiClient(private val context: Context) {
         rawCallback: (NameCorrectionsResult) -> Unit
     ) {
         val callback: (NameCorrectionsResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
-        if (set.isEmpty() && remove.isEmpty()) return
+        if (set.isEmpty() && remove.isEmpty()) {
+            callback(NameCorrectionsResult.Success(repository.parseCachedServerNameCorrections(), emptyMap(), emptyList()))
+            return
+        }
 
         val url = repository.getNameCorrectionsUrl()
         if (url.isBlank() || !url.startsWith("http")) {
@@ -734,76 +740,123 @@ class ApiClient(private val context: Context) {
             return
         }
         val item = mutations.first()
-        when (item.type) {
-            "vocab" -> {
-                modifyVocabulary(add = item.addWords, remove = item.removeWords) { result ->
-                    when (result) {
-                        is VocabularyResult.Success -> {
-                            repository.removePendingMutation(item.id)
-                            replayNextMutation(onComplete)
-                        }
-                        is VocabularyResult.Error -> {
-                            if (result.code == 400) {
+
+        // 1. Drop empty items before sending per F-45 item 1
+        if (item.type == "vocab" && item.addWords.isEmpty() && item.removeWords.isEmpty()) {
+            repository.removePendingMutation(item.id)
+            replayNextMutation(onComplete)
+            return
+        }
+        if (item.type == "name" && item.setNameCorrections.isEmpty() && item.removeNameCorrections.isEmpty()) {
+            repository.removePendingMutation(item.id)
+            replayNextMutation(onComplete)
+            return
+        }
+
+        // 2. Wrap per-item step in try/catch to ensure exceptions before enqueue do not freeze isReplaying per F-45 item 2
+        try {
+            when (item.type) {
+                "vocab" -> {
+                    modifyVocabulary(add = item.addWords, remove = item.removeWords) { result ->
+                        when (result) {
+                            is VocabularyResult.Success -> {
                                 repository.removePendingMutation(item.id)
-                                runOnMain {
-                                    Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-                                }
                                 replayNextMutation(onComplete)
-                            } else {
+                            }
+                            is VocabularyResult.Error -> {
+                                if (result.code == 400) {
+                                    repository.removePendingMutation(item.id)
+                                    runOnMain {
+                                        Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                    }
+                                    replayNextMutation(onComplete)
+                                } else {
+                                    // 3. Drop poison-pill parse errors after 3 failed attempts per F-45 item 3
+                                    val attempts = repository.incrementMutationAttempts(item.id)
+                                    if (attempts >= 3) {
+                                        repository.removePendingMutation(item.id)
+                                        runOnMain {
+                                            Toast.makeText(
+                                                context,
+                                                "Could not send edit (${item.describe()}) after 3 attempts.",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                        replayNextMutation(onComplete)
+                                    } else {
+                                        isReplaying.set(false)
+                                        onComplete?.invoke(false)
+                                    }
+                                }
+                            }
+                            is VocabularyResult.NetworkError -> {
                                 isReplaying.set(false)
                                 onComplete?.invoke(false)
                             }
                         }
-                        is VocabularyResult.NetworkError -> {
-                            isReplaying.set(false)
-                            onComplete?.invoke(false)
-                        }
                     }
                 }
-            }
-            "name" -> {
-                modifyNameCorrections(set = item.setNameCorrections, remove = item.removeNameCorrections) { result ->
-                    when (result) {
-                        is NameCorrectionsResult.Success -> {
-                            repository.removePendingMutation(item.id)
-                            replayNextMutation(onComplete)
-                        }
-                        is NameCorrectionsResult.Unsupported -> {
-                            // Older server (404): drop item, notify user, and restore cache from PC
-                            repository.removePendingMutation(item.id)
-                            runOnMain {
-                                Toast.makeText(
-                                    context,
-                                    "Your PC app is too old to change name corrections from the phone. Update it, then make this change again.",
-                                    Toast.LENGTH_LONG
-                                ).show()
+                "name" -> {
+                    modifyNameCorrections(set = item.setNameCorrections, remove = item.removeNameCorrections) { result ->
+                        when (result) {
+                            is NameCorrectionsResult.Success -> {
+                                repository.removePendingMutation(item.id)
+                                replayNextMutation(onComplete)
                             }
-                            getVocabulary { _ -> }
-                            replayNextMutation(onComplete)
-                        }
-                        is NameCorrectionsResult.Error -> {
-                            if (result.code == 400) {
+                            is NameCorrectionsResult.Unsupported -> {
+                                // Older server (404): drop item, notify user, and restore cache from PC
                                 repository.removePendingMutation(item.id)
                                 runOnMain {
-                                    Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                    Toast.makeText(
+                                        context,
+                                        "Your PC app is too old to change name corrections from the phone. Update it, then make this change again.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
                                 }
+                                getVocabulary { _ -> }
                                 replayNextMutation(onComplete)
-                            } else {
+                            }
+                            is NameCorrectionsResult.Error -> {
+                                if (result.code == 400) {
+                                    repository.removePendingMutation(item.id)
+                                    runOnMain {
+                                        Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                    }
+                                    replayNextMutation(onComplete)
+                                } else {
+                                    val attempts = repository.incrementMutationAttempts(item.id)
+                                    if (attempts >= 3) {
+                                        repository.removePendingMutation(item.id)
+                                        runOnMain {
+                                            Toast.makeText(
+                                                context,
+                                                "Could not send edit (${item.describe()}) after 3 attempts.",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                        replayNextMutation(onComplete)
+                                    } else {
+                                        isReplaying.set(false)
+                                        onComplete?.invoke(false)
+                                    }
+                                }
+                            }
+                            is NameCorrectionsResult.NetworkError -> {
                                 isReplaying.set(false)
                                 onComplete?.invoke(false)
                             }
                         }
-                        is NameCorrectionsResult.NetworkError -> {
-                            isReplaying.set(false)
-                            onComplete?.invoke(false)
-                        }
                     }
                 }
+                else -> {
+                    repository.removePendingMutation(item.id)
+                    replayNextMutation(onComplete)
+                }
             }
-            else -> {
-                repository.removePendingMutation(item.id)
-                replayNextMutation(onComplete)
-            }
+        } catch (e: Exception) {
+            Log.e("ApiClient", "Exception during replayNextMutation for item ${item.id}", e)
+            isReplaying.set(false)
+            onComplete?.invoke(false)
         }
     }
 
