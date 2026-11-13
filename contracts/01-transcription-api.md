@@ -139,6 +139,10 @@ providers have no such endpoint.
   "name_corrections": {"Leslie": "Lesley", "Emma": "Ame"}, "chars": 25, "max_chars": 540 }
 ```
 - `vocabulary`: the user's words. Show these as an editable list (add, change, remove).
+- **2026-11-12: "Corrections and shortcuts".** The same `name_corrections` list now also holds shortcuts
+  ("here's my link" → "here's my link: cyrus-studio.com"). Call the section **"Corrections & shortcuts"** in the app,
+  columns "When I say" / "Type this". Only name-like targets are spelling hints (≤ 3 words, ≤ 30 chars, no digits,
+  @, / or web address), so a shortcut target never appears in `from_name_corrections` and doesn't count in `chars`.
 - `from_name_corrections`: hinted automatically from the server's name corrections. **Show them** (greyed, read-only,
   labeled "from name corrections"): hiding them made Dominic think his words were missing (2026-11-10).
 - `name_corrections` (**added 2026-11-10**, additive): the full "heard as → write as" pairs. **Editable from the phone
@@ -157,7 +161,8 @@ plus `"changed": {...}` (pairs that were new or different) and `"removed": [...]
 - "Heard as" matches case-insensitively, like the correction itself: setting `"corey"` replaces an existing `"Corey"` in
   place. Removes run first, so changing the "heard as" side is one call (`remove` old + `set` new).
 - Rules: 1–50 entries per call; heard-as at least 2 characters (a one-letter rule would rewrite every "a" or "I");
-  each side under 60 characters, no commas or line breaks; not identical on both sides; no "heard as" listed twice.
+  "heard as" under 60 characters, no commas; "write as" up to **200** characters, **commas allowed** (since
+  2026-11-12, for shortcuts like an address); no line breaks; not identical on both sides; no "heard as" listed twice.
   Otherwise `400 invalid_name_corrections` with a readable `message` (show it).
 - Re-sending a pair that's already there is harmless (`changed` is empty).
 - **Safety net:** any call that removes or replaces something first copies the PC's word file to
