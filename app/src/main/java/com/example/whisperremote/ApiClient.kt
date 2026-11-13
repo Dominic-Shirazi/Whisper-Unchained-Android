@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Call syncSmartCleanupDefault(cleanupAlways) on successful /health checks per F-48 item 2.
 // Reason for edit: Added cleanup form field and cleanup_always parsing from /health per contract K-10.
 // Reason for edit: Gate transcription response body behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9.
 // Reason for edit: Added per-dictation StyleOverrides support for style pill overrides per contract F-6 (contracts/01 §1 & contracts/02 §5).
@@ -414,12 +415,14 @@ class ApiClient(private val context: Context) {
                         val cleanupAlways = if (json.has("cleanup_always")) json.optBoolean("cleanup_always") else null
 
                         if (status.equals("ok", ignoreCase = true)) {
+                            repository.syncSmartCleanupDefault(cleanupAlways)
                             replayPendingMutations()
                             callback(HealthResult.Ok(model, authRequired, cleanupAlways))
                         } else if (status.equals("paused", ignoreCase = true)) {
                             val pausedReason = if (json.has("paused_reason") && !json.isNull("paused_reason")) {
                                 json.getString("paused_reason")
                             } else null
+                            repository.syncSmartCleanupDefault(cleanupAlways)
                             replayPendingMutations()
                             callback(HealthResult.Paused(pausedReason, model, authRequired, cleanupAlways))
                         } else {

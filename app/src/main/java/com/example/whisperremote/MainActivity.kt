@@ -1,5 +1,6 @@
 // This file is the primary activity and settings coordinator for Whisper Unchained.
 // Rebuilt in Jetpack Compose + Material 3 per contracts/04-look-and-feel.md version 2 (F-20, F-21, F-22).
+// Reason for edit: Ensure FloatingButtonService starts on finish intro and onResume, and trigger health check on QR scan per F-48.
 // Reason for edit: Add OnDevice status card state support per contract 05 §2.3.
 // Reason for edit: Support QR scan success callback for automatic intro advance, and fix setup steps remaining calculation.
 // Reason for edit: Catch IllegalArgumentException in QR scanner to show legacy server upgrade message per contract 06 §2.
@@ -94,7 +95,8 @@ class MainActivity : ComponentActivity() {
                     tailscaleManager = tailscaleManager,
                     statusCardState = statusCardState,
                     onScanQrCode = { cb -> startQrCodeScan(cb) },
-                    onRefreshStatus = { updateStatusCardState() }
+                    onRefreshStatus = { updateStatusCardState() },
+                    onStartFloatingService = { checkOverlayAndStartService() }
                 )
             }
         }
@@ -105,6 +107,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         updateStatusCardState()
+        if (repository.hasCompletedFirstRunChecklist) {
+            checkOverlayAndStartService()
+        }
     }
 
     private fun updateStatusCardState() {
@@ -218,6 +223,7 @@ class MainActivity : ComponentActivity() {
             if (payload != null) {
                 repository.applyQrPayload(payload)
                 repository.isServerVerified = true
+                apiClient.checkHealth { _ -> }
                 updateStatusCardState()
                 Toast.makeText(this, "Connected to ${payload.hostDisplay}!", Toast.LENGTH_SHORT).show()
                 true
@@ -281,7 +287,8 @@ private fun MainAppNavHost(
     tailscaleManager: TailscaleManager,
     statusCardState: StatusCardState,
     onScanQrCode: ((onSuccess: (() -> Unit)?) -> Unit),
-    onRefreshStatus: () -> Unit
+    onRefreshStatus: () -> Unit,
+    onStartFloatingService: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -370,6 +377,7 @@ private fun MainAppNavHost(
                 apiClient = apiClient,
                 onScanQrCode = onScanQrCode,
                 onFinishIntro = {
+                    onStartFloatingService()
                     navController.navigate("home") {
                         popUpTo("intro") { inclusive = true }
                     }

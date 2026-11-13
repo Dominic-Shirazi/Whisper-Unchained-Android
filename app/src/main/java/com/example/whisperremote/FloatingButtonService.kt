@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Add returnToRest() helper to restore IDLE state when text field remains focused on silent/empty recordings per F-47.
 // Reason for edit: Never lose recordings on fallback failure, instant phone fallback on PC paused/model-loading, target-specific notices, and blank audio deletion per F-31.
 // Reason for edit: Stored audio recordings in app-private cacheDir with immediate deletion after paste/failure and 24h stale purge per F-22.
 // Reason for edit: Check RECORD_AUDIO before starting FGS, wrap startForeground in try/catch stopSelf(), and handle uninitialized managers per F-26.
@@ -1953,6 +1954,15 @@ class FloatingButtonService : Service() {
         }
     }
 
+    // Reason for edit: Add returnToRest() helper to restore IDLE state when text field remains focused on silent/empty recordings per F-47
+    fun returnToRest() {
+        mainHandler.post {
+            val a11y = DictationAccessibilityService.getInstance()
+            val hasFocus = a11y?.hasFocusedEditable() == true
+            setState(if (hasFocus) ButtonState.IDLE else ButtonState.HIDDEN)
+        }
+    }
+
     private fun bringToFront() {
         val view = container ?: return
         val params = windowParams ?: return
@@ -1978,7 +1988,6 @@ class FloatingButtonService : Service() {
                 floatingButton?.setImageResource(R.drawable.whisper_remote)
             }
             ButtonState.IDLE -> {
-                cancelTemporaryHint()
                 closeStyleSheet()
                 topLabel?.visibility = View.GONE
                 stylePillView?.visibility = View.GONE
@@ -2323,13 +2332,14 @@ class FloatingButtonService : Service() {
         audioFile?.let { file ->
             processAudioFile(file, overrides)
         } ?: run {
-            setState(ButtonState.HIDDEN)
+            returnToRest()
         }
     }
 
     private fun processAudioFile(file: File, styleOverrides: StyleOverrides? = null) {
         if (!file.exists() || file.length() <= 44) {
-            setState(ButtonState.HIDDEN)
+            showTemporaryHint("No speech detected")
+            returnToRest()
             return
         }
 
@@ -2369,7 +2379,7 @@ class FloatingButtonService : Service() {
                     Log.d("FloatingButtonService", "Transcription returned empty/silence")
                     mainHandler.post {
                         showTemporaryHint("No speech detected")
-                        setState(ButtonState.HIDDEN)
+                        returnToRest()
                     }
                 }
                 is TranscriptionResult.ServerPaused -> {
@@ -2504,7 +2514,7 @@ class FloatingButtonService : Service() {
                         // Per F-31 item 2: Delete recording immediately on blank speech detection
                         cleanupActiveAudioFile(keepIfPendingRetry = false)
                         showTemporaryHint("No speech detected")
-                        setState(ButtonState.HIDDEN)
+                        returnToRest()
                     } else {
                         deliverTranscribedText(text)
                     }
@@ -2542,7 +2552,8 @@ class FloatingButtonService : Service() {
     private fun deliverTranscribedText(text: String) {
         cleanupActiveAudioFile(keepIfPendingRetry = false)
         if (text.isBlank()) {
-            setState(ButtonState.HIDDEN)
+            showTemporaryHint("No speech detected")
+            returnToRest()
             return
         }
 

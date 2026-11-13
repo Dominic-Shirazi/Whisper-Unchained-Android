@@ -6,17 +6,21 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Add hasFocusedEditable() helper and auto-start FloatingButtonService in onServiceConnected() per F-47 and F-48.
 // Reason for edit: Added isEnabled helper checking Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES per contract F-16.
 // Reason for edit: Splice text at cursor with ACTION_SET_SELECTION restore (never clobbering field content), and prune unused event types per contract F-12.
 // Reason for edit: Added sensitive password and payment field detection, skipping insertion and reading per Play policy and F-22.
 // Reason for edit: Gate dictated text log behind BuildConfig.DEBUG to protect privacy in release builds per contract F-9.
 // Reason for edit: Updated product name to Whisper Unchained and added file documentation header.
 
+import android.Manifest
 import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -24,6 +28,7 @@ import android.text.TextUtils
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.core.content.ContextCompat
 
 class DictationAccessibilityService : AccessibilityService() {
 
@@ -60,15 +65,48 @@ class DictationAccessibilityService : AccessibilityService() {
                 false
             }
         }
+        // Reason for edit: Add hasFocusedEditable() helper per F-47
+        fun hasFocusedEditable(): Boolean {
+            return instance?.hasFocusedEditable() ?: false
+        }
     }
 
     private var focusedNode: AccessibilityNodeInfo? = null
     private var hasFocusedEditable = false
 
+    // Reason for edit: Fresh focus lookup only (no stale tracked node) so the mic hides when focus has actually left per F-47
+    fun hasFocusedEditable(): Boolean {
+        return try {
+            val targetNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                ?: findEditableInTree(rootInActiveWindow)
+            targetNode != null && isEditableNode(targetNode)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
         Log.d("DictationService", "Service connected and instance set")
+
+        // Reason for edit: Auto-start FloatingButtonService when accessibility service connects per F-48 item 3(b)
+        val hasMic = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasMic && Settings.canDrawOverlays(this)) {
+            val intent = Intent(this, FloatingButtonService::class.java)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e("DictationService", "Failed to start FloatingButtonService from accessibility", e)
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {

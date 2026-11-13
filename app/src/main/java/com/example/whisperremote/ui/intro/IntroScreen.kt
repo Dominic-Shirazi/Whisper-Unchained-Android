@@ -4,6 +4,7 @@
 // Outputs: 7-stage interactive sandbox onboarding with segmented progress bar, in-place practice dictation sandbox,
 //          mic permission requested on first practice mic tap, and Play-compliant prominent accessibility disclosure.
 // Conforms to contracts/04-look-and-feel.md §4 and Play policy requirements in F-22, F-24, F-25.
+// Reason for edit: Update accessibility step instructions to match One UI and set startOnBoot on setup completion per F-48.
 // Reason for edit: Out-of-the-box offline model download & on-device practice dictation per contract 05 §2.7.
 // Reason for edit: Branch battery optimization in Play flavor to open standard list settings without restricted REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission per F-27.
 // Reason for edit: Delete practice audio recordings after transcription per F-35.
@@ -1544,11 +1545,13 @@ fun IntroScreen(
                                                 .fillMaxWidth()
                                                 .padding(18.dp)
                                         ) {
-                                            StepRow(step = "1", text = "Tap 'Open settings' below")
+                                            StepRow(step = "1", text = "Tap \"Open Accessibility Settings\" below")
                                             Spacer(modifier = Modifier.height(12.dp))
-                                            StepRow(step = "2", text = "Find 'Whisper Unchained' in Installed Apps")
+                                            StepRow(step = "2", text = "Tap \"Installed apps\" (some phones say \"Downloaded apps\")")
                                             Spacer(modifier = Modifier.height(12.dp))
-                                            StepRow(step = "3", text = "Turn ON the main switch (leave the shortcut switch OFF)")
+                                            StepRow(step = "3", text = "Tap \"Whisper Unchained Dictation\"")
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            StepRow(step = "4", text = "Turn it on (leave the shortcut switch off)")
                                         }
                                     }
 
@@ -1777,6 +1780,7 @@ fun IntroScreen(
                                             repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
                                         }
                                         repository.hasCompletedFirstRunChecklist = true
+                                        repository.startOnBoot = true
                                         onFinishIntro()
                                     },
                                     modifier = Modifier
