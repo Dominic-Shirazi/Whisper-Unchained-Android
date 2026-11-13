@@ -6,7 +6,9 @@ Goal: the app speaks **plain OpenAI `/v1/audio/transcriptions`**, so the same cl
 against the Head PC, Speaches, Groq, or OpenAI. Head-PC-only extras are optional fields that
 other providers simply ignore.
 
-Default port **5000**. All examples use `http://100.x.y.z:5000` as a placeholder.
+Ports (**since 2026-11-12**): plain HTTP on **5000** for other programs, HTTPS on **5001** for phones (the pairing QR carries the full `base_url`, so the app needs no port logic). Examples use `http://100.x.y.z:5000` as a placeholder.
+
+> **2026-11-12: dictation vs transcription.** With **no `processing` field**, `/v1/audio/transcriptions` is now a **plain transcription**: no name corrections, no trigger phrases, no cleanup, and not written to the PC's dictation log or audio corpus. That's what any OpenAI program expects. **The app must keep sending `processing` on every self-hosted request** (it already does: `full` / `clean` / `mean`). A dictation twin, `POST /dictate/v1/audio/transcriptions` (+ `GET /dictate/v1/models`), defaults to `full`, for OpenAI programs that can only change the base URL. The app doesn't need it.
 
 ---
 
@@ -22,7 +24,7 @@ Multipart form (`multipart/form-data`):
 | `language` | no | ISO-639-1 (`en`). Omit to auto-detect. |
 | `response_format` | no | `json` (default), `text`, `verbose_json`. Others → 400. |
 | `temperature` | no | Accepted and ignored (server uses its own decode settings). |
-| `processing` | no | **Head PC extra.** `full` (default): name corrections + spoken edit commands ("prompt AI …"), same as the desktop hotkey; plus cleanup if the server's "Clean up every dictation" is on. `raw`: plain Whisper text, no edits. `clean`: `full` + the cleanup pass for this request (contract 02). `mean` (**added 2026-11-10**): the whole dictation goes to the server's mean mode (a roast in the speaker's voice), no spoken trigger needed; `cleanup_*` fields are ignored. Self-hosted preset only (it runs on the PC's chosen mean-mode model). |
+| `processing` | no (**the app always sends it**) | **Head PC extra.** Omitted: `raw`, not logged (since 2026-11-12; was `full`). `full`: name corrections + spoken edit commands ("prompt AI …"), same as the desktop hotkey; plus cleanup if the server's "Clean up every dictation" is on. `raw`: plain Whisper text, no edits. `clean`: `full` + the cleanup pass for this request (contract 02). `mean` (**added 2026-11-10**): the whole dictation goes to the server's mean mode (a roast in the speaker's voice), no spoken trigger needed; `cleanup_*` fields are ignored. Self-hosted preset only (it runs on the PC's chosen mean-mode model). |
 | `cleanup_punctuation` / `cleanup_rewrite` / `cleanup_tone` / `cleanup_shorten` / `cleanup_emoji` | no | **Head PC extra.** Cleanup style overrides; see contract 02 §5. |
 
 **Response, `json`:**
