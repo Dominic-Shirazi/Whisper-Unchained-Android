@@ -3,6 +3,7 @@
 // Inputs: SettingsRepository (cleanupEnabled, cleanupPunctuation, cleanupRewrite, cleanupTone, cleanupShorten, cleanupEmoji).
 // Outputs: Toggleable AI dictation cleanup with smart-default note and 5 style rows (Punctuation, Grammar, Tone, Conciseness, Emoji).
 // Conforms to contracts/04-look-and-feel.md §3.3.
+// Reason for edit: Removed Mean tone option from core Tone selector into custom trigger per contract 01 §1 and F-58.
 
 package com.example.whisperremote.ui.screens
 
@@ -217,15 +218,14 @@ fun AiEditingScreen(
                     "neutral" to "Neutral",
                     "professional" to "Professional",
                     "casual" to "Casual",
-                    "friendly" to "Friendly",
-                    "mean" to "Mean (sarcastic / dry humor)"
+                    "friendly" to "Friendly"
                 ),
-                selected = tone,
+                selected = if (tone == "mean") "neutral" else tone,
                 onSelect = { selectedTone ->
                     tone = selectedTone
                     repository.cleanupTone = selectedTone
                     // Contract F-15: Selecting other tones auto-promotes grammar to 'fix' if 'keep' was active
-                    if (selectedTone != "neutral" && selectedTone != "mean" && repository.cleanupRewrite == "keep") {
+                    if (selectedTone != "neutral" && repository.cleanupRewrite == "keep") {
                         repository.cleanupRewrite = "fix"
                         rewrite = "fix"
                     }

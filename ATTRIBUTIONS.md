@@ -69,8 +69,10 @@ The transcription backend this app is designed to work with.
 ### NVIDIA Parakeet TDT Models
 FastConformer Transducer acoustic models converted by k2-fsa/sherpa-onnx.
 - **Author:** NVIDIA Corporation
-- **License:** Creative Commons Attribution 4.0 International (CC-BY-4.0)
+- **License:** Creative Commons Attribution 4.0 International (CC-BY-4.0) & NVIDIA Open Model License
+- **Notice:** Licensed by NVIDIA Corporation under the NVIDIA Open Model License.
 - https://huggingface.co/nvidia/parakeet-tdt-110m
+- https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/
 
 ### sherpa-onnx
 Offline speech recognition and VAD engine for on-device inference.

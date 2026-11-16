@@ -13,6 +13,7 @@
 // Reason for edit: Add transcription target selector, PC fallback toggle, and on-device model download/management per contract 05 §2.3 & §2.6.
 // Reason for edit: Use ic_download vector icon for model download buttons per F-35.
 // Reason for edit: Add backup offline model card and collapsed row at top of transcription settings per F-36 item 7.
+// Reason for edit: Show in-use and alt addresses, check Tailscale across all addresses for Wi-Fi warning, and show NVIDIA notice per F-55 & F-57.
 // Reason for edit: Add post-scan Tailscale connection check and failure diagnostics per F-37.
 
 package com.example.whisperremote.ui.screens
@@ -575,6 +576,18 @@ fun TranscriptionScreen(
                                             color = statusColor
                                         )
                                     }
+                                    val activeBase = repository.lastWorkingBaseUrl.ifBlank { repository.baseUrl }
+                                    val alts = repository.altBaseUrls.filter { it != activeBase }
+                                    if (activeBase.isNotBlank()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        val altSuffix = if (alts.isNotEmpty()) " (also: ${alts.joinToString(", ")})" else ""
+                                        Text(
+                                            text = "In use: $activeBase$altSuffix",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(horizontal = 4.dp)
+                                        )
+                                    }
                                     if (connectionDiagnosis is TailscaleDiagnosis.TailscaleNotInstalled) {
                                         Spacer(modifier = Modifier.height(8.dp))
                                         Button(
@@ -595,8 +608,9 @@ fun TranscriptionScreen(
                                         }
                                     }
 
-                                    // One-line home Wi-Fi note per contract 06 §3.6 and F-38
-                                    if (serverUrl.isNotBlank() && !TailscaleManager.isTailscaleAddress(serverUrl)) {
+                                    // One-line home Wi-Fi note per contract 06 §3.6 and F-38 (only when no stored address is Tailscale per F-55)
+                                    val hasTailscaleAddress = repository.getAllPcBaseUrls().any { TailscaleManager.isTailscaleAddress(it) }
+                                    if (serverUrl.isNotBlank() && !hasTailscaleAddress) {
                                         Spacer(modifier = Modifier.height(8.dp))
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
@@ -1086,6 +1100,18 @@ fun TranscriptionScreen(
                                             color = statusColor
                                         )
                                     }
+                                    val activeBase = repository.lastWorkingBaseUrl.ifBlank { repository.baseUrl }
+                                    val alts = repository.altBaseUrls.filter { it != activeBase }
+                                    if (activeBase.isNotBlank()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        val altSuffix = if (alts.isNotEmpty()) " (also: ${alts.joinToString(", ")})" else ""
+                                        Text(
+                                            text = "In use: $activeBase$altSuffix",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(horizontal = 4.dp)
+                                        )
+                                    }
                                     if (connectionDiagnosis is TailscaleDiagnosis.TailscaleNotInstalled) {
                                         Spacer(modifier = Modifier.height(8.dp))
                                         Button(
@@ -1106,8 +1132,9 @@ fun TranscriptionScreen(
                                         }
                                     }
 
-                                    // One-line home Wi-Fi note per contract 06 §3.6 and F-38
-                                    if (serverUrl.isNotBlank() && !TailscaleManager.isTailscaleAddress(serverUrl)) {
+                                    // One-line home Wi-Fi note per contract 06 §3.6 and F-38 (only when no stored address is Tailscale per F-55)
+                                    val hasTailscaleAddress = repository.getAllPcBaseUrls().any { TailscaleManager.isTailscaleAddress(it) }
+                                    if (serverUrl.isNotBlank() && !hasTailscaleAddress) {
                                         Spacer(modifier = Modifier.height(8.dp))
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
@@ -1249,6 +1276,14 @@ fun TranscriptionScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                    if (!modelSpec.notice.isNullOrBlank()) {
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = modelSpec.notice,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
 
                                 if (isReady) {

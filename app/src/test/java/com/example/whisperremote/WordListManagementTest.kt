@@ -64,17 +64,21 @@ class WordListManagementTest {
         assertNull(WordRulesValidator.validateNameCorrection("Corey", "Cory"))
         assertNull(WordRulesValidator.validateNameCorrection("Leslie", "Lesley"))
         assertNull(WordRulesValidator.validateNameCorrection("AI", "A.I."))
+        // Reason for edit: Verify up to 200 chars and commas allowed in "Type this" per contract 01 §8 and F-50
+        assertNull(WordRulesValidator.validateNameCorrection("here's my link", "here's my link: cyrus-studio.com"))
+        assertNull(WordRulesValidator.validateNameCorrection("my address", "123 Main St, Suite 400, Austin, TX"))
+        assertNull(WordRulesValidator.validateNameCorrection("shortcut", "a".repeat(200)))
     }
 
     @Test
     fun testValidateNameCorrection_invalid() {
         assertNotNull(WordRulesValidator.validateNameCorrection("C", "Cory")) // heard-as < 2 chars
         assertNotNull(WordRulesValidator.validateNameCorrection("Corey", "")) // empty write-as
-        assertNotNull(WordRulesValidator.validateNameCorrection("a".repeat(60), "Cory")) // >= 60 chars
-        assertNotNull(WordRulesValidator.validateNameCorrection("Corey", "a".repeat(60))) // >= 60 chars
-        assertNotNull(WordRulesValidator.validateNameCorrection("Corey, Jr.", "Cory")) // comma
-        assertNotNull(WordRulesValidator.validateNameCorrection("Corey", "Cory, Jr.")) // comma
-        assertNotNull(WordRulesValidator.validateNameCorrection("Corey\nSmith", "Cory")) // newline
+        assertNotNull(WordRulesValidator.validateNameCorrection("a".repeat(60), "Cory")) // >= 60 chars on heard
+        assertNotNull(WordRulesValidator.validateNameCorrection("Corey", "a".repeat(201))) // > 200 chars on write
+        assertNotNull(WordRulesValidator.validateNameCorrection("Corey, Jr.", "Cory")) // comma on heard
+        assertNotNull(WordRulesValidator.validateNameCorrection("Corey\nSmith", "Cory")) // newline on heard
+        assertNotNull(WordRulesValidator.validateNameCorrection("Corey", "Cory\nSmith")) // newline on write
         assertNotNull(WordRulesValidator.validateNameCorrection("Corey", "corey")) // identical case-insensitive
         assertNotNull(WordRulesValidator.validateNameCorrection("Corey", "Cory", existingHeardList = listOf("Corey", "Emma")))
     }

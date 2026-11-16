@@ -21,6 +21,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
+import com.example.whisperremote.data.CustomTrigger
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.QueuedMutation
 import com.example.whisperremote.data.SettingsRepository
@@ -100,6 +101,29 @@ sealed class NameCorrectionsResult {
     data class NetworkError(val error: Throwable) : NameCorrectionsResult()
 }
 
+// Reason for edit: Add CustomTriggersResult and EditTextResult per contracts 01 §11 & §12 and F-53, F-54
+sealed class CustomTriggersResult {
+    data class Success(val response: com.example.whisperremote.data.CustomTriggersResponse) : CustomTriggersResult() {
+        val triggers: List<com.example.whisperremote.data.CustomTrigger> get() = response.triggers
+    }
+    data class Unsupported(val message: String = "Update the PC app to use custom triggers") : CustomTriggersResult()
+    data class ParseError(val message: String) : CustomTriggersResult()
+    data class Error(val code: Int, val message: String) : CustomTriggersResult() {
+        val statusCode: Int get() = code
+    }
+    data class NetworkError(val error: Throwable) : CustomTriggersResult()
+}
+
+sealed class EditTextResult {
+    data class Success(val text: String, val edited: Boolean) : EditTextResult()
+    data class Unsupported(val message: String = "Update the PC app to type instructions") : EditTextResult()
+    data class ServerPaused(val message: String) : EditTextResult()
+    data class Error(val code: Int, val message: String) : EditTextResult() {
+        val statusCode: Int get() = code
+    }
+    data class NetworkError(val error: Throwable) : EditTextResult()
+}
+
 class ApiClient(private val context: Context) {
 
     private val repository = SettingsRepository(context)
@@ -132,26 +156,28 @@ class ApiClient(private val context: Context) {
     ).build()
 
     /**
-     * Determines whether the given target URL matches the scheme, host, and port of the paired PC base URL.
-     * Only true when a certificate pin is stored and origin matches exactly per F-40.
+     * Determines whether the given target URL matches the scheme, host, and port of the paired PC base URL
+     * or any of its configured alternate addresses per F-40 and F-55.
+     * Only true when a certificate pin is stored and origin matches a paired address.
      */
     fun isPairedPcOrigin(url: String): Boolean {
         val pin = repository.serverCertSha256
         if (pin.isNullOrBlank()) return false
-        val base = repository.baseUrl
-        if (base.isBlank()) return false
+        val allBases = repository.getAllPcBaseUrls()
+        if (allBases.isEmpty()) return false
         return try {
             val targetUri = URI(url)
-            val baseUri = URI(base)
             val targetScheme = targetUri.scheme?.lowercase()
-            val baseScheme = baseUri.scheme?.lowercase()
-            if (targetScheme != baseScheme) return false
             val targetHost = targetUri.host.orEmpty()
-            val baseHost = baseUri.host.orEmpty()
-            if (!targetHost.equals(baseHost, ignoreCase = true)) return false
             val targetPort = if (targetUri.port != -1) targetUri.port else (if (targetScheme == "https") 443 else 80)
-            val basePort = if (baseUri.port != -1) baseUri.port else (if (baseScheme == "https") 443 else 80)
-            targetPort == basePort
+
+            allBases.any { base ->
+                val baseUri = URI(base)
+                val baseScheme = baseUri.scheme?.lowercase()
+                val baseHost = baseUri.host.orEmpty()
+                val basePort = if (baseUri.port != -1) baseUri.port else (if (baseScheme == "https") 443 else 80)
+                targetScheme == baseScheme && targetHost.equals(baseHost, ignoreCase = true) && targetPort == basePort
+            }
         } catch (e: Exception) {
             false
         }
@@ -209,11 +235,12 @@ class ApiClient(private val context: Context) {
 
     /**
      * Sends audio payload to POST /v1/audio/transcriptions with full OpenAI parameter compatibility.
-     * Reason for edit: Added optional StyleOverrides parameter for per-dictation floating button adjustments (F-6).
+     * Reason for edit: Added optional StyleOverrides and trigger parameter (F-6, F-49, F-54, F-58).
      */
     fun transcribeDetailed(
         file: File,
         styleOverrides: StyleOverrides? = null,
+        trigger: String? = null,
         rawCallback: (TranscriptionResult) -> Unit
     ) {
         val callback: (TranscriptionResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
@@ -224,7 +251,7 @@ class ApiClient(private val context: Context) {
             callback(TranscriptionResult.ServerError(400, "Server URL is not configured. Please open settings."))
             return
         }
-        Log.d("ApiClient", "Transcribing file ${file.absolutePath} (${file.length()} bytes) to $url with overrides: $styleOverrides")
+        Log.d("ApiClient", "Transcribing file ${file.absolutePath} (${file.length()} bytes) to $url with overrides: $styleOverrides, trigger: $trigger")
 
         if (!file.exists()) {
             Log.e("ApiClient", "Audio file does not exist: ${file.absolutePath}")
@@ -255,21 +282,22 @@ class ApiClient(private val context: Context) {
             requestBodyBuilder.addFormDataPart("prompt", clamped)
         }
 
-        // Self-Hosted processing mode and cleanup overrides (contracts/01 §1 & contracts/02 §5, F-8)
+        // Self-Hosted processing mode and cleanup overrides (contracts/01 §1 & contracts/02 §5, F-8, F-49, F-54, F-58)
         if (repository.providerPreset == ProviderPreset.SELF_HOSTED) {
+            // Optional custom trigger for this dictation per contract 01 §1 & F-54
+            if (!trigger.isNullOrBlank()) {
+                requestBodyBuilder.addFormDataPart("trigger", trigger)
+            }
+
             if (styleOverrides != null) {
-                if (styleOverrides.tone == "mean") {
-                    // Reason for edit: Support processing=mean per contract F-8 & K-9 (Head PC only)
-                    requestBodyBuilder.addFormDataPart("processing", "mean")
-                } else {
-                    requestBodyBuilder.addFormDataPart("processing", "clean")
-                    requestBodyBuilder.addFormDataPart("cleanup_punctuation", styleOverrides.punctuation)
-                    requestBodyBuilder.addFormDataPart("cleanup_rewrite", styleOverrides.rewrite)
-                    val tone = if (styleOverrides.rewrite == "keep") "neutral" else styleOverrides.tone
-                    requestBodyBuilder.addFormDataPart("cleanup_tone", tone)
-                    requestBodyBuilder.addFormDataPart("cleanup_shorten", styleOverrides.shorten)
-                    requestBodyBuilder.addFormDataPart("cleanup_emoji", repository.cleanupEmoji)
-                }
+                // If a trigger is active or rewrite is clean, send processing=clean
+                requestBodyBuilder.addFormDataPart("processing", "clean")
+                requestBodyBuilder.addFormDataPart("cleanup_punctuation", styleOverrides.punctuation)
+                requestBodyBuilder.addFormDataPart("cleanup_rewrite", styleOverrides.rewrite)
+                val tone = if (styleOverrides.rewrite == "keep") "neutral" else styleOverrides.tone
+                requestBodyBuilder.addFormDataPart("cleanup_tone", tone)
+                requestBodyBuilder.addFormDataPart("cleanup_shorten", styleOverrides.shorten)
+                requestBodyBuilder.addFormDataPart("cleanup_emoji", repository.cleanupEmoji)
             } else {
                 // Reason for edit: If user explicitly set cleanup switch, send cleanup=on or cleanup=off per contract K-10
                 if (repository.cleanupUserSet) {
@@ -284,7 +312,9 @@ class ApiClient(private val context: Context) {
                     requestBodyBuilder.addFormDataPart("cleanup_shorten", repository.cleanupShorten)
                     requestBodyBuilder.addFormDataPart("cleanup_emoji", repository.cleanupEmoji)
                 } else {
-                    requestBodyBuilder.addFormDataPart("processing", repository.processingMode)
+                    // processingMode never blank, falls back to "full" per F-49
+                    val mode = repository.processingMode.ifBlank { "full" }
+                    requestBodyBuilder.addFormDataPart("processing", mode)
                 }
             }
         }
@@ -379,16 +409,38 @@ class ApiClient(private val context: Context) {
     }
 
     /**
-     * Checks server health via GET /health (unauthenticated, cheap check).
-     * Reason for edit: Treat 'status: paused' as reachable per contract K-4.
+     * Checks server health via GET /health with multi-address failover per contract 01 §7 and F-55.
+     * Tries the last working address first; on connect failure/timeout, tries alternates in order
+     * with ~1.5s connect timeout and remembers whichever answers.
      */
     fun checkHealth(rawCallback: (HealthResult) -> Unit) {
         val callback: (HealthResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
-        val healthUrl = repository.getHealthUrl()
-        if (healthUrl.isBlank() || !healthUrl.startsWith("http")) {
-            callback(HealthResult.ServiceError("Server URL is not configured"))
+        val bases = repository.getAllPcBaseUrls()
+        if (bases.isEmpty() || !bases.first().startsWith("http")) {
+            val fallbackUrl = repository.getHealthUrl()
+            if (fallbackUrl.isBlank() || !fallbackUrl.startsWith("http")) {
+                callback(HealthResult.ServiceError("Server URL is not configured"))
+                return
+            }
+            executeSingleHealthCheck(fallbackUrl, callback)
             return
         }
+
+        executeHealthCheckWithFailover(bases, 0, callback)
+    }
+
+    private fun executeHealthCheckWithFailover(
+        bases: List<String>,
+        index: Int,
+        callback: (HealthResult) -> Unit
+    ) {
+        if (index >= bases.size) {
+            callback(HealthResult.Unreachable(IOException("Could not reach server at any configured address")))
+            return
+        }
+        val currentBase = bases[index]
+        val healthUrl = repository.getHealthUrl(currentBase)
+
         val request = Request.Builder()
             .url(healthUrl)
             .get()
@@ -397,7 +449,12 @@ class ApiClient(private val context: Context) {
         fastClientFor(healthUrl).newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.w("ApiClient", "Health check failed at $healthUrl: ${e.message}")
-                callback(HealthResult.Unreachable(mapError(e)))
+                if (index + 1 < bases.size) {
+                    Log.i("ApiClient", "Failing over to alternate address: ${bases[index + 1]}")
+                    executeHealthCheckWithFailover(bases, index + 1, callback)
+                } else {
+                    callback(HealthResult.Unreachable(mapError(e)))
+                }
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -414,6 +471,9 @@ class ApiClient(private val context: Context) {
                         val authRequired = json.optBoolean("auth_required", false)
                         val cleanupAlways = if (json.has("cleanup_always")) json.optBoolean("cleanup_always") else null
 
+                        // Remember this address as last working URL per F-55
+                        repository.lastWorkingBaseUrl = currentBase
+
                         if (status.equals("ok", ignoreCase = true)) {
                             repository.syncSmartCleanupDefault(cleanupAlways)
                             replayPendingMutations()
@@ -424,6 +484,41 @@ class ApiClient(private val context: Context) {
                             } else null
                             repository.syncSmartCleanupDefault(cleanupAlways)
                             replayPendingMutations()
+                            callback(HealthResult.Paused(pausedReason, model, authRequired, cleanupAlways))
+                        } else {
+                            callback(HealthResult.ServiceError("Server status: $status"))
+                        }
+                    } catch (e: Exception) {
+                        callback(HealthResult.ServiceError("Invalid JSON response from /health"))
+                    }
+                }
+            }
+        })
+    }
+
+    private fun executeSingleHealthCheck(healthUrl: String, callback: (HealthResult) -> Unit) {
+        val request = Request.Builder().url(healthUrl).get().build()
+        fastClientFor(healthUrl).newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback(HealthResult.Unreachable(mapError(e)))
+            }
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    if (!response.isSuccessful) {
+                        callback(HealthResult.ServiceError("Health check returned HTTP ${response.code}"))
+                        return
+                    }
+                    val body = response.body?.string().orEmpty()
+                    try {
+                        val json = JSONObject(body)
+                        val status = json.optString("status", "")
+                        val model = if (json.has("model") && !json.isNull("model")) json.getString("model") else null
+                        val authRequired = json.optBoolean("auth_required", false)
+                        val cleanupAlways = if (json.has("cleanup_always")) json.optBoolean("cleanup_always") else null
+                        if (status.equals("ok", ignoreCase = true)) {
+                            callback(HealthResult.Ok(model, authRequired, cleanupAlways))
+                        } else if (status.equals("paused", ignoreCase = true)) {
+                            val pausedReason = if (json.has("paused_reason") && !json.isNull("paused_reason")) json.getString("paused_reason") else null
                             callback(HealthResult.Paused(pausedReason, model, authRequired, cleanupAlways))
                         } else {
                             callback(HealthResult.ServiceError("Server status: $status"))
@@ -913,6 +1008,232 @@ class ApiClient(private val context: Context) {
             isReplaying.set(false)
             onComplete?.invoke(false)
         }
+    }
+
+    // Reason for edit: Add fetchCustomTriggers, modifyCustomTriggers, and editText per contracts 01 §11 & §12 and F-53, F-54
+    /**
+     * Fetches custom triggers from GET /v1/custom_triggers.
+     */
+    fun fetchCustomTriggers(rawCallback: (CustomTriggersResult) -> Unit) {
+        val callback: (CustomTriggersResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
+        val url = repository.getCustomTriggersUrl()
+        if (url.isBlank() || !url.startsWith("http")) {
+            callback(CustomTriggersResult.Error(400, "Server URL is not configured"))
+            return
+        }
+
+        val requestBuilder = Request.Builder().url(url).get()
+        val token = repository.apiKey
+        if (token.isNotBlank()) {
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+
+        clientFor(url).newCall(requestBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback(CustomTriggersResult.NetworkError(mapError(e)))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    when (response.code) {
+                        404 -> callback(CustomTriggersResult.Unsupported("Update the PC app to use custom triggers"))
+                        200 -> {
+                            val body = response.body?.string().orEmpty()
+                            try {
+                                val json = JSONObject(body)
+                                val array = json.optJSONArray("custom_triggers") ?: JSONArray()
+                                val triggers = (0 until array.length()).map {
+                                    com.example.whisperremote.data.CustomTrigger.fromJson(array.getJSONObject(it))
+                                }
+                                val limits = com.example.whisperremote.data.TriggerLimits.fromJson(json.optJSONObject("limits"))
+                                callback(CustomTriggersResult.Success(com.example.whisperremote.data.CustomTriggersResponse(triggers, limits)))
+                            } catch (e: Exception) {
+                                callback(CustomTriggersResult.ParseError("Failed to parse custom triggers: ${e.message}"))
+                            }
+                        }
+                        else -> {
+                            val errMsg = try {
+                                val errJson = JSONObject(response.body?.string().orEmpty())
+                                errJson.optString("message", null)
+                            } catch (_: Exception) { null }
+                            callback(CustomTriggersResult.Error(response.code, errMsg ?: "Server returned HTTP ${response.code}"))
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    /**
+     * Updates custom triggers via POST /v1/custom_triggers.
+     */
+    fun modifyCustomTriggers(
+        set: List<com.example.whisperremote.data.CustomTrigger> = emptyList(),
+        remove: List<String> = emptyList(),
+        rawCallback: (CustomTriggersResult) -> Unit
+    ) {
+        val callback: (CustomTriggersResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
+        val url = repository.getCustomTriggersUrl()
+        if (url.isBlank() || !url.startsWith("http")) {
+            callback(CustomTriggersResult.Error(400, "Server URL is not configured"))
+            return
+        }
+
+        val payload = JSONObject().apply {
+            if (set.isNotEmpty()) {
+                val setArray = JSONArray()
+                for (item in set) setArray.put(item.toJson())
+                put("set", setArray)
+            }
+            if (remove.isNotEmpty()) {
+                put("remove", JSONArray(remove))
+            }
+        }
+
+        val requestBody = payload.toString().toRequestBody("application/json".toMediaTypeOrNull())
+        val requestBuilder = Request.Builder().url(url).post(requestBody)
+        val token = repository.apiKey
+        if (token.isNotBlank()) {
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+
+        clientFor(url).newCall(requestBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback(CustomTriggersResult.NetworkError(mapError(e)))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    when (response.code) {
+                        404 -> callback(CustomTriggersResult.Unsupported("Update the PC app to use custom triggers"))
+                        200 -> {
+                            val body = response.body?.string().orEmpty()
+                            try {
+                                val json = JSONObject(body)
+                                val array = json.optJSONArray("custom_triggers") ?: JSONArray()
+                                val triggers = (0 until array.length()).map {
+                                    com.example.whisperremote.data.CustomTrigger.fromJson(array.getJSONObject(it))
+                                }
+                                val limits = com.example.whisperremote.data.TriggerLimits.fromJson(json.optJSONObject("limits"))
+                                callback(CustomTriggersResult.Success(com.example.whisperremote.data.CustomTriggersResponse(triggers, limits)))
+                            } catch (e: Exception) {
+                                callback(CustomTriggersResult.ParseError("Failed to parse custom triggers response: ${e.message}"))
+                            }
+                        }
+                        else -> {
+                            val errMsg = try {
+                                val errJson = JSONObject(response.body?.string().orEmpty())
+                                errJson.optString("message", null)
+                            } catch (_: Exception) { null }
+                            callback(CustomTriggersResult.Error(response.code, errMsg ?: "Server returned HTTP ${response.code}"))
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    /**
+     * Executes typed instruction edit via POST /dictate/v1/edit_text per contract 01 §12 & F-54.
+     */
+    fun editText(
+        instruction: String,
+        selection: String? = null,
+        rawCallback: (EditTextResult) -> Unit
+    ) {
+        val callback: (EditTextResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
+        val url = repository.getEditTextUrl()
+        if (url.isBlank() || !url.startsWith("http")) {
+            callback(EditTextResult.Error(400, "Server URL is not configured"))
+            return
+        }
+
+        val json = JSONObject().apply {
+            put("instruction", instruction)
+            if (!selection.isNullOrBlank()) {
+                put("selection", selection)
+            }
+        }
+
+        val requestBody = json.toString().toRequestBody("application/json".toMediaTypeOrNull())
+        val requestBuilder = Request.Builder().url(url).post(requestBody)
+        val token = repository.apiKey
+        if (token.isNotBlank()) {
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+
+        clientFor(url).newCall(requestBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback(EditTextResult.NetworkError(mapError(e)))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    when (response.code) {
+                        200 -> {
+                            val body = response.body?.string().orEmpty()
+                            try {
+                                val resJson = JSONObject(body)
+                                val text = resJson.optString("text", "")
+                                val edited = resJson.optBoolean("edited", false)
+                                callback(EditTextResult.Success(text, edited))
+                            } catch (e: Exception) {
+                                callback(EditTextResult.Error(500, "Failed to parse edit_text response: ${e.message}"))
+                            }
+                        }
+                        503 -> {
+                            callback(EditTextResult.ServerPaused("Dictation is paused on your PC"))
+                        }
+                        404, 405 -> {
+                            callback(EditTextResult.Unsupported("Update the PC app to type instructions"))
+                        }
+                        else -> {
+                            val errMsg = try {
+                                val errJson = JSONObject(response.body?.string().orEmpty())
+                                errJson.optString("message", null)
+                            } catch (_: Exception) { null }
+                            callback(EditTextResult.Error(response.code, errMsg ?: "Server returned HTTP ${response.code}"))
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    // Reason for edit: Add fetchTriggerLibrary for browsing shared triggers library per contract 01 §11 and F-53
+    /**
+     * Fetches the shared trigger library from the upstream repository.
+     */
+    fun fetchTriggerLibrary(rawCallback: (List<CustomTrigger>?, String?) -> Unit) {
+        val callback: (List<CustomTrigger>?, String?) -> Unit = { list, err -> runOnMain { rawCallback(list, err) } }
+        val url = "https://raw.githubusercontent.com/Dominic-Shirazi/Whisper-Unchained-Server/main/trigger_library/library.json"
+        val request = Request.Builder().url(url).get().build()
+        clientFor(url).newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback(null, e.message ?: "Failed to connect to trigger library")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    if (!response.isSuccessful) {
+                        callback(null, "Server returned HTTP ${response.code}")
+                        return
+                    }
+                    try {
+                        val body = response.body?.string().orEmpty()
+                        val json = JSONObject(body)
+                        val arr = json.optJSONArray("triggers") ?: JSONArray()
+                        val list = mutableListOf<CustomTrigger>()
+                        for (i in 0 until arr.length()) {
+                            list.add(CustomTrigger.fromJson(arr.getJSONObject(i)))
+                        }
+                        callback(list, null)
+                    } catch (e: Exception) {
+                        callback(null, "Failed to parse trigger library: ${e.message}")
+                    }
+                }
+            }
+        })
     }
 
     /**

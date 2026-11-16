@@ -118,7 +118,8 @@ data class QrPayload(
     val name: String?,
     val hostDisplay: String,
     val certSha256: String? = null,
-    val version: Int = 1
+    val version: Int = 1,
+    val altBaseUrls: List<String> = emptyList()
 )
 
 enum class InjectionMode {
@@ -381,6 +382,8 @@ class SettingsRepository(context: Context) {
         private const val TAG = "SettingsRepository"
         private const val PREFS_NAME = "WhisperUnchainedPrefs"
         private const val KEY_BASE_URL = "base_url"
+        private const val KEY_ALT_BASE_URLS = "alt_base_urls"
+        private const val KEY_LAST_WORKING_URL = "last_working_url"
         private const val KEY_LEGACY_API_URL = "api_url"
         private const val KEY_API_KEY = "api_key"
         private const val KEY_MODEL = "model_name"
@@ -490,6 +493,30 @@ class SettingsRepository(context: Context) {
                     }
                 }
 
+                // Optional alt_base_urls (up to 2 alternate addresses) per contract 01 §7 & F-55
+                val altList = mutableListOf<String>()
+                val altArray = json.optJSONArray("alt_base_urls")
+                if (altArray != null) {
+                    for (i in 0 until minOf(2, altArray.length())) {
+                        val altUrl = altArray.optString(i, "").trim()
+                        if (altUrl.isNotBlank()) {
+                            try {
+                                val altUri = java.net.URI(altUrl)
+                                val altScheme = altUri.scheme?.lowercase()
+                                val altHost = altUri.host
+                                if ((altScheme == "http" || altScheme == "https") && !altHost.isNullOrBlank()) {
+                                    if (version == 2 && altScheme != "https") {
+                                        // Skip invalid cleartext alt url in v2
+                                    } else {
+                                        val cleanAlt = if (altUrl.endsWith("/v1")) altUrl else (if (altUrl.endsWith("/")) "${altUrl}v1" else "$altUrl/v1")
+                                        altList.add(cleanAlt)
+                                    }
+                                }
+                            } catch (ignored: Exception) {}
+                        }
+                    }
+                }
+
                 val hostDisplay = if (uri.port != -1) "$host:${uri.port}" else host
                 val key = if (json.has("api_key") && !json.isNull("api_key")) json.getString("api_key") else null
                 val model = if (json.has("model") && !json.isNull("model")) json.getString("model") else null
@@ -502,7 +529,8 @@ class SettingsRepository(context: Context) {
                     name = name,
                     hostDisplay = hostDisplay,
                     certSha256 = certSha256,
-                    version = version
+                    version = version,
+                    altBaseUrls = altList
                 )
             } catch (e: IllegalArgumentException) {
                 throw e
@@ -545,6 +573,54 @@ class SettingsRepository(context: Context) {
             putPlainString(KEY_BASE_URL, clean)
             putPlainString(KEY_LEGACY_API_URL, clean)
         }
+
+    var altBaseUrls: List<String>
+        get() {
+            val jsonStr = getPlainString(KEY_ALT_BASE_URLS, "")
+            if (jsonStr.isBlank()) return emptyList()
+            return try {
+                val array = JSONArray(jsonStr)
+                (0 until array.length()).map { array.getString(it).trimEnd('/') }
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+        set(value) {
+            val array = JSONArray(value.map { it.trim().trimEnd('/') })
+            putPlainString(KEY_ALT_BASE_URLS, array.toString())
+        }
+
+    var lastWorkingBaseUrl: String
+        get() {
+            val saved = getPlainString(KEY_LAST_WORKING_URL, "")
+            if (saved.isNotBlank()) return saved.trimEnd('/')
+            return baseUrl
+        }
+        set(value) {
+            putPlainString(KEY_LAST_WORKING_URL, value.trim().trimEnd('/') )
+        }
+
+    /**
+     * Returns all paired PC base URLs: starting with the last working address, followed by the others.
+     */
+    fun getAllPcBaseUrls(): List<String> {
+        val primary = baseUrl
+        val alts = altBaseUrls
+        val all = mutableListOf<String>()
+        val lastWorking = lastWorkingBaseUrl
+        if (lastWorking.isNotBlank()) {
+            all.add(lastWorking)
+        }
+        if (primary.isNotBlank() && !all.contains(primary)) {
+            all.add(primary)
+        }
+        for (alt in alts) {
+            if (alt.isNotBlank() && !all.contains(alt)) {
+                all.add(alt)
+            }
+        }
+        return all
+    }
 
     var serverCertSha256: String?
         get() = prefs.getString("server_cert_sha256", null)
@@ -681,8 +757,9 @@ class SettingsRepository(context: Context) {
     /**
      * Resolves the full URL for POST /v1/audio/transcriptions
      */
-    fun getTranscribeUrl(): String {
-        val base = baseUrl
+    fun getTranscribeUrl(): String = getTranscribeUrl(lastWorkingBaseUrl)
+
+    fun getTranscribeUrl(base: String): String {
         if (base.isBlank()) return ""
         return if (base.endsWith("/v1")) {
             "$base/audio/transcriptions"
@@ -694,8 +771,9 @@ class SettingsRepository(context: Context) {
     /**
      * Resolves the GET /health URL by stripping /v1 from the base URL.
      */
-    fun getHealthUrl(): String {
-        val base = baseUrl
+    fun getHealthUrl(): String = getHealthUrl(lastWorkingBaseUrl)
+
+    fun getHealthUrl(base: String): String {
         if (base.isBlank()) return ""
         val root = if (base.endsWith("/v1")) {
             base.substring(0, base.length - 3)
@@ -708,8 +786,9 @@ class SettingsRepository(context: Context) {
     /**
      * Resolves the GET /v1/models URL for connection testing.
      */
-    fun getModelsUrl(): String {
-        val base = baseUrl
+    fun getModelsUrl(): String = getModelsUrl(lastWorkingBaseUrl)
+
+    fun getModelsUrl(base: String): String {
         if (base.isBlank()) return ""
         return if (base.endsWith("/v1")) {
             "$base/models"
@@ -722,8 +801,9 @@ class SettingsRepository(context: Context) {
      * Resolves the GET / POST /v1/vocabulary URL per contracts/01-transcription-api.md §8.
      * Reason for edit: Added shared vocabulary endpoint resolver and offline sync queue.
      */
-    fun getVocabularyUrl(): String {
-        val base = baseUrl
+    fun getVocabularyUrl(): String = getVocabularyUrl(lastWorkingBaseUrl)
+
+    fun getVocabularyUrl(base: String): String {
         return if (base.endsWith("/v1")) {
             "$base/vocabulary"
         } else {
@@ -732,13 +812,38 @@ class SettingsRepository(context: Context) {
     }
 
     // Reason for edit: Added NameCorrections endpoint resolver per contract 01 §8 and F-43
-    fun getNameCorrectionsUrl(): String {
-        val base = baseUrl
+    fun getNameCorrectionsUrl(): String = getNameCorrectionsUrl(lastWorkingBaseUrl)
+
+    fun getNameCorrectionsUrl(base: String): String {
         return if (base.endsWith("/v1")) {
             "$base/name_corrections"
         } else {
             "$base/v1/name_corrections"
         }
+    }
+
+    // Reason for edit: Added CustomTriggers endpoint resolver per contract 01 §11 & F-53
+    fun getCustomTriggersUrl(): String = getCustomTriggersUrl(lastWorkingBaseUrl)
+
+    fun getCustomTriggersUrl(base: String): String {
+        return if (base.endsWith("/v1")) {
+            "$base/custom_triggers"
+        } else {
+            "$base/v1/custom_triggers"
+        }
+    }
+
+    // Reason for edit: Added EditText endpoint resolver for typed instructions per contract 01 §12 & F-54
+    fun getEditTextUrl(): String = getEditTextUrl(lastWorkingBaseUrl)
+
+    fun getEditTextUrl(base: String): String {
+        if (base.isBlank()) return ""
+        val root = if (base.endsWith("/v1")) {
+            base.substring(0, base.length - 3).trimEnd('/')
+        } else {
+            base.trimEnd('/')
+        }
+        return "$root/dictate/v1/edit_text"
     }
 
     // Reason for edit: Added pending mutations queue and immediate cache sync per F-43
@@ -933,6 +1038,8 @@ class SettingsRepository(context: Context) {
      */
     fun applyQrPayload(payload: QrPayload) {
         baseUrl = payload.baseUrl
+        altBaseUrls = payload.altBaseUrls
+        lastWorkingBaseUrl = payload.baseUrl
         payload.apiKey?.let { apiKey = it }
         payload.model?.let { modelName = it }
         serverCertSha256 = payload.certSha256

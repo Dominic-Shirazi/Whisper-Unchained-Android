@@ -4,10 +4,11 @@
 
 package com.example.whisperremote
 
-// Reason for edit: Updated unit tests for Version 2 (tone support and forced neutral when rewrite == keep).
+// Reason for edit: Dynamically read expected prompt strings from JSON so future text changes don't break tests (F-51).
 
 import com.example.whisperremote.util.CleanupOptions
 import com.example.whisperremote.util.TranscriptCleaner
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -18,6 +19,7 @@ import java.io.File
 class TranscriptCleanerTest {
 
     private lateinit var cleaner: TranscriptCleaner
+    private lateinit var jsonObject: JSONObject
 
     @Before
     fun setup() {
@@ -28,7 +30,13 @@ class TranscriptCleanerTest {
             File("contracts/02-cleanup-prompt.json")
         )
         val file = candidates.find { it.exists() } ?: throw IllegalStateException("Prompt json not found in ${File(".").absolutePath}")
-        cleaner = TranscriptCleaner(file.readText())
+        val jsonText = file.readText()
+        cleaner = TranscriptCleaner(jsonText)
+        jsonObject = JSONObject(jsonText)
+    }
+
+    private fun getStyleString(category: String, key: String): String {
+        return jsonObject.getJSONObject("style").getJSONObject(category).getString(key)
     }
 
     @Test
@@ -37,12 +45,12 @@ class TranscriptCleanerTest {
         val prompt = cleaner.buildSystemPrompt(options, listOf("Lesley", "Ollama"))
 
         assertTrue(prompt.contains("Spell these names and terms exactly as written here: Lesley, Ollama."))
-        assertTrue(prompt.contains("- Use normal capitalization and punctuation."))
-        assertTrue(prompt.contains("- Use the speaker's own words in the speaker's order."))
+        assertTrue(prompt.contains(getStyleString("punctuation", "standard")))
+        assertTrue(prompt.contains(getStyleString("rewrite", "keep")))
         // Version 2: Tone line inserted after rewrite
-        assertTrue(prompt.contains("- Keep the speaker's own tone."))
-        assertFalse(prompt.contains("When shortening, remove material instead of rewording what remains."))
-        assertTrue(prompt.endsWith("Reply with the cleaned text only: no tags, no quotation marks around it, no labels and no notes."))
+        assertTrue(prompt.contains(getStyleString("tone", "neutral")))
+        assertFalse(prompt.contains(jsonObject.getString("keep_while_shortening")))
+        assertTrue(prompt.endsWith(jsonObject.getString("final")))
     }
 
     @Test
@@ -51,8 +59,8 @@ class TranscriptCleanerTest {
         val options = CleanupOptions(punctuation = "standard", rewrite = "keep", tone = "professional", shorten = "off", emoji = "off")
         val prompt = cleaner.buildSystemPrompt(options)
 
-        assertTrue(prompt.contains("- Keep the speaker's own tone."))
-        assertFalse(prompt.contains("- Use a clear, professional tone suitable for work."))
+        assertTrue(prompt.contains(getStyleString("tone", "neutral")))
+        assertFalse(prompt.contains(getStyleString("tone", "professional")))
     }
 
     @Test
@@ -60,8 +68,8 @@ class TranscriptCleanerTest {
         val options = CleanupOptions(punctuation = "standard", rewrite = "fix", tone = "professional", shorten = "off", emoji = "off")
         val prompt = cleaner.buildSystemPrompt(options)
 
-        assertTrue(prompt.contains("- Stay close to the speaker's wording, but fix grammar and clumsy phrasing."))
-        assertTrue(prompt.contains("- Use a clear, professional tone suitable for work."))
+        assertTrue(prompt.contains(getStyleString("rewrite", "fix")))
+        assertTrue(prompt.contains(getStyleString("tone", "professional")))
     }
 
     @Test
@@ -69,9 +77,9 @@ class TranscriptCleanerTest {
         val options = CleanupOptions(punctuation = "light", rewrite = "keep", shorten = "light", emoji = "on")
         val prompt = cleaner.buildSystemPrompt(options)
 
-        assertTrue(prompt.contains("- Cut repetition and rambling, but keep every separate point."))
-        assertTrue(prompt.contains("- When shortening, remove material instead of rewording what remains."))
-        assertTrue(prompt.contains("- You may add one fitting emoji to a casual message."))
+        assertTrue(prompt.contains(getStyleString("shorten", "light")))
+        assertTrue(prompt.contains(jsonObject.getString("keep_while_shortening")))
+        assertTrue(prompt.contains(getStyleString("emoji", "on")))
     }
 
     @Test

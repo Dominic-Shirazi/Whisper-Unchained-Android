@@ -82,6 +82,17 @@ class QrPayloadValidationTest {
         assertEquals(pin, payload?.certSha256)
         assertEquals("100.89.163.64:5000", payload?.hostDisplay)
         assertEquals(2, payload?.version)
+        assertTrue(payload?.altBaseUrls?.isEmpty() == true)
+    }
+
+    @Test
+    fun testValidV2PayloadWithAltBaseUrls() {
+        val pin = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+        val json = """{"v":2,"base_url":"https://100.89.163.64:5001/v1","alt_base_urls":["https://192.168.0.2:5001/v1"],"cert_sha256":"$pin","api_key":"secret123","model":"large-v3-turbo","name":"My-PC"}"""
+        val payload = SettingsRepository.parseAndValidateQrPayload(json)
+        assertNotNull(payload)
+        assertEquals("https://100.89.163.64:5001/v1", payload?.baseUrl)
+        assertEquals(listOf("https://192.168.0.2:5001/v1"), payload?.altBaseUrls)
     }
 
     @Test

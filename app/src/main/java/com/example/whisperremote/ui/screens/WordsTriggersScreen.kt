@@ -1,8 +1,9 @@
 // This file provides the Words & Triggers screen for Whisper Unchained.
 // It is called by HomeScreen navigation.
-// Inputs: SettingsRepository, ApiClient for 2-way vocabulary and name corrections synchronization.
-// Outputs: UI for editing helper words and name corrections with offline queueing, undo snackbars, and voice commands.
-// Conforms to contracts/01-transcription-api.md §8 and F-43.
+// Inputs: SettingsRepository, ApiClient for 2-way vocabulary, name corrections, and custom triggers synchronization.
+// Outputs: UI for editing helper words, corrections & shortcuts, and custom triggers with library browser.
+// Conforms to contracts/01-transcription-api.md §8, §11 and F-50, F-53.
+// Reason for edit: Add TabRow for Words & shortcuts and Custom triggers, rename Name corrections to Corrections & shortcuts with 200-char wrapping and rotating placeholders per F-50 and F-53.
 // Reason for edit: Exhaustive handling of ParseError for vocabulary and name corrections per F-46.
 // Reason for edit: Center-align name correction arrows in a straight vertical column per user feedback.
 // Reason for edit: Interactive Helper Words and Name Corrections editor with offline queueing per contract 01 §8 and F-43.
@@ -27,7 +28,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -36,6 +40,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -48,6 +54,9 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -56,18 +65,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.whisperremote.ApiClient
+import com.example.whisperremote.CustomTriggersResult
 import com.example.whisperremote.NameCorrectionsResult
 import com.example.whisperremote.VocabularyResult
+import com.example.whisperremote.data.CustomTrigger
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.QueuedMutation
 import com.example.whisperremote.data.SettingsRepository
@@ -508,24 +521,54 @@ fun WordsTriggersScreen(
         }
     }
 
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Words & Triggers") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+            Column {
+                TopAppBar(
+                    title = { Text("Words & Triggers") },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background
+                    )
                 )
-            )
+                TabRow(
+                    selectedTabIndex = selectedTabIndex,
+                    containerColor = MaterialTheme.colorScheme.background,
+                    contentColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Tab(
+                        selected = selectedTabIndex == 0,
+                        onClick = { selectedTabIndex = 0 },
+                        text = { Text("Words & shortcuts") }
+                    )
+                    Tab(
+                        selected = selectedTabIndex == 1,
+                        onClick = { selectedTabIndex = 1 },
+                        text = { Text("Custom triggers") }
+                    )
+                }
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background,
         modifier = modifier
     ) { innerPadding ->
+        if (selectedTabIndex == 1) {
+            CustomTriggersTab(
+                repository = repository,
+                apiClient = apiClient,
+                snackbarHostState = snackbarHostState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            )
+        } else {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -712,28 +755,28 @@ fun WordsTriggersScreen(
                 }
             }
 
-            // Group 2: Name Corrections (Heard as → Write as)
+            // Group 2: Corrections & shortcuts (When I say → Type this) per F-50
             item {
                 if (repository.providerPreset == ProviderPreset.SELF_HOSTED) {
                     val footerText = if (!nameCorrectionsSupported) {
                         "Update the PC app to edit these here"
                     } else {
-                        "When Whisper writes the left word, it's replaced with the right one. Works for short phrases too. Tap a row to change it."
+                        "Fix a name Whisper gets wrong, or say a short phrase to type something long: a link, your email, your number."
                     }
                     SettingsGroup(
-                        header = "Name corrections",
+                        header = "Corrections & shortcuts",
                         footer = footerText,
                         modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
-                            // Header row with "+ Add a correction" button
+                            // Header row with "+ Add correction" button
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Heard as → Write as",
+                                    text = "When I say → Type this",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -775,10 +818,10 @@ fun WordsTriggersScreen(
                                                     text = entry.key,
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.weight(1f)
+                                                    modifier = Modifier.weight(0.4f)
                                                 )
                                                 Box(
-                                                    modifier = Modifier.width(36.dp),
+                                                    modifier = Modifier.width(28.dp),
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Text(
@@ -792,7 +835,7 @@ fun WordsTriggersScreen(
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     fontWeight = FontWeight.Medium,
                                                     color = MaterialTheme.colorScheme.onSurface,
-                                                    modifier = Modifier.weight(1f)
+                                                    modifier = Modifier.weight(0.6f)
                                                 )
                                             }
                                             if (isQueued) {
@@ -822,7 +865,7 @@ fun WordsTriggersScreen(
                                 }
                             } else {
                                 Text(
-                                    text = "No name corrections configured",
+                                    text = "No corrections configured",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -832,8 +875,8 @@ fun WordsTriggersScreen(
                 } else {
                     // Cloud presets: Structured row editor for localNameCorrections per F-43 item 5
                     SettingsGroup(
-                        header = "Name corrections",
-                        footer = "When Whisper writes the left word, it's replaced with the right one. Works for short phrases too. Tap a row to change it.",
+                        header = "Corrections & shortcuts",
+                        footer = "Fix a name Whisper gets wrong, or say a short phrase to type something long: a link, your email, your number.",
                         modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
@@ -843,7 +886,7 @@ fun WordsTriggersScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Heard as → Write as",
+                                    text = "When I say → Type this",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -881,10 +924,10 @@ fun WordsTriggersScreen(
                                                 text = entry.key,
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.weight(1f)
+                                                modifier = Modifier.weight(0.4f)
                                             )
                                             Box(
-                                                modifier = Modifier.width(36.dp),
+                                                modifier = Modifier.width(28.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
@@ -898,7 +941,7 @@ fun WordsTriggersScreen(
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 fontWeight = FontWeight.Medium,
                                                 color = MaterialTheme.colorScheme.onSurface,
-                                                modifier = Modifier.weight(1f)
+                                                modifier = Modifier.weight(0.6f)
                                             )
                                         }
 
@@ -917,7 +960,7 @@ fun WordsTriggersScreen(
                                 }
                             } else {
                                 Text(
-                                    text = "No name corrections configured",
+                                    text = "No corrections configured",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -972,6 +1015,7 @@ fun WordsTriggersScreen(
                     }
                 }
             }
+        }
         }
     }
 
@@ -1033,15 +1077,23 @@ fun WordsTriggersScreen(
         )
     }
 
-    // Dialog: Add Name Correction
+    // Dialog: Add Correction & Shortcut (per F-50 with rotating examples)
     if (showAddCorrectionDialog) {
+        val examples = listOf(
+            "Leslie" to "Lesley",
+            "here's my link" to "here's my link: cyrus-studio.com",
+            "my email address" to "name@example.com"
+        )
+        val exampleIndex = (serverNameCorrections.size + localCorrectionsMap.size) % examples.size
+        val (placeholderHeard, placeholderWrite) = examples[exampleIndex]
+
         var addHeard by remember { mutableStateOf("") }
         var addWrite by remember { mutableStateOf("") }
         var addError by remember { mutableStateOf<String?>(null) }
 
         AlertDialog(
             onDismissRequest = { showAddCorrectionDialog = false },
-            title = { Text("Add Name Correction") },
+            title = { Text("Add correction & shortcut") },
             text = {
                 Column {
                     OutlinedTextField(
@@ -1050,8 +1102,8 @@ fun WordsTriggersScreen(
                             addHeard = it
                             addError = null
                         },
-                        label = { Text("Heard as") },
-                        placeholder = { Text("e.g. Corey") },
+                        label = { Text("When I say") },
+                        placeholder = { Text(placeholderHeard) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1062,9 +1114,11 @@ fun WordsTriggersScreen(
                             addWrite = it
                             addError = null
                         },
-                        label = { Text("Write as") },
-                        placeholder = { Text("e.g. Cory") },
-                        singleLine = true,
+                        label = { Text("Type this (up to 200 chars)") },
+                        placeholder = { Text(placeholderWrite) },
+                        minLines = 2,
+                        maxLines = 4,
+                        singleLine = false,
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (addError != null) {
@@ -1110,7 +1164,7 @@ fun WordsTriggersScreen(
         )
     }
 
-    // Dialog: Edit Name Correction
+    // Dialog: Edit Correction & Shortcut (per F-50)
     editingCorrectionTarget?.let { (oldHeard, oldWrite) ->
         var editHeard by remember(oldHeard) { mutableStateOf(oldHeard) }
         var editWrite by remember(oldWrite) { mutableStateOf(oldWrite) }
@@ -1118,7 +1172,7 @@ fun WordsTriggersScreen(
 
         AlertDialog(
             onDismissRequest = { editingCorrectionTarget = null },
-            title = { Text("Edit Name Correction") },
+            title = { Text("Edit correction & shortcut") },
             text = {
                 Column {
                     OutlinedTextField(
@@ -1127,7 +1181,7 @@ fun WordsTriggersScreen(
                             editHeard = it
                             editError = null
                         },
-                        label = { Text("Heard as") },
+                        label = { Text("When I say") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1138,8 +1192,10 @@ fun WordsTriggersScreen(
                             editWrite = it
                             editError = null
                         },
-                        label = { Text("Write as") },
-                        singleLine = true,
+                        label = { Text("Type this (up to 200 chars)") },
+                        minLines = 2,
+                        maxLines = 4,
+                        singleLine = false,
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (editError != null) {
@@ -1188,4 +1244,592 @@ fun WordsTriggersScreen(
             }
         )
     }
+}
+
+// Reason for edit: Custom triggers management tab with write-your-own and shared library browser per contract 01 §11 & F-53
+@Composable
+fun CustomTriggersTab(
+    repository: SettingsRepository,
+    apiClient: ApiClient,
+    snackbarHostState: SnackbarHostState,
+    modifier: Modifier = Modifier
+) {
+    val coroutineScope = rememberCoroutineScope()
+    var customTriggers by remember { mutableStateOf<List<CustomTrigger>>(emptyList()) }
+    var triggersSupported by remember { mutableStateOf(true) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    var showWriteOwnDialog by remember { mutableStateOf(false) }
+    var showLibraryDialog by remember { mutableStateOf(false) }
+    var editingTrigger by remember { mutableStateOf<CustomTrigger?>(null) }
+
+    fun refreshTriggers() {
+        if (repository.providerPreset == ProviderPreset.SELF_HOSTED) {
+            isLoading = true
+            apiClient.fetchCustomTriggers { res ->
+                isLoading = false
+                when (res) {
+                    is CustomTriggersResult.Success -> {
+                        customTriggers = res.triggers
+                        triggersSupported = true
+                    }
+                    is CustomTriggersResult.Unsupported -> {
+                        triggersSupported = false
+                    }
+                    is CustomTriggersResult.Error -> {
+                        if (res.statusCode == 404) {
+                            triggersSupported = false
+                        }
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(repository.providerPreset) {
+        refreshTriggers()
+    }
+
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .wrapContentWidth(Alignment.CenterHorizontally)
+            .widthIn(max = 640.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        if (repository.providerPreset != ProviderPreset.SELF_HOSTED) {
+            item {
+                SettingsGroup(
+                    header = "Custom triggers",
+                    modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Text(
+                            text = "Custom triggers only run through your PC for now.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        } else if (!triggersSupported) {
+            item {
+                SettingsGroup(
+                    header = "Custom triggers",
+                    modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Text(
+                            text = "Update the PC app to use custom triggers",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        } else {
+            // Action buttons
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = { showWriteOwnDialog = true },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp),
+                        shape = RoundedCornerShape(22.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Write your own")
+                    }
+                    OutlinedButton(
+                        onClick = { showLibraryDialog = true },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp),
+                        shape = RoundedCornerShape(22.dp)
+                    ) {
+                        Text("Browse the library")
+                    }
+                }
+            }
+
+            if (isLoading && customTriggers.isEmpty()) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                    }
+                }
+            } else if (customTriggers.isEmpty()) {
+                item {
+                    SettingsGroup(
+                        header = "Your triggers",
+                        modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text(
+                                text = "No custom triggers yet. Add one from the library or write your own.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            } else {
+                items(customTriggers, key = { it.id }) { trigger ->
+                    SettingsGroup(modifier = Modifier.padding(bottom = 12.dp)) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = trigger.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Switch(
+                                    checked = trigger.enabled,
+                                    onCheckedChange = { isChecked ->
+                                        val updated = trigger.copy(enabled = isChecked)
+                                        val prev = customTriggers
+                                        customTriggers = customTriggers.map { if (it.id == trigger.id) updated else it }
+                                        apiClient.modifyCustomTriggers(set = listOf(updated)) { res ->
+                                            if (res is CustomTriggersResult.Success) {
+                                                customTriggers = res.triggers
+                                            } else {
+                                                customTriggers = prev
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Say: ${trigger.phrases.joinToString(" or ") { "\"$it\"" }}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium
+                            )
+                            if (!trigger.description.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = trigger.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(onClick = { editingTrigger = trigger }) {
+                                    Text("Edit")
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                TextButton(
+                                    onClick = {
+                                        val removed = trigger
+                                        val prev = customTriggers
+                                        customTriggers = customTriggers.filter { it.id != trigger.id }
+                                        apiClient.modifyCustomTriggers(remove = listOf(trigger.id)) { res ->
+                                            if (res is CustomTriggersResult.Success) {
+                                                customTriggers = res.triggers
+                                            }
+                                        }
+                                        coroutineScope.launch {
+                                            val snack = snackbarHostState.showSnackbar(
+                                                message = "Removed '${trigger.name}'",
+                                                actionLabel = "Undo",
+                                                duration = SnackbarDuration.Short
+                                            )
+                                            if (snack == SnackbarResult.ActionPerformed) {
+                                                apiClient.modifyCustomTriggers(set = listOf(removed)) { res ->
+                                                    if (res is CustomTriggersResult.Success) {
+                                                        customTriggers = res.triggers
+                                                    } else {
+                                                        customTriggers = prev
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Text("Remove", color = Color(0xFFD9694A))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Write your own dialog
+    if (showWriteOwnDialog) {
+        TriggerEditorDialog(
+            title = "Write your own trigger",
+            initialTrigger = null,
+            onDismiss = { showWriteOwnDialog = false },
+            onSave = { trigger, callback ->
+                apiClient.modifyCustomTriggers(set = listOf(trigger)) { res ->
+                    when (res) {
+                        is CustomTriggersResult.Success -> {
+                            customTriggers = res.triggers
+                            callback(null)
+                            showWriteOwnDialog = false
+                        }
+                        is CustomTriggersResult.Error -> {
+                            callback(res.message)
+                        }
+                        is CustomTriggersResult.NetworkError -> {
+                            callback(res.error.message ?: "Network error")
+                        }
+                        else -> {
+                            callback("Failed to save trigger")
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    // Edit dialog
+    editingTrigger?.let { trig ->
+        TriggerEditorDialog(
+            title = "Edit trigger",
+            initialTrigger = trig,
+            onDismiss = { editingTrigger = null },
+            onSave = { updated, callback ->
+                apiClient.modifyCustomTriggers(set = listOf(updated)) { res ->
+                    when (res) {
+                        is CustomTriggersResult.Success -> {
+                            customTriggers = res.triggers
+                            callback(null)
+                            editingTrigger = null
+                        }
+                        is CustomTriggersResult.Error -> {
+                            callback(res.message)
+                        }
+                        is CustomTriggersResult.NetworkError -> {
+                            callback(res.error.message ?: "Network error")
+                        }
+                        else -> {
+                            callback("Failed to update trigger")
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    // Browse library dialog
+    if (showLibraryDialog) {
+        LibraryBrowserDialog(
+            apiClient = apiClient,
+            userTriggers = customTriggers,
+            onDismiss = { showLibraryDialog = false },
+            onAddOrUpdate = { libTrigger ->
+                apiClient.modifyCustomTriggers(set = listOf(libTrigger)) { res ->
+                    if (res is CustomTriggersResult.Success) {
+                        customTriggers = res.triggers
+                    }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun TriggerEditorDialog(
+    title: String,
+    initialTrigger: CustomTrigger?,
+    onDismiss: () -> Unit,
+    onSave: (CustomTrigger, (error: String?) -> Unit) -> Unit
+) {
+    var name by remember { mutableStateOf(initialTrigger?.name ?: "") }
+    var phrasesText by remember { mutableStateOf(initialTrigger?.phrases?.joinToString("\n") ?: "") }
+    var prompt by remember { mutableStateOf(initialTrigger?.prompt ?: "") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isSaving by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it; errorMessage = null },
+                    label = { Text("Trigger name (1-40 chars)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = phrasesText,
+                    onValueChange = { phrasesText = it; errorMessage = null },
+                    label = { Text("Spoken phrases (1-6, one per line)") },
+                    placeholder = { Text("e.g. prompt ticket\nticket this") },
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = prompt,
+                    onValueChange = { prompt = it; errorMessage = null },
+                    label = { Text("Instruction for AI (10-6000 chars)") },
+                    placeholder = { Text("Describe how the AI should rewrite or handle the speech...") },
+                    minLines = 5,
+                    maxLines = 10,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = errorMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !isSaving,
+                onClick = {
+                    val trimmedName = name.trim()
+                    if (trimmedName.isEmpty() || trimmedName.length > 40) {
+                        errorMessage = "Name must be between 1 and 40 characters"
+                        return@Button
+                    }
+                    val lines = phrasesText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                    if (lines.isEmpty() || lines.size > 6) {
+                        errorMessage = "Provide between 1 and 6 spoken phrases"
+                        return@Button
+                    }
+                    for (p in lines) {
+                        if (p.length < 2 || p.length > 60 || p.contains(",")) {
+                            errorMessage = "Phrase '$p' must be 2-60 characters and cannot contain commas"
+                            return@Button
+                        }
+                    }
+                    val trimmedPrompt = prompt.trim()
+                    if (trimmedPrompt.length < 10 || trimmedPrompt.length > 6000) {
+                        errorMessage = "Instruction must be between 10 and 6000 characters"
+                        return@Button
+                    }
+
+                    val id = initialTrigger?.id ?: trimmedName.lowercase().replace("[^a-z0-9]+".toRegex(), "-").trim('-').ifBlank { java.util.UUID.randomUUID().toString().take(8) }
+                    val trigger = CustomTrigger(
+                        id = id,
+                        name = trimmedName,
+                        phrases = lines,
+                        prompt = trimmedPrompt,
+                        enabled = initialTrigger?.enabled ?: true,
+                        libraryId = initialTrigger?.libraryId,
+                        libraryVersion = initialTrigger?.libraryVersion,
+                        author = initialTrigger?.author,
+                        temperature = initialTrigger?.temperature,
+                        description = initialTrigger?.description,
+                        category = initialTrigger?.category,
+                        model = initialTrigger?.model
+                    )
+
+                    isSaving = true
+                    onSave(trigger) { err ->
+                        isSaving = false
+                        if (err != null) {
+                            errorMessage = err
+                        }
+                    }
+                }
+            ) {
+                if (isSaving) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                } else {
+                    Text("Save")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun LibraryBrowserDialog(
+    apiClient: ApiClient,
+    userTriggers: List<CustomTrigger>,
+    onDismiss: () -> Unit,
+    onAddOrUpdate: (CustomTrigger) -> Unit
+) {
+    var libraryItems by remember { mutableStateOf<List<CustomTrigger>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    val expandedPromptIds = remember { mutableStateMapOf<String, Boolean>() }
+
+    LaunchedEffect(Unit) {
+        apiClient.fetchTriggerLibrary { list, err ->
+            isLoading = false
+            if (list != null) {
+                libraryItems = list
+            } else {
+                errorMsg = err ?: "Failed to load library"
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Trigger Library") },
+        text = {
+            Box(modifier = Modifier.fillMaxWidth().height(450.dp)) {
+                if (isLoading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else if (errorMsg != null) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(text = errorMsg!!, color = MaterialTheme.colorScheme.error)
+                    }
+                } else {
+                    val grouped = remember(libraryItems) {
+                        libraryItems.groupBy { it.category?.ifBlank { "General" } ?: "General" }
+                    }
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        grouped.forEach { (category, items) ->
+                            item {
+                                Text(
+                                    text = category,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 6.dp)
+                                )
+                            }
+                            items(items) { item ->
+                                val userTrigger = userTriggers.firstOrNull { it.id == item.id || it.libraryId == item.id }
+                                val isAdded = userTrigger != null
+                                val needsUpdate = userTrigger != null && (item.libraryVersion ?: 1) > (userTrigger.libraryVersion ?: 1)
+                                val isExpanded = expandedPromptIds[item.id] == true
+
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = item.name,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            val modelNote = if (item.model == "strong") "Needs a strong model" else "Works with small local models"
+                                            Text(
+                                                text = modelNote,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        if (!item.description.isNullOrBlank()) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = item.description,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Say: ${item.phrases.joinToString(" or ") { "\"$it\"" }}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = if (isExpanded) "Hide instruction" else "Show the instruction",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.clickable {
+                                                    expandedPromptIds[item.id] = !isExpanded
+                                                }
+                                            )
+                                            if (!isAdded) {
+                                                Button(
+                                                    onClick = { onAddOrUpdate(item) },
+                                                    shape = RoundedCornerShape(16.dp)
+                                                ) {
+                                                    Text("Add")
+                                                }
+                                            } else if (needsUpdate) {
+                                                Button(
+                                                    onClick = { onAddOrUpdate(item) },
+                                                    shape = RoundedCornerShape(16.dp)
+                                                ) {
+                                                    Text("Update")
+                                                }
+                                            } else {
+                                                OutlinedButton(
+                                                    onClick = {},
+                                                    enabled = false,
+                                                    shape = RoundedCornerShape(16.dp)
+                                                ) {
+                                                    Text("✓ Added")
+                                                }
+                                            }
+                                        }
+
+                                        if (isExpanded) {
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = item.prompt,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.padding(4.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }

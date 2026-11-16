@@ -19,7 +19,16 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
-## What's New in v1.3 (On-Device Transcription & Word List Management)
+## What's New in v1.3 (Build 27)
+
+- **Typed Instruction Pill & Panel (F-54)**: Tap the "Type" pill under the idle floating mic to type an instruction when you'd rather not speak. Features autocomplete trigger suggestions (`/` or prefix search), whole-phrase detection, highlighted text selection inclusion/replacement, and in-memory draft preservation on dismiss or failure.
+- **Custom Triggers & Shared Library (F-53)**: Custom triggers screen backed by `GET`/`POST /v1/custom_triggers` with interactive multi-line prompt editing, "Write your own" trigger builder, and upstream shared library browser (`library.json`) grouped by category with model requirements and one-tap Add / ✓ Added / Update actions.
+- **Dictation Style Sheet Trigger Picker (F-54 §5)**: Select any enabled trigger from a dropdown directly in the recording style sheet to apply it to that dictation only, automatically greying out cleanup rows with "The trigger decides how this one comes out."
+- **Corrections & Shortcuts (F-50)**: Renamed "Name corrections" to "Corrections & shortcuts" with "When I say → Type this" labels, expanded character limit up to 200 characters with commas allowed, multi-line wrapping, and rotating placeholder examples.
+- **Pairing Code Alternate Addresses & Failover (F-55)**: QR codes support optional `alt_base_urls` for home and away connectivity, with automatic sequential failover to whichever address responds and memory of the last working address. The Home Wi-Fi warning is suppressed when any stored address is a Tailscale address.
+- **Refreshed Button Colors & Launcher Icons (F-56)**: Periwinkle ready tile (`#8C9EFF`), recording tile (`#1B1D2A`), and new standalone pale periwinkle thinking state (`#E3E8FF` / `whisper_remote_thinking.png`) at full opacity.
+- **Model Catalog Alignment & NVIDIA Open Model License (F-52 & F-57)**: Curated on-device model catalog to 3 models (`parakeet-unified-en-0.6b-int8` recommended, `110m`, and `v3-multi`), purged legacy v2 models, and added NVIDIA Open Model License notices across About, ATTRIBUTIONS, and download UI.
+- **Always Send `processing` & Mean Mode Migration (F-49 & F-58)**: Explicitly sends `processing` (`clean` or `full`) on all self-hosted transcription paths. Mean mode is removed from core tone options and migrated to custom trigger `mean-mode`.
 
 - **Interactive Helper Words & Name Corrections Editor**: Edit vocabulary helper words and "Heard as → Write as" name corrections directly from the phone. Features row tap-to-edit dialogs, inline add fields, "+ Add a correction" dialogs, and instant removal with ~4s Undo snackbars.
 - **Floating Mic Retention on Silence (v1.3.0, versionCode 26)**: Floating mic button reliably returns to `IDLE` ready to record if the text box remains focused after a silent recording, quick tap, or empty response instead of vanishing.

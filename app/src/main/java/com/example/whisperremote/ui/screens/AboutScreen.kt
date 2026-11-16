@@ -1,5 +1,6 @@
 // This file provides the About subpage for Whisper Unchained.
 // Updated to match F-23 site and privacy policy URLs.
+// Reason for edit: Add NVIDIA Open Model License attribution and dynamic version per F-57.
 // Reason for edit: Add open source model attribution link (Parakeet CC-BY-4.0, sherpa-onnx Apache-2.0, Silero MIT) per contract 05 §2.2.
 // It is called by HomeScreen.
 // Inputs: Version info, GitHub links, callbacks to reopen First-Run Intro.
@@ -98,7 +99,7 @@ fun AboutScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Version 1.2.0 (Build 17) · ${BuildConfig.FLAVOR.replaceFirstChar { it.uppercase() }}",
+                            text = "Version ${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE}) · ${BuildConfig.FLAVOR.replaceFirstChar { it.uppercase() }}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -165,7 +166,7 @@ fun AboutScreen(
                     SettingsDivider()
                     SettingsNavRow(
                         title = "Open source & model licenses",
-                        subtitle = "Parakeet (CC-BY-4.0), sherpa-onnx (Apache-2.0), Silero VAD (MIT)",
+                        subtitle = "Licensed by NVIDIA under NVIDIA Open Model License · CC-BY-4.0 · Apache-2.0 · MIT",
                         onClick = {
                             val intent = Intent(Intent.ACTION_VIEW, Uri.parse("${AboutConstants.GITHUB_REPO_URL}/blob/master/ATTRIBUTIONS.md"))
                             context.startActivity(intent)

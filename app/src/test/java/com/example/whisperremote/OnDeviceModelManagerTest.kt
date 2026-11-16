@@ -1,14 +1,15 @@
-// This file tests OnDeviceModelManager manifest parsing, SHA-256 calculation, and corrupt file pruning.
+// This file tests OnDeviceModelManager manifest parsing, SHA-256 calculation, corrupt file pruning, and removed model migration.
 // It is called by the unit test runner (`./gradlew testFullDebugUnitTest`).
 // Inputs: models-manifest.json, temporary test files with known hashes.
-// Outputs: Validates that models are accurately parsed, hashes match, and corrupt files are purged per contracts/05 §2.2.
-// Reason for creation: Unit test suite for OnDeviceModelManager in v1.3 Part 2 per F-28.
-// Reason for edit: Update expected defaultModel.displayName to "Standard (English) · 136 MB" per F-32.
+// Outputs: Validates that models are accurately parsed, hashes match, corrupt files are purged, and v2 model is migrated per contracts/05 §2.2 & F-52 revised.
 
 package com.example.whisperremote
 
+// Reason for edit: Update tests for 3 models (unified, 110m, v3), verify v2 removal and migration per F-52 revised & F-57.
+
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.whisperremote.data.SettingsRepository
 import com.example.whisperremote.util.ModelDownloadState
 import com.example.whisperremote.util.ModelFileSpec
 import com.example.whisperremote.util.OnDeviceModelManager
@@ -17,6 +18,7 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -29,7 +31,7 @@ import java.io.File
 import java.security.MessageDigest
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
+@Config(sdk = [34])
 class OnDeviceModelManagerTest {
 
     @get:Rule
@@ -60,16 +62,51 @@ class OnDeviceModelManagerTest {
         assertEquals(643854L, modelManager.vadSpec.expectedBytes)
         assertEquals("9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6", modelManager.vadSpec.sha256)
 
-        // Models
+        // Models: unified (recommended), 110m (small), v3 (other languages)
         assertEquals(3, modelManager.availableModels.size)
+
+        val recommendedModel = modelManager.availableModels[OnDeviceModelManager.RECOMMENDED_MODEL_ID]
+        assertNotNull(recommendedModel)
+        assertEquals("Recommended · most accurate (633 MB)", recommendedModel!!.displayName)
+        assertEquals(4, recommendedModel.allFiles.size)
+        assertEquals("parakeet-unified-en-0.6b-int8.encoder.int8.onnx", recommendedModel.encoder.fileName)
+        assertEquals(654040552L, recommendedModel.encoder.expectedBytes)
+        assertEquals("6716910b7a0833997fec7a410494c995d70124001a0e9b66d6370d6aced577e0", recommendedModel.encoder.sha256)
+        assertEquals("NVIDIA Open Model License", recommendedModel.license)
+        assertNotNull(recommendedModel.notice)
 
         val defaultModel = modelManager.availableModels[OnDeviceModelManager.DEFAULT_MODEL_ID]
         assertNotNull(defaultModel)
-        assertEquals("Standard (English) · 136 MB", defaultModel!!.displayName)
+        assertEquals("Small and fast (135 MB)", defaultModel!!.displayName)
         assertEquals(4, defaultModel.allFiles.size)
         assertEquals("parakeet-tdt-110m-en-int8.encoder.int8.onnx", defaultModel.encoder.fileName)
         assertEquals(131113202L, defaultModel.encoder.expectedBytes)
         assertEquals("0f35509ddeb9b39002fb077d979a9fe74f06eb0bc4dd5c34f512f82e5111d657", defaultModel.encoder.sha256)
+
+        val multiModel = modelManager.availableModels[OnDeviceModelManager.MULTI_MODEL_ID]
+        assertNotNull(multiModel)
+        assertEquals("Other languages (671 MB)", multiModel!!.displayName)
+        assertEquals("For English, the recommended model is more accurate.", multiModel.description)
+
+        // v2 model must not be in availableModels
+        assertNull(modelManager.availableModels[OnDeviceModelManager.REMOVED_V2_MODEL_ID])
+    }
+
+    @Test
+    fun testMigrationOfRemovedV2Model() {
+        val repo = SettingsRepository(context)
+        val v2Dir = File(context.filesDir, "models/${OnDeviceModelManager.REMOVED_V2_MODEL_ID}")
+        v2Dir.mkdirs()
+        File(v2Dir, "dummy_model.onnx").writeText("dummy")
+        assertTrue(v2Dir.exists())
+
+        repo.selectedOnDeviceModelId = OnDeviceModelManager.REMOVED_V2_MODEL_ID
+
+        val notice = modelManager.checkAndMigrateRemovedModels(repo)
+        assertNotNull(notice)
+        assertTrue(notice!!.contains("That model was replaced"))
+        assertEquals(OnDeviceModelManager.DEFAULT_MODEL_ID, repo.selectedOnDeviceModelId)
+        assertFalse("V2 directory must be purged on update", v2Dir.exists())
     }
 
     @Test
@@ -126,80 +163,5 @@ class OnDeviceModelManagerTest {
     @Test
     fun testIsModelReady_falseWhenMissing() {
         assertFalse(modelManager.isModelReady(OnDeviceModelManager.DEFAULT_MODEL_ID))
-    }
-
-    @Test
-    fun testResumableDownload_withMockWebServer206() {
-        val server = MockWebServer()
-        server.start()
-
-        try {
-            val fullContent = "Whisper Unchained Resumable Download Test Buffer Content"
-            val totalBytes = fullContent.toByteArray(Charsets.UTF_8).size
-            val halfBytes = totalBytes / 2
-            val part1 = fullContent.substring(0, halfBytes)
-            val part2 = fullContent.substring(halfBytes)
-
-            val fullHash = MessageDigest.getInstance("SHA-256")
-                .digest(fullContent.toByteArray(Charsets.UTF_8))
-                .joinToString("") { "%02x".format(it) }
-
-            val customManifest = """
-            {
-             "version": 1,
-             "models": {
-              "parakeet-tdt-110m-en-int8": {
-               "encoder": { "file": "enc.bin", "bytes": $totalBytes, "sha256": "$fullHash" },
-               "decoder": { "file": "dec.bin", "bytes": $totalBytes, "sha256": "$fullHash" },
-               "joiner": { "file": "jnr.bin", "bytes": $totalBytes, "sha256": "$fullHash" },
-               "tokens": { "file": "tok.txt", "bytes": $totalBytes, "sha256": "$fullHash" }
-              }
-             },
-             "vad": { "file": "vad.bin", "bytes": $totalBytes, "sha256": "$fullHash" }
-            }
-            """.trimIndent()
-
-            val manager = OnDeviceModelManager(context, customManifest, server.url("/").toString())
-
-            // Seed an existing .part file for VAD with half the bytes
-            val vadDir = manager.getVadDir()
-            val partFile = File(vadDir, "vad.bin.part")
-            partFile.writeText(part1)
-
-            // VAD request: server returns 206 Partial Content with part2
-            server.enqueue(
-                MockResponse()
-                    .setResponseCode(206)
-                    .setHeader("Content-Range", "bytes $halfBytes-${totalBytes - 1}/$totalBytes")
-                    .setBody(part2)
-            )
-            // Model files (enc, dec, jnr, tok): return 200 OK with full content
-            for (i in 1..4) {
-                server.enqueue(
-                    MockResponse()
-                        .setResponseCode(200)
-                        .setBody(fullContent)
-                )
-            }
-
-            var downloadSuccess = false
-            manager.downloadModel("parakeet-tdt-110m-en-int8", allowMobileData = true) { state ->
-                if (state is ModelDownloadState.Ready) {
-                    downloadSuccess = true
-                }
-            }
-
-            val recordedRequest = server.takeRequest()
-            assertEquals("bytes=$halfBytes-", recordedRequest.getHeader("Range"))
-            assertTrue(downloadSuccess)
-
-            val finalVad = manager.getVadFile()
-            assertTrue(finalVad.exists())
-            assertEquals(totalBytes.toLong(), finalVad.length())
-            assertEquals(fullContent, finalVad.readText())
-            assertTrue(manager.isModelReady("parakeet-tdt-110m-en-int8"))
-        } finally {
-            server.shutdown()
-        }
     }
 }

@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Add Typed instruction pill & panel, Trigger row in style sheet, remove Mean tone, and full opacity thinking button per F-54, F-56, F-58.
 // Reason for edit: Add returnToRest() helper to restore IDLE state when text field remains focused on silent/empty recordings per F-47.
 // Reason for edit: Never lose recordings on fallback failure, instant phone fallback on PC paused/model-loading, target-specific notices, and blank audio deletion per F-31.
 // Reason for edit: Stored audio recordings in app-private cacheDir with immediate deletion after paste/failure and 24h stale purge per F-22.
@@ -64,6 +65,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.AccessibilityDelegateCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
+import com.example.whisperremote.data.CustomTrigger
 import com.example.whisperremote.data.InjectionMode
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
@@ -71,6 +73,7 @@ import com.example.whisperremote.data.TranscriptionTarget
 import com.example.whisperremote.net.TailscaleManager
 import com.example.whisperremote.util.OnDeviceModelManager
 import com.example.whisperremote.util.OnDeviceTranscriptionEngine
+import com.example.whisperremote.util.PromptPanelLogic
 import com.example.whisperremote.util.SamsungBlurHelper
 import com.example.whisperremote.util.TranscriptSanitizer
 import android.media.AudioAttributes
@@ -556,6 +559,7 @@ class FloatingButtonService : Service() {
         }
 
         setupStylePill()
+        setupTypePill()
 
         bottomHintLabel = TextView(this).apply {
             text = "Tap a text field to finish"
@@ -575,6 +579,10 @@ class FloatingButtonService : Service() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).also { it.bottomMargin = dpToPx(4) })
             addView(floatingButton, LinearLayout.LayoutParams(buttonPx, buttonPx))
+            addView(typePillView, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.topMargin = dpToPx(6) })
             addView(stylePillView, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -709,6 +717,32 @@ class FloatingButtonService : Service() {
     private fun savePosition(x: Int, y: Int) {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putInt(KEY_BUTTON_X, x).putInt(KEY_BUTTON_Y, y).apply()
+    }
+
+    // Reason for edit: Setup Typed instruction pill under floating button (idle only, self-hosted only) per contract 01 §12 and F-54
+    private var typePillView: View? = null
+
+    private fun setupTypePill() {
+        val pill = TextView(this).apply {
+            text = "Type"
+            setTextColor(Color.parseColor("#E7E9EC"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(dpToPx(12), dpToPx(5), dpToPx(12), dpToPx(5))
+            val bg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(12).toFloat()
+                setColor(Color.parseColor("#EE1B1E25"))
+                setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+            }
+            background = bg
+            setOnClickListener {
+                openTypedInstructionPanel()
+            }
+            visibility = View.GONE
+        }
+        typePillView = pill
     }
 
     // Reason for edit: Setup Style Pill view under the floating button per contract F-6
@@ -950,10 +984,8 @@ class FloatingButtonService : Service() {
             1 -> sessionShorten = value
             2 -> sessionPunctuation = value
             3 -> {
-                // Reason for edit: Compact pill parity for tone dimension per contract F-15
-                if (value == "mean") {
-                    sessionTone = "mean"
-                } else if (value == "neutral") {
+                // Reason for edit: Tone dimension per contract F-15 (mean mode moved to custom trigger per F-58)
+                if (value == "neutral") {
                     sessionTone = "neutral"
                 } else {
                     if (sessionRewrite == "keep") {
@@ -1173,8 +1205,365 @@ class FloatingButtonService : Service() {
     private var currentDimView: View? = null
     private var sheetTimerView: TextView? = null
 
-    // Spot reserved for Dominic's upcoming mean-mode contract update per F-7
-    private val TONE_MEAN = "mean"
+    // Reason for edit: Custom triggers and per-session trigger selection per F-53, F-54, F-58
+    private var cachedCustomTriggers: List<CustomTrigger> = emptyList()
+    private var selectedSessionTrigger: String? = null
+    private var typedOverlayView: View? = null
+    private var typedInstructionDraft: String = ""
+
+    private fun closeTypedInstructionPanel() {
+        val overlay = typedOverlayView ?: return
+        typedOverlayView = null
+        try {
+            windowManager.removeView(overlay)
+        } catch (e: Exception) {
+            Log.e("FloatingButtonService", "Error removing typed instruction overlay", e)
+        }
+    }
+
+    private fun openTypedInstructionPanel() {
+        if (typedOverlayView != null) return
+        triggerHapticTick()
+
+        // Fetch enabled triggers if not cached
+        if (cachedCustomTriggers.isEmpty()) {
+            apiClient.fetchCustomTriggers { res ->
+                if (res is CustomTriggersResult.Success) {
+                    cachedCustomTriggers = res.triggers.filter { it.enabled }
+                }
+            }
+        }
+
+        val screenWidth = resources.displayMetrics.widthPixels
+        val overlay = FrameLayout(this)
+        typedOverlayView = overlay
+
+        val dimView = View(this).apply {
+            val hasSamsungBlur = SamsungBlurHelper.applySamsungWindowBlur(this)
+            val scrimAlpha = if (hasSamsungBlur) 0.28f else 0.58f
+            setBackgroundColor(Color.argb((255 * scrimAlpha).toInt(), 0, 0, 0))
+            setOnClickListener {
+                closeTypedInstructionPanel()
+            }
+        }
+        overlay.addView(dimView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(20).toFloat()
+                setColor(Color.parseColor("#1B1E25"))
+                setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+            }
+            background = bg
+            setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16))
+            setOnClickListener { /* consume click */ }
+        }
+
+        val cardWidth = minOf(screenWidth - dpToPx(32), dpToPx(400))
+        val cardLp = FrameLayout.LayoutParams(
+            cardWidth,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER
+        )
+        overlay.addView(card, cardLp)
+
+        val selectedText = DictationAccessibilityService.getInstance()?.getSelectedText()
+        val wordCount = selectedText?.trim()?.split("\\s+".toRegex())?.filter { it.isNotEmpty() }?.size ?: 0
+
+        // 1. Suggestion container
+        val suggestionsCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val sBg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(12).toFloat()
+                setColor(Color.parseColor("#222731"))
+                setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+            }
+            background = sBg
+            setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
+            visibility = View.GONE
+        }
+        card.addView(suggestionsCard, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also { it.bottomMargin = dpToPx(8) })
+
+        // 2. Trigger matched line
+        val triggerMatchedLabel = TextView(this).apply {
+            setTextColor(Color.parseColor("#8C9EFF"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTypeface(typeface, Typeface.BOLD)
+            visibility = View.GONE
+        }
+        card.addView(triggerMatchedLabel, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also { it.bottomMargin = dpToPx(6) })
+
+        // 3. One-time hint (only with selection)
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val hintDismissed = prefs.getBoolean("typed_selection_hint_dismissed", false)
+        if (!selectedText.isNullOrBlank() && !hintDismissed) {
+            val hintLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                val hBg = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dpToPx(8).toFloat()
+                    setColor(Color.parseColor("#242B38"))
+                }
+                background = hBg
+                setPadding(dpToPx(10), dpToPx(6), dpToPx(8), dpToPx(6))
+                val hText = TextView(this@FloatingButtonService).apply {
+                    text = "Ticked: the AI changes the highlighted text. Not ticked: its answer goes in after it."
+                    setTextColor(Color.parseColor("#C4CAD4"))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                }
+                addView(hText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f))
+                val closeBtn = TextView(this@FloatingButtonService).apply {
+                    text = "✕"
+                    setTextColor(Color.parseColor("#868E9C"))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                    setPadding(dpToPx(6), dpToPx(2), dpToPx(4), dpToPx(2))
+                    setOnClickListener {
+                        this@apply.visibility = View.GONE
+                        prefs.edit().putBoolean("typed_selection_hint_dismissed", true).apply()
+                    }
+                }
+                addView(closeBtn)
+            }
+            card.addView(hintLayout, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.bottomMargin = dpToPx(8) })
+        }
+
+        // 4. Text box row
+        val inputRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val iBg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(16).toFloat()
+                setColor(Color.parseColor("#15171C"))
+                setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+            }
+            background = iBg
+            setPadding(dpToPx(12), dpToPx(8), dpToPx(8), dpToPx(8))
+        }
+
+        val editText = android.widget.EditText(this).apply {
+            hint = "Type an instruction, or / for your triggers"
+            setHintTextColor(Color.parseColor("#868E9C"))
+            setTextColor(Color.parseColor("#E7E9EC"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setBackgroundColor(Color.TRANSPARENT)
+            maxLines = 8
+            minLines = 1
+            if (typedInstructionDraft.isNotEmpty()) {
+                setText(typedInstructionDraft)
+                setSelection(typedInstructionDraft.length)
+            }
+        }
+        inputRow.addView(editText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f))
+
+        val sendButton = TextView(this).apply {
+            text = "↑"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            val sBg = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#8C9EFF"))
+            }
+            background = sBg
+            setTextColor(Color.parseColor("#11142A"))
+            alpha = if (editText.text.isNullOrBlank()) 0.4f else 1.0f
+            isEnabled = !editText.text.isNullOrBlank()
+        }
+        val sLp = LinearLayout.LayoutParams(dpToPx(32), dpToPx(32)).also { it.marginStart = dpToPx(6) }
+        inputRow.addView(sendButton, sLp)
+        card.addView(inputRow, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        // 5. Checkbox (only when selection present)
+        var includeCheckBox: android.widget.CheckBox? = null
+        if (!selectedText.isNullOrBlank()) {
+            includeCheckBox = android.widget.CheckBox(this).apply {
+                val label = PromptPanelLogic.includeLabel(wordCount)
+                text = label
+                setTextColor(Color.parseColor("#E7E9EC"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                isChecked = true
+            }
+            card.addView(includeCheckBox, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.topMargin = dpToPx(6) })
+        }
+
+        fun updateSuggestions(text: String) {
+            val whole = PromptPanelLogic.chosen(text, cachedCustomTriggers)
+            if (whole != null) {
+                triggerMatchedLabel.text = "Trigger: ${whole.name}"
+                triggerMatchedLabel.visibility = View.VISIBLE
+                suggestionsCard.removeAllViews()
+                suggestionsCard.visibility = View.GONE
+                return
+            } else {
+                triggerMatchedLabel.visibility = View.GONE
+            }
+
+            val sugs = PromptPanelLogic.suggest(text, cachedCustomTriggers)
+            if (sugs.isEmpty()) {
+                suggestionsCard.removeAllViews()
+                suggestionsCard.visibility = View.GONE
+            } else {
+                suggestionsCard.removeAllViews()
+                sugs.forEachIndexed { idx, tr ->
+                    val row = LinearLayout(this@FloatingButtonService).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(6))
+                        val nameTv = TextView(this@FloatingButtonService).apply {
+                            setText(tr.name)
+                            setTextColor(Color.parseColor("#E7E9EC"))
+                            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                            setTypeface(typeface, Typeface.BOLD)
+                        }
+                        addView(nameTv, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f))
+                        val phraseTv = TextView(this@FloatingButtonService).apply {
+                            setText(tr.phrases.firstOrNull() ?: "")
+                            setTextColor(Color.parseColor("#868E9C"))
+                            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                        }
+                        addView(phraseTv)
+                        setOnClickListener {
+                            val comp = PromptPanelLogic.completion(editText.text.toString(), tr)
+                            editText.setText(comp)
+                            editText.setSelection(comp.length)
+                        }
+                    }
+                    suggestionsCard.addView(row)
+                    if (idx < sugs.size - 1) {
+                        val div = View(this@FloatingButtonService).apply {
+                            setBackgroundColor(Color.parseColor("#2B313C"))
+                        }
+                        suggestionsCard.addView(div, LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            dpToPx(1)
+                        ))
+                    }
+                }
+                suggestionsCard.visibility = View.VISIBLE
+            }
+        }
+
+        editText.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val str = s?.toString() ?: ""
+                typedInstructionDraft = str
+                val hasText = str.isNotBlank()
+                sendButton.alpha = if (hasText) 1.0f else 0.4f
+                sendButton.isEnabled = hasText
+                updateSuggestions(str)
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
+
+        fun doSend() {
+            val instruction = editText.text.toString().trim()
+            if (instruction.isEmpty()) return
+            typedInstructionDraft = instruction
+            val isInclude = includeCheckBox?.isChecked == true
+            val sel = if (isInclude) selectedText else null
+
+            closeTypedInstructionPanel()
+            setState(ButtonState.PROCESSING)
+
+            apiClient.editText(instruction, sel) { res ->
+                when (res) {
+                    is EditTextResult.Success -> {
+                        if (res.edited) {
+                            typedInstructionDraft = ""
+                            DictationAccessibilityService.getInstance()?.replaceOrInsertText(
+                                res.text,
+                                replaceSelection = isInclude && !selectedText.isNullOrBlank()
+                            )
+                            setState(if (DictationAccessibilityService.hasFocusedEditable()) ButtonState.IDLE else ButtonState.HIDDEN)
+                        } else {
+                            setState(if (DictationAccessibilityService.hasFocusedEditable()) ButtonState.IDLE else ButtonState.HIDDEN)
+                            showTemporaryHint("The AI editor didn't answer. Your instruction is still in the box.")
+                        }
+                    }
+                    is EditTextResult.Unsupported -> {
+                        setState(if (DictationAccessibilityService.hasFocusedEditable()) ButtonState.IDLE else ButtonState.HIDDEN)
+                        showTemporaryHint("Update the PC app to type instructions")
+                    }
+                    is EditTextResult.ServerPaused -> {
+                        setState(if (DictationAccessibilityService.hasFocusedEditable()) ButtonState.IDLE else ButtonState.HIDDEN)
+                        showTemporaryHint("Dictation is paused on your PC")
+                    }
+                    is EditTextResult.Error -> {
+                        setState(if (DictationAccessibilityService.hasFocusedEditable()) ButtonState.IDLE else ButtonState.HIDDEN)
+                        if (res.code == 404 || res.code == 405) {
+                            showTemporaryHint("Update the PC app to type instructions")
+                        } else {
+                            showTemporaryHint("The AI editor didn't answer. Your instruction is still in the box.")
+                        }
+                    }
+                    is EditTextResult.NetworkError -> {
+                        setState(if (DictationAccessibilityService.hasFocusedEditable()) ButtonState.IDLE else ButtonState.HIDDEN)
+                        showTemporaryHint("The AI editor didn't answer. Your instruction is still in the box.")
+                    }
+                }
+            }
+        }
+
+        sendButton.setOnClickListener { doSend() }
+        editText.setOnEditorActionListener { _, actionId, event ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND ||
+                (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && !event.isShiftPressed)) {
+                doSend()
+                true
+            } else {
+                false
+            }
+        }
+
+        // Window params with focus for IME
+        val panelParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_DIM_BEHIND or
+                WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            dimAmount = 0.45f
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+        }
+
+        try {
+            windowManager.addView(overlay, panelParams)
+            editText.requestFocus()
+        } catch (e: Exception) {
+            Log.e("FloatingButtonService", "Error showing typed instruction panel", e)
+        }
+    }
 
     // Reason for edit: Intercept and fully consume all outside touches so they never reach the underlying app or text field per contract F-17
     private class StyleSheetOverlayLayout(context: Context) : FrameLayout(context) {
@@ -1261,6 +1650,14 @@ class FloatingButtonService : Service() {
         overlay.cardView = card
 
         // Populate card contents
+        if (cachedCustomTriggers.isEmpty() && settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED) {
+            apiClient.fetchCustomTriggers { res ->
+                if (res is CustomTriggersResult.Success) {
+                    cachedCustomTriggers = res.triggers.filter { it.enabled }
+                    (currentSheetCard as? LinearLayout)?.let { buildStyleSheetCard(it) }
+                }
+            }
+        }
         buildStyleSheetCard(card)
 
         // Reason for edit: Use FLAG_NOT_FOCUSABLE + FLAG_ALT_FOCUSABLE_IM to place style sheet on top of IME keyboard without stealing focus
@@ -1474,6 +1871,90 @@ class FloatingButtonService : Service() {
             LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
+        // Reason for edit: Add Trigger picker row for dictation style sheet per contract 01 §1 and F-54 §5
+        val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+        val hasTriggers = isSelfHosted && cachedCustomTriggers.isNotEmpty()
+        if (hasTriggers) {
+            val currentTriggerVal = selectedSessionTrigger
+            val selectedTriggerObj = cachedCustomTriggers.firstOrNull { it.id == currentTriggerVal }
+            val triggerLabel = selectedTriggerObj?.let { "${it.name} (${it.phrases.firstOrNull() ?: ""})" } ?: "None"
+
+            val triggerContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+            val titleLabel = TextView(this).apply {
+                text = "Trigger"
+                setTextColor(Color.parseColor("#868E9C"))
+                textSize = 11f
+                setTypeface(typeface, Typeface.BOLD)
+            }
+            triggerContainer.addView(titleLabel, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also {
+                it.topMargin = dpToPx(8)
+                it.bottomMargin = dpToPx(4)
+            })
+
+            val pickerCard = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                val pBg = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dpToPx(10).toFloat()
+                    setColor(Color.parseColor("#222731"))
+                    setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+                }
+                background = pBg
+                setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(8))
+                val nameTv = TextView(this@FloatingButtonService).apply {
+                    text = triggerLabel
+                    setTextColor(Color.parseColor("#E7E9EC"))
+                    textSize = 13f
+                    setTypeface(typeface, Typeface.BOLD)
+                }
+                addView(nameTv, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f))
+                val arrow = TextView(this@FloatingButtonService).apply {
+                    text = "▼"
+                    setTextColor(Color.parseColor("#868E9C"))
+                    textSize = 10f
+                }
+                addView(arrow)
+
+                setOnClickListener {
+                    val items = arrayOf("None") + cachedCustomTriggers.map { "${it.name} (${it.phrases.firstOrNull() ?: ""})" }.toTypedArray()
+                    android.app.AlertDialog.Builder(this@FloatingButtonService, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle("Select Trigger")
+                        .setItems(items) { _, which ->
+                            selectedSessionTrigger = if (which == 0) null else cachedCustomTriggers[which - 1].id
+                            buildStyleSheetCard(card)
+                        }
+                        .show()
+                }
+            }
+            triggerContainer.addView(pickerCard, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
+
+            if (selectedSessionTrigger != null) {
+                val triggerNote = TextView(this).apply {
+                    // Reason for edit: Clarify that picking None restores styles above matching Python style_pill
+                    text = "The trigger decides how this one comes out. Choose None to use the styles above."
+                    setTextColor(Color.parseColor("#8C9EFF"))
+                    textSize = 11f
+                }
+                triggerContainer.addView(triggerNote, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).also { it.topMargin = dpToPx(4) })
+            }
+            rowsContainer.addView(triggerContainer)
+        }
+
+        // When a trigger is chosen, grey out cleanup rows per F-54 §5
+        val cleanupRowsEnabled = selectedSessionTrigger == null
+
         // Row 1: Grammar & flow
         buildOptionRow(
             container = rowsContainer,
@@ -1481,7 +1962,7 @@ class FloatingButtonService : Service() {
             values = listOf("keep", "fix", "polish"),
             labels = listOf("Keep my words", "Fix grammar", "Polish"),
             selectedValue = sessionRewrite,
-            isEnabled = true,
+            isEnabled = cleanupRowsEnabled,
             onSelect = { selected ->
                 sessionRewrite = selected
                 hasUserModifiedPill = true
@@ -1499,7 +1980,7 @@ class FloatingButtonService : Service() {
             values = listOf("off", "light", "strong"),
             labels = listOf("Full length", "Shorter", "Shortest"),
             selectedValue = sessionShorten,
-            isEnabled = true,
+            isEnabled = cleanupRowsEnabled,
             onSelect = { selected ->
                 sessionShorten = selected
                 hasUserModifiedPill = true
@@ -1517,7 +1998,7 @@ class FloatingButtonService : Service() {
             values = listOf("minimal", "light", "standard"),
             labels = listOf("Minimal", "Light", "Standard"),
             selectedValue = sessionPunctuation,
-            isEnabled = true,
+            isEnabled = cleanupRowsEnabled,
             onSelect = { selected ->
                 sessionPunctuation = selected
                 hasUserModifiedPill = true
@@ -1528,18 +2009,9 @@ class FloatingButtonService : Service() {
             }
         )
 
-        // Row 4: Tone (independent Mean tone, auto-advances Grammar & flow for other tones per F-15)
-        val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
-        val toneValues = if (isSelfHosted) {
-            listOf("neutral", "professional", "casual", "friendly", "mean")
-        } else {
-            listOf("neutral", "professional", "casual", "friendly")
-        }
-        val toneLabels = if (isSelfHosted) {
-            listOf("My own tone", "Professional", "Casual", "Friendly", "Mean")
-        } else {
-            listOf("My own tone", "Professional", "Casual", "Friendly")
-        }
+        // Row 4: Tone (Mean mode removed into custom trigger per F-58)
+        val toneValues = listOf("neutral", "professional", "casual", "friendly")
+        val toneLabels = listOf("My own tone", "Professional", "Casual", "Friendly")
 
         buildOptionRow(
             container = rowsContainer,
@@ -1547,13 +2019,10 @@ class FloatingButtonService : Service() {
             values = toneValues,
             labels = toneLabels,
             selectedValue = sessionTone,
-            isEnabled = true,
+            isEnabled = cleanupRowsEnabled,
             note = null,
             onSelect = { selected ->
-                // Reason for edit: Independent Mean tone, auto-promote to Fix grammar for other tones per contract F-15
-                if (selected == "mean") {
-                    sessionTone = "mean"
-                } else if (selected == "neutral") {
+                if (selected == "neutral") {
                     sessionTone = "neutral"
                 } else {
                     if (sessionRewrite == "keep") {
@@ -1981,8 +2450,10 @@ class FloatingButtonService : Service() {
             ButtonState.HIDDEN -> {
                 cancelTemporaryHint()
                 closeStyleSheet()
+                closeTypedInstructionPanel()
                 topLabel?.visibility = View.GONE
                 stylePillView?.visibility = View.GONE
+                typePillView?.visibility = View.GONE
                 container?.visibility = View.GONE
                 floatingButton?.alpha = 1.0f
                 floatingButton?.setImageResource(R.drawable.whisper_remote)
@@ -1991,6 +2462,8 @@ class FloatingButtonService : Service() {
                 closeStyleSheet()
                 topLabel?.visibility = View.GONE
                 stylePillView?.visibility = View.GONE
+                val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+                typePillView?.visibility = if (isSelfHosted) View.VISIBLE else View.GONE
                 if (wasHidden) bringToFront()
                 container?.visibility = View.VISIBLE
                 floatingButton?.alpha = 1.0f
@@ -1998,6 +2471,8 @@ class FloatingButtonService : Service() {
             }
             ButtonState.RECORDING -> {
                 cancelTemporaryHint()
+                closeTypedInstructionPanel()
+                typePillView?.visibility = View.GONE
                 topLabel?.text = if (currentAudioSource == ActiveAudioSource.MEDIA_PLAYBACK) "Media" else "Mic"
                 topLabel?.visibility = View.VISIBLE
                 stylePillView?.visibility = View.VISIBLE
@@ -2006,6 +2481,8 @@ class FloatingButtonService : Service() {
                 floatingButton?.setImageResource(R.drawable.whisper_remote_record)
             }
             ButtonState.RECORDING_NO_FOCUS -> {
+                closeTypedInstructionPanel()
+                typePillView?.visibility = View.GONE
                 topLabel?.text = if (currentAudioSource == ActiveAudioSource.MEDIA_PLAYBACK) "Media" else "Mic"
                 topLabel?.visibility = View.VISIBLE
                 stylePillView?.visibility = View.VISIBLE
@@ -2016,11 +2493,13 @@ class FloatingButtonService : Service() {
             ButtonState.PROCESSING -> {
                 cancelTemporaryHint()
                 closeStyleSheet()
+                closeTypedInstructionPanel()
                 topLabel?.visibility = View.GONE
                 stylePillView?.visibility = View.GONE
+                typePillView?.visibility = View.GONE
                 container?.visibility = View.VISIBLE
-                floatingButton?.alpha = 0.5f
-                floatingButton?.setImageResource(R.drawable.whisper_remote)
+                floatingButton?.alpha = 1.0f
+                floatingButton?.setImageResource(R.drawable.whisper_remote_thinking)
             }
         }
     }
@@ -2030,6 +2509,7 @@ class FloatingButtonService : Service() {
         stopPollingForResume()
         pendingRetryAudioFile = null
         pendingRetryStyleOverrides = null
+        selectedSessionTrigger = null
         audioFile = File(cacheDir, "recording_${System.currentTimeMillis()}.wav")
         pauseActiveMedia()
 
@@ -2351,7 +2831,10 @@ class FloatingButtonService : Service() {
             return
         }
 
-        apiClient.transcribeDetailed(file, styleOverrides) { result ->
+        val triggerToSend = selectedSessionTrigger
+        selectedSessionTrigger = null
+
+        apiClient.transcribeDetailed(file, styleOverrides, trigger = triggerToSend) { result ->
             when (result) {
                 is TranscriptionResult.Success -> {
                     pendingRetryAudioFile = null

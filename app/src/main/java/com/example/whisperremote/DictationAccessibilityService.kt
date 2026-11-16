@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Add getSelectedText() and replaceOrInsertText() for F-54 typed instructions.
 // Reason for edit: Add hasFocusedEditable() helper and auto-start FloatingButtonService in onServiceConnected() per F-47 and F-48.
 // Reason for edit: Added isEnabled helper checking Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES per contract F-16.
 // Reason for edit: Splice text at cursor with ACTION_SET_SELECTION restore (never clobbering field content), and prune unused event types per contract F-12.
@@ -292,6 +293,110 @@ class DictationAccessibilityService : AccessibilityService() {
 
         // Notify FloatingButtonService that paste is done
         FloatingButtonService.getInstance()?.onPasteComplete(hasFocusedEditable)
+    }
+
+    // Reason for edit: Add getSelectedText() to read highlighted text for F-54 typed instruction panel
+    fun getSelectedText(): String? {
+        val targetNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: focusedNode
+            ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: findEditableInTree(rootInActiveWindow) ?: return null
+
+        if (isSensitiveNode(targetNode) || !isEditableNode(targetNode)) return null
+
+        val isShowingHint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            targetNode.isShowingHintText
+        } else false
+        if (isShowingHint) return null
+
+        val fullText = targetNode.text?.toString() ?: return null
+        val selStart = targetNode.textSelectionStart
+        val selEnd = targetNode.textSelectionEnd
+        if (selStart >= 0 && selEnd > selStart && selEnd <= fullText.length) {
+            return fullText.substring(selStart, selEnd)
+        }
+        return null
+    }
+
+    // Reason for edit: Add replaceOrInsertText() to handle replacement and insertion for F-54 typed instructions
+    fun replaceOrInsertText(text: String, replaceSelection: Boolean) {
+        if (BuildConfig.DEBUG) {
+            Log.d("DictationService", "replaceOrInsertText called: replaceSelection=$replaceSelection text=$text")
+        }
+        // Backup to clipboard
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText("Whisper Unchained", text)
+            clipboard.setPrimaryClip(clip)
+        } catch (e: Exception) {
+            Log.e("DictationService", "Clipboard copy failed", e)
+        }
+
+        val targetNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: focusedNode
+            ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: findEditableInTree(rootInActiveWindow)
+
+        if (targetNode != null && isSensitiveNode(targetNode)) {
+            FloatingButtonService.getInstance()?.showTemporaryHint("Password field protected: copied to clipboard")
+            return
+        }
+
+        if (targetNode != null && isEditableNode(targetNode)) {
+            val isShowingHint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                targetNode.isShowingHintText
+            } else false
+            val existingText = if (isShowingHint) "" else (targetNode.text?.toString() ?: "")
+            val selStart = targetNode.textSelectionStart
+            val selEnd = targetNode.textSelectionEnd
+
+            if (replaceSelection && selStart >= 0 && selEnd > selStart && selEnd <= existingText.length) {
+                // Ticked: replace selection with text
+                val newText = existingText.substring(0, selStart) + text + existingText.substring(selEnd)
+                val arguments = Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
+                }
+                val setSuccess = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+                if (setSuccess) {
+                    val newCursor = selStart + text.length
+                    val selArgs = Bundle().apply {
+                        putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, newCursor)
+                        putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newCursor)
+                    }
+                    targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selArgs)
+                    return
+                }
+            } else {
+                // Not ticked or nothing selected: insert at cursor
+                val insertPos = if (selEnd > selStart && selEnd <= existingText.length) selEnd else if (selStart >= 0) selStart else existingText.length
+                val needsSpace = if (selEnd > selStart && insertPos > 0 && insertPos <= existingText.length) {
+                    val prevChar = existingText[insertPos - 1]
+                    !prevChar.isWhitespace() && (text.isNotEmpty() && !text.first().isWhitespace())
+                } else false
+                val toInsert = if (needsSpace) " $text" else text
+
+                if (insertPos in 0..existingText.length) {
+                    val newText = existingText.substring(0, insertPos) + toInsert + existingText.substring(insertPos)
+                    val arguments = Bundle().apply {
+                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
+                    }
+                    val setSuccess = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+                    if (setSuccess) {
+                        val newCursor = insertPos + toInsert.length
+                        val selArgs = Bundle().apply {
+                            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, newCursor)
+                            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newCursor)
+                        }
+                        targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selArgs)
+                        return
+                    }
+                }
+            }
+            // Fallback to pasteText
+            pasteText(text)
+        } else {
+            pasteText(text)
+        }
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {

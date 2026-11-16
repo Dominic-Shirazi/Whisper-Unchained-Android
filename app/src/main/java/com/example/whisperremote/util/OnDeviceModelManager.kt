@@ -3,8 +3,7 @@
 // Inputs: models-manifest.json assets/string, app Context, download cancellation/progress callbacks, Wi-Fi override preferences.
 // Outputs: Model file resolution, SHA-256 hash validation, resumable/cancellable HTTP downloads, and corrupt file purging.
 // Strictly conforms to contracts/05-on-device.md §2.2 & §2.6 and tag models-v1 release manifests.
-// Reason for edit: Standardize model titles and decimal MB sizes per contract and F-32.
-// Reason for edit: Add HTTP Range resumable downloads with .part persistence and corrupt hash purging per F-29.
+// Reason for edit: Update models to unified-en recommended, 110M small, and v3-multi languages; purge v2 on update per F-52 revised & F-57.
 
 package com.example.whisperremote.util
 
@@ -12,6 +11,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
+import com.example.whisperremote.data.SettingsRepository
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -38,7 +38,10 @@ data class ModelSpec(
     val decoder: ModelFileSpec,
     val joiner: ModelFileSpec,
     val tokens: ModelFileSpec,
-    val license: String
+    val license: String,
+    val licenseFile: String? = null,
+    val noticeFile: String? = null,
+    val notice: String? = null
 ) {
     val allFiles: List<ModelFileSpec> get() = listOf(encoder, decoder, joiner, tokens)
     val totalBytes: Long get() = allFiles.sumOf { it.expectedBytes }
@@ -71,9 +74,12 @@ class OnDeviceModelManager(
         private const val TAG = "OnDeviceModelManager"
         const val BASE_DOWNLOAD_URL = "https://github.com/Dominic-Shirazi/Whisper-Unchained-Android/releases/download/models-v1/"
 
+        const val RECOMMENDED_MODEL_ID = "parakeet-unified-en-0.6b-int8"
         const val DEFAULT_MODEL_ID = "parakeet-tdt-110m-en-int8"
-        const val ACCURACY_MODEL_ID = "parakeet-tdt-0.6b-v2-en-int8"
         const val MULTI_MODEL_ID = "parakeet-tdt-0.6b-v3-multi-int8"
+        const val REMOVED_V2_MODEL_ID = "parakeet-tdt-0.6b-v2-en-int8"
+        @Deprecated("Use RECOMMENDED_MODEL_ID or MULTI_MODEL_ID", ReplaceWith("RECOMMENDED_MODEL_ID"))
+        const val ACCURACY_MODEL_ID = RECOMMENDED_MODEL_ID
 
         fun computeSha256(file: File): String {
             if (!file.exists() || !file.isFile) return ""
@@ -114,7 +120,11 @@ class OnDeviceModelManager(
         val modelsObj = json.getJSONObject("models")
         val parsedModels = mutableMapOf<String, ModelSpec>()
 
-        for (key in modelsObj.keys()) {
+        // Order preserved: recommended (unified), standard (110m), multi (v3) per contract 05 §2
+        val orderedKeys = listOf(RECOMMENDED_MODEL_ID, DEFAULT_MODEL_ID, MULTI_MODEL_ID)
+        val allKeys = orderedKeys.filter { modelsObj.has(it) } + modelsObj.keys().asSequence().filter { !orderedKeys.contains(it) }.toList()
+
+        for (key in allKeys) {
             val m = modelsObj.getJSONObject(key)
             val enc = m.getJSONObject("encoder")
             val dec = m.getJSONObject("decoder")
@@ -122,9 +132,9 @@ class OnDeviceModelManager(
             val tok = m.getJSONObject("tokens")
 
             val (dispName, desc) = when (key) {
-                DEFAULT_MODEL_ID -> Pair("Standard (English) · 136 MB", "Parakeet TDT 110M")
-                ACCURACY_MODEL_ID -> Pair("Higher accuracy (English) · 661 MB", "Parakeet TDT 0.6B v2")
-                MULTI_MODEL_ID -> Pair("Other languages · 671 MB", "25 European languages, Parakeet TDT 0.6B v3")
+                RECOMMENDED_MODEL_ID -> Pair("Recommended · most accurate (633 MB)", "Parakeet unified-en 0.6B")
+                DEFAULT_MODEL_ID -> Pair("Small and fast (135 MB)", "Parakeet TDT 110M")
+                MULTI_MODEL_ID -> Pair("Other languages (671 MB)", "For English, the recommended model is more accurate.")
                 else -> Pair(key, "On-device model")
             }
 
@@ -136,7 +146,10 @@ class OnDeviceModelManager(
                 decoder = ModelFileSpec("decoder", dec.getString("file"), dec.getLong("bytes"), dec.getString("sha256")),
                 joiner = ModelFileSpec("joiner", jn.getString("file"), jn.getLong("bytes"), jn.getString("sha256")),
                 tokens = ModelFileSpec("tokens", tok.getString("file"), tok.getLong("bytes"), tok.getString("sha256")),
-                license = m.optString("license", "CC-BY-4.0")
+                license = m.optString("license", "CC-BY-4.0"),
+                licenseFile = if (m.has("license_file")) m.getString("license_file") else null,
+                noticeFile = if (m.has("notice_file")) m.getString("notice_file") else null,
+                notice = if (m.has("notice")) m.getString("notice") else null
             )
         }
         availableModels = parsedModels
@@ -178,13 +191,13 @@ class OnDeviceModelManager(
     fun verifyAndPruneFile(file: File, spec: ModelFileSpec): Boolean {
         if (!file.exists()) return false
         if (file.length() != spec.expectedBytes) {
-            Log.w(TAG, "File size mismatch for ${spec.fileName}: expected ${spec.expectedBytes}, got ${file.length()}. Deleting.")
+            Log.w(TAG, "File ${file.name} size mismatch: got ${file.length()}, expected ${spec.expectedBytes}. Deleting.")
             file.delete()
             return false
         }
-        val actualHash = computeSha256(file)
-        if (!actualHash.equals(spec.sha256, ignoreCase = true)) {
-            Log.w(TAG, "SHA-256 mismatch for ${spec.fileName}: expected ${spec.sha256}, got $actualHash. Deleting.")
+        val actualSha256 = computeSha256(file)
+        if (!actualSha256.equals(spec.sha256, ignoreCase = true)) {
+            Log.w(TAG, "File ${file.name} SHA-256 mismatch: got $actualSha256, expected ${spec.sha256}. Deleting.")
             file.delete()
             return false
         }
@@ -196,157 +209,184 @@ class OnDeviceModelManager(
      */
     fun isModelReady(modelId: String): Boolean {
         val vadFile = getVadFile()
-        if (!verifyAndPruneFile(vadFile, vadSpec)) return false
+        if (!verifyAndPruneFile(vadFile, vadSpec)) {
+            return false
+        }
 
         val spec = availableModels[modelId] ?: return false
-        val modelFiles = getModelFiles(modelId) ?: return false
+        val files = getModelFiles(modelId) ?: return false
 
-        return verifyAndPruneFile(modelFiles["encoder"]!!, spec.encoder) &&
-                verifyAndPruneFile(modelFiles["decoder"]!!, spec.decoder) &&
-                verifyAndPruneFile(modelFiles["joiner"]!!, spec.joiner) &&
-                verifyAndPruneFile(modelFiles["tokens"]!!, spec.tokens)
+        return verifyAndPruneFile(files["encoder"]!!, spec.encoder) &&
+                verifyAndPruneFile(files["decoder"]!!, spec.decoder) &&
+                verifyAndPruneFile(files["joiner"]!!, spec.joiner) &&
+                verifyAndPruneFile(files["tokens"]!!, spec.tokens)
     }
 
     /**
-     * Deletes installed files for a given model to free space.
+     * Deletes model files from disk.
      */
-    fun deleteModel(modelId: String) {
-        val dir = File(context.filesDir, "models/$modelId")
-        if (dir.exists()) {
-            dir.deleteRecursively()
-        }
+    fun deleteModel(modelId: String): Boolean {
+        val dir = getModelDir(modelId)
+        return dir.deleteRecursively()
     }
 
-    fun isWifiConnected(): Boolean {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-        val network = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(network) ?: return false
-        return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+    /**
+     * Migrates removed models on update per contract 05 §2 item 2 and F-52 revised.
+     * Deletes files for parakeet-tdt-0.6b-v2-en-int8. If it was selected, switches to 110M
+     * and returns a notification notice for the user.
+     */
+    fun checkAndMigrateRemovedModels(settingsRepository: SettingsRepository): String? {
+        val v2Dir = File(context.filesDir, "models/$REMOVED_V2_MODEL_ID")
+        if (v2Dir.exists()) {
+            v2Dir.deleteRecursively()
+            Log.i(TAG, "Purged legacy v2 model files: ${v2Dir.absolutePath}")
+        }
+
+        if (settingsRepository.selectedOnDeviceModelId == REMOVED_V2_MODEL_ID) {
+            settingsRepository.selectedOnDeviceModelId = DEFAULT_MODEL_ID
+            return "That model was replaced. Using the small model. The recommended model is in Transcription settings."
+        }
+        return null
     }
 
     /**
      * Downloads a model and the shared Silero VAD weight.
-     * Respects Wi-Fi preferences, reports granular progress, and validates SHA-256.
+     * Supports Wi-Fi check, HTTP Range resuming (.part files), cancellation, and hash verification.
      */
     fun downloadModel(
         modelId: String,
         allowMobileData: Boolean = false,
         cancelSignal: AtomicBoolean = AtomicBoolean(false),
-        onProgress: (ModelDownloadState) -> Unit
+        onStateChange: (ModelDownloadState) -> Unit
     ) {
         val spec = availableModels[modelId]
         if (spec == null) {
-            onProgress(ModelDownloadState.Failed(modelId, "Unknown model: $modelId"))
+            onStateChange(ModelDownloadState.Failed(modelId, "Unknown model ID: $modelId"))
             return
         }
 
-        if (!allowMobileData && !isWifiConnected()) {
-            onProgress(ModelDownloadState.Failed(modelId, "Wi-Fi connection required. Enable 'Use mobile data' to download over cellular."))
+        if (!canDownload(allowMobileData)) {
+            onStateChange(ModelDownloadState.Failed(modelId, "Wi-Fi is required to download models. Toggle 'Use mobile data' to override."))
             return
         }
 
-        val queue = mutableListOf<Pair<File, ModelFileSpec>>()
-        // 1. VAD first if missing
-        if (!verifyAndPruneFile(getVadFile(), vadSpec)) {
-            queue.add(Pair(getVadFile(), vadSpec))
-        }
+        val totalExpected = vadSpec.expectedBytes + spec.totalBytes
+        var totalDownloaded = 0L
 
-        // 2. Model files
-        val dir = getModelDir(modelId)
-        val files = spec.allFiles
-        for (f in files) {
-            val target = File(dir, f.fileName)
-            if (!verifyAndPruneFile(target, f)) {
-                queue.add(Pair(target, f))
-            }
-        }
-
-        if (queue.isEmpty()) {
-            onProgress(ModelDownloadState.Ready(modelId))
-            return
-        }
-
-        val totalBytesExpected = queue.sumOf { it.second.expectedBytes }
-        var totalBytesDownloaded = 0L
-
-        for ((index, item) in queue.withIndex()) {
-            val (targetFile, fileSpec) = item
-            if (cancelSignal.get()) {
-                onProgress(ModelDownloadState.Cancelled)
-                return
-            }
-
-            val partFile = File(targetFile.parentFile, "${fileSpec.fileName}.part")
-            val url = "$baseUrl${fileSpec.fileName}"
-
-            try {
-                downloadFile(
-                    url = url,
-                    targetPartFile = partFile,
-                    expectedBytes = fileSpec.expectedBytes,
+        try {
+            // 1. VAD first if missing
+            val vadFile = getVadFile()
+            if (!verifyAndPruneFile(vadFile, vadSpec)) {
+                downloadFileResumable(
+                    url = baseUrl + vadSpec.fileName,
+                    targetFile = vadFile,
+                    expectedBytes = vadSpec.expectedBytes,
+                    expectedSha256 = vadSpec.sha256,
                     cancelSignal = cancelSignal
-                ) { fileBytesRead ->
-                    val overall = totalBytesDownloaded + fileBytesRead
-                    onProgress(
+                ) { fileBytes ->
+                    onStateChange(
                         ModelDownloadState.Downloading(
                             modelId = modelId,
-                            currentFileName = fileSpec.fileName,
-                            fileIndex = index + 1,
-                            totalFiles = queue.size,
-                            fileBytesDownloaded = fileBytesRead,
-                            fileBytesTotal = fileSpec.expectedBytes,
-                            totalBytesDownloaded = overall,
-                            totalBytesExpected = totalBytesExpected
+                            currentFileName = vadSpec.fileName,
+                            fileIndex = 1,
+                            totalFiles = 5,
+                            fileBytesDownloaded = fileBytes,
+                            fileBytesTotal = vadSpec.expectedBytes,
+                            totalBytesDownloaded = totalDownloaded + fileBytes,
+                            totalBytesExpected = totalExpected
                         )
                     )
                 }
-
                 if (cancelSignal.get()) {
-                    onProgress(ModelDownloadState.Cancelled)
+                    onStateChange(ModelDownloadState.Cancelled)
                     return
                 }
-
-                // Verification
-                onProgress(ModelDownloadState.Verifying(fileSpec.fileName))
-                val isValid = verifyAndPruneFile(partFile, fileSpec)
-                if (!isValid) {
-                    partFile.delete()
-                    onProgress(ModelDownloadState.Failed(modelId, "Verification failed for ${fileSpec.fileName} (SHA-256 mismatch)"))
+                onStateChange(ModelDownloadState.Verifying(vadSpec.fileName))
+                if (!verifyAndPruneFile(vadFile, vadSpec)) {
+                    onStateChange(ModelDownloadState.Failed(modelId, "Verification failed for ${vadSpec.fileName}"))
                     return
                 }
+            }
+            totalDownloaded += vadSpec.expectedBytes
 
-                // Commit: rename verified .part to final target
-                if (targetFile.exists()) targetFile.delete()
-                if (!partFile.renameTo(targetFile)) {
-                    // Fallback to copy if rename fails
-                    partFile.copyTo(targetFile, overwrite = true)
-                    partFile.delete()
+            // 2. Download all 4 model files
+            val modelFiles = getModelFiles(modelId)!!
+            val fileSpecs = listOf(
+                Pair(spec.encoder, modelFiles["encoder"]!!),
+                Pair(spec.decoder, modelFiles["decoder"]!!),
+                Pair(spec.joiner, modelFiles["joiner"]!!),
+                Pair(spec.tokens, modelFiles["tokens"]!!)
+            )
+
+            for ((index, pair) in fileSpecs.withIndex()) {
+                val (fileSpec, targetFile) = pair
+                if (!verifyAndPruneFile(targetFile, fileSpec)) {
+                    downloadFileResumable(
+                        url = baseUrl + fileSpec.fileName,
+                        targetFile = targetFile,
+                        expectedBytes = fileSpec.expectedBytes,
+                        expectedSha256 = fileSpec.sha256,
+                        cancelSignal = cancelSignal
+                    ) { fileBytes ->
+                        onStateChange(
+                            ModelDownloadState.Downloading(
+                                modelId = modelId,
+                                currentFileName = fileSpec.fileName,
+                                fileIndex = index + 2,
+                                totalFiles = 5,
+                                fileBytesDownloaded = fileBytes,
+                                fileBytesTotal = fileSpec.expectedBytes,
+                                totalBytesDownloaded = totalDownloaded + fileBytes,
+                                totalBytesExpected = totalExpected
+                            )
+                        )
+                    }
+                    if (cancelSignal.get()) {
+                        onStateChange(ModelDownloadState.Cancelled)
+                        return
+                    }
+                    onStateChange(ModelDownloadState.Verifying(fileSpec.fileName))
+                    if (!verifyAndPruneFile(targetFile, fileSpec)) {
+                        onStateChange(ModelDownloadState.Failed(modelId, "Verification failed for ${fileSpec.fileName}"))
+                        return
+                    }
                 }
+                totalDownloaded += fileSpec.expectedBytes
+            }
 
-                totalBytesDownloaded += fileSpec.expectedBytes
+            onStateChange(ModelDownloadState.Ready(modelId))
 
-            } catch (e: Exception) {
-                // Keep the .part file on failure or cancel to support resuming per F-29
-                if (cancelSignal.get()) {
-                    onProgress(ModelDownloadState.Cancelled)
-                } else {
-                    Log.e(TAG, "Download failed for ${fileSpec.fileName}", e)
-                    onProgress(ModelDownloadState.Failed(modelId, e.message ?: "Download failed"))
-                }
-                return
+        } catch (e: Exception) {
+            Log.e(TAG, "Download error for model $modelId", e)
+            if (cancelSignal.get()) {
+                onStateChange(ModelDownloadState.Cancelled)
+            } else {
+                onStateChange(ModelDownloadState.Failed(modelId, e.message ?: "Download failed"))
             }
         }
-
-        onProgress(ModelDownloadState.Ready(modelId))
     }
 
-    private fun downloadFile(
+    fun isWifiConnected(): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val active = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(active) ?: return false
+        return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+    }
+
+    private fun canDownload(allowMobileData: Boolean): Boolean {
+        return allowMobileData || isWifiConnected()
+    }
+
+    private fun downloadFileResumable(
         url: String,
-        targetPartFile: File,
+        targetFile: File,
         expectedBytes: Long,
+        expectedSha256: String,
         cancelSignal: AtomicBoolean,
         onFileProgress: (Long) -> Unit
     ) {
+        val targetPartFile = File(targetFile.parentFile, "${targetFile.name}.part")
         val existingBytes = if (targetPartFile.exists()) targetPartFile.length() else 0L
 
         // If part file is larger than expected, it's invalid so delete and start over
@@ -388,6 +428,16 @@ class OnDeviceModelManager(
                     output.flush()
                 }
             }
+        }
+
+        if (cancelSignal.get()) {
+            return
+        }
+
+        // Rename .part to final file
+        if (targetPartFile.exists() && targetPartFile.length() == expectedBytes) {
+            if (targetFile.exists()) targetFile.delete()
+            targetPartFile.renameTo(targetFile)
         }
     }
 }
