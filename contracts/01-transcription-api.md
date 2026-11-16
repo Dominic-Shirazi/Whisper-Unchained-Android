@@ -216,3 +216,61 @@ spaces and `,.;:!?`). Never remove a run that fails these tests, even a single h
 
 The "leading recitation" trim (3+ hints in list order at the very start) can stay for cloud presets only.
 
+
+## 11. Custom triggers · LIVE in server code (Whisper-Unchained-Server, 2026-11-16; app side NEW)
+
+A custom trigger is a phrase the user says that stands for a saved instruction to their AI ("prompt ticket" turns a
+rambling bug description into a ticket). The server detects the phrase and runs the instruction, so **dictating
+through the PC already works from the phone with no app change.** This section is for the app's screen that lists,
+writes and edits them. The PC's list is the list, as with vocabulary (§8). Self-hosted preset only.
+
+A trigger:
+```json
+{ "id": "bug-ticket", "name": "Bug ticket", "phrases": ["prompt ticket", "ticket this"],
+  "prompt": "Rewrite the text as a bug ticket ...", "enabled": true,
+  "library_id": "ticket", "library_version": 1, "author": "Whisper Unchained" }
+```
+`library_id`, `library_version`, `author` (only on triggers added from the library) and `temperature` are optional.
+
+**`GET /v1/custom_triggers`** (auth like every `/v1` route):
+```json
+{ "custom_triggers": [ ... ],
+  "limits": {"triggers": 100, "name": 40, "phrases": 6, "phrase": 60, "prompt_min": 10, "prompt": 6000} }
+```
+
+**`POST /v1/custom_triggers`** `{"set": [trigger, ...], "remove": ["id", ...]}` → same body as GET plus
+`"removed": [...]` and `"replaced": [...]`.
+- A trigger in `set` whose `id` matches an existing one **replaces the fields sent** (send only `{"id", "enabled"}` to
+  flip the switch; send `name`, `phrases`, `prompt` to edit). One with a new `id`, or none, is added; the server
+  gives it an id from its name. Removes run first. 1 to 20 entries per call.
+- **The instruction (`prompt`) must be editable in the app**, in a multi-line box, for every trigger including ones
+  added from the library (Dominic, 2026-11-16). Changing the prompt of a library trigger drops its `library_id`:
+  it is now the user's own.
+- Rules, checked on the whole list before anything is written (a refused call changes nothing): name 1 to 40
+  characters; 1 to 6 phrases, each 2 to 60 characters, no commas or line breaks, and either two words or at least 6
+  letters; prompt 10 to 6,000 characters; no phrase used twice, and none that is already a built-in trigger phrase
+  ("prompt AI", "hey Whisper", the mean-mode phrases, "end prompt"). Otherwise `400 invalid_custom_triggers` with a
+  readable `message` (show it).
+- Takes effect immediately; no restart. Replacing or removing first backs up the PC's word file (as §8).
+- Older servers return `404`: hide the screen's editing and say "Update the PC app to use custom triggers".
+
+**The shared library** is one public file, fetched by the app directly (plain GET, send nothing about the user):
+`https://raw.githubusercontent.com/Dominic-Shirazi/Whisper-Unchained-Server/main/trigger_library/library.json`
+```json
+{ "version": 1, "updated": "2026-11-16", "triggers": [
+  { "id": "ticket", "name": "Bug ticket", "description": "...", "category": "Work writing",
+    "phrases": ["prompt ticket", "ticket this"], "prompt": "...", "model": "any", "author": "...", "version": 1 } ] }
+```
+- `model`: `"any"` → show "Works with small local models"; `"strong"` → "Needs a strong model". Words, not colour.
+- To add one: POST it in `set` with `id` = the library id, `library_id` = the same id, `library_version` = its
+  `version`, plus `name`, `phrases`, `prompt`, `author`, `enabled: true` (and `temperature` if it has one).
+- State per entry: not added → "Add"; an installed trigger has that `library_id` → "✓ Added"; the library's
+  `version` is higher than the installed `library_version` → "Update".
+- Show the full instruction before adding ("Show the instruction"), with the line "A trigger is only instructions
+  for your AI: read them before adding."
+- If the fetch fails, say so; the app does not need to bundle a copy.
+
+**Expected app behavior:** a "Custom triggers" screen next to Corrections & shortcuts: each trigger with its name,
+`Say: "…" or "…"`, an on/off switch, Edit and Remove (Undo snackbar, as §8); "Browse the library" and "Write your
+own". Same wording as the Windows Settings page. Offline edits queue and replay as in §8. On-device and cloud
+transcription don't run custom triggers yet; say so on the screen when the PC isn't the transcriber.
