@@ -90,8 +90,11 @@ that hasn't been through the VAD cut.** It is the least accurate model here for 
      commercial use and redistribution. Two conditions when we pass the files on: give recipients a copy of the
      agreement, and include a "Notice" text file saying "Licensed by NVIDIA Corporation under the NVIDIA Open Model
      License". So the models release carries both files next to the model, and the app shows that sentence with a
-     link to the agreement in About and on the model's download row. Claude uploads the files and sends the URL
-     once Dominic has okayed re-hosting; until then the build pins the hashes above but ships no link for it.
+     link to the agreement in About and on the model's download row. **Hosted 2026-11-16** (Dominic okayed it):
+     the four model files, `parakeet-unified-en-0.6b-int8.LICENSE.txt` (the agreement) and
+     `parakeet-unified-en-0.6b-int8.NOTICE.txt` are in the `models-v1` release, and `manifest.json` there lists
+     the model first, with `license`, `license_file`, `notice_file` and `notice` (the sentence to show). The
+     0.6B v2 files stay in the release and the manifest until no shipped build lists them.
    - Licenses: NVIDIA Parakeet 110M and 0.6B v3 weights are **CC-BY-4.0** → credit in About and ATTRIBUTIONS.md; unified-en 0.6B
      is NVIDIA Open Model License → name the licence and link it in About and ATTRIBUTIONS.md; sherpa-onnx Apache-2.0;
      Silero VAD MIT.

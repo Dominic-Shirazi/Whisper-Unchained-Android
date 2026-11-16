@@ -15,8 +15,8 @@ expects exactly `past`.
 Both build from `contracts/03-edit-prompt.json`, byte-identical to the server's `api/edit_prompt.json`
 (a server test checks). Bundle it as an asset. The system prompt is Dominic's tuned editor prompt: don't reword it.
 
-Mean mode ("prompt roast / TikTok / disses") is **Head PC only** (it needs an uncensored model and a local
-insults file). It's not part of this contract.
+Mean mode is no longer built in (2026-11-16): it is a custom trigger in the shared library (contract 01 §11,
+id `mean-mode`). It's not part of this contract.
 
 ## 1. Detecting and splitting (exact)
 

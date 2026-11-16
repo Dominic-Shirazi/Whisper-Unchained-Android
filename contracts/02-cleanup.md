@@ -67,7 +67,7 @@ If the result is empty, use the original transcript.
 
 - **LLM unreachable, error, timeout or empty reply:** paste the original transcript (uncleaned). Never paste an error message.
 - **No length/shape guard.** A reply much shorter than the transcript is allowed (Dominic's call: such guards would reject legitimate results).
-- **Head PC:** cleanup is skipped when a "prompt AI" or mean-mode trigger fired (that text already went to the editor with the speaker's instruction).
+- **Head PC:** cleanup is skipped when a "prompt AI" or custom trigger fired (or `trigger` was sent) (that text already went to the editor with the speaker's instruction).
 - **Raw mode** (`processing=raw`) never runs cleanup.
 
 ## 5. Head PC request fields (adds to contract 01 §1)

@@ -25,6 +25,7 @@ Multipart form (`multipart/form-data`):
 | `response_format` | no | `json` (default), `text`, `verbose_json`. Others → 400. |
 | `temperature` | no | Accepted and ignored (server uses its own decode settings). |
 | `processing` | no (**the app always sends it**) | **Head PC extra.** Omitted: `raw`, not logged (since 2026-11-12; was `full`). `full`: name corrections + spoken edit commands ("prompt AI …"), same as the desktop hotkey; plus cleanup if the server's "Clean up every dictation" is on. `raw`: plain Whisper text, no edits. `clean`: `full` + the cleanup pass for this request (contract 02). `mean` (**added 2026-11-10**): the whole dictation goes to the server's mean mode (a roast in the speaker's voice), no spoken trigger needed; `cleanup_*` fields are ignored. Self-hosted preset only (it runs on the PC's chosen mean-mode model). |
+| `trigger` | no | **Head PC extra (2026-11-16).** The `id` of one of the user's custom triggers (§11). Its saved instruction is applied to the whole dictation, as if its phrase had been spoken. Skipped when a spoken trigger already fired, when the text is empty, and with `processing=raw`. An unknown or switched-off id is ignored (the dictation comes back as `full`), never an error. |
 | `cleanup_punctuation` / `cleanup_rewrite` / `cleanup_tone` / `cleanup_shorten` / `cleanup_emoji` | no | **Head PC extra.** Cleanup style overrides; see contract 02 §5. |
 
 **Response, `json`:**
@@ -53,6 +54,11 @@ may show "No speech detected."
 
 **Timing:** typically 0.3–2 s for a short dictation on GPU. A spoken *edit command* runs an LLM and can
 take up to ~10 s cold. Keep the client read timeout ≥ 60 s.
+
+> **2026-11-16: mean mode left the server's core.** It is now an ordinary custom trigger in the shared library
+> (id `mean-mode`, category "Fun") that the user adds like any other. `processing=mean` is **deprecated**: the
+> server still accepts it from older builds and treats it as `processing=full` + `trigger=mean-mode`, so it is a
+> plain dictation unless the user has added that trigger. New builds stop sending it (F-58) and use `trigger`.
 
 ## 2. `GET /health` · LIVE (new fields in code; restart pending)
 
@@ -126,6 +132,15 @@ The installer and the desktop Settings window will show a QR code the app scans.
 - `api_key` is **omitted** (not empty) when the server has no key.
 - `v` is the payload version. The app should reject `v` it doesn't know, with a "update the app" message.
 - The QR holds a secret when `api_key` is present. The desktop UI shows it only on request, behind a "Show pairing QR" button.
+- **`alt_base_urls` (optional, added 2026-11-16; v1 and v2 payloads):** up to two more addresses of the *same*
+  server, same shape as `base_url`, e.g. `"alt_base_urls": ["https://192.168.0.2:5001/v1"]`. The PC puts its
+  home-network address there when `base_url` is the Tailscale one, and the other way round, so one code works at
+  home and away. Same `api_key`, same `cert_sha256` (the pin is the identity, not the host name). Absent when the
+  PC has only one address. **App behaviour (F-55):** store them with the pairing. Before a request, use the address
+  that last worked; if it can't be reached (connect failure or timeout, not an HTTP error), try the others in
+  order with a short connect timeout (about 1.5 s each) and remember the one that answers. `/health` checks do the
+  same. The Home-Wi-Fi warning of contract 06 §3.6 applies only when *no* stored address is a Tailscale one.
+  Older builds ignore the field (it was verified that build 26 reads only the keys it knows).
 
 ## 8. Shared vocabulary · LIVE (code; Whisper-Unchained-Server `1c3a2b8`)
 
@@ -249,7 +264,7 @@ A trigger:
 - Rules, checked on the whole list before anything is written (a refused call changes nothing): name 1 to 40
   characters; 1 to 6 phrases, each 2 to 60 characters, no commas or line breaks, and either two words or at least 6
   letters; prompt 10 to 6,000 characters; no phrase used twice, and none that is already a built-in trigger phrase
-  ("prompt AI", "hey Whisper", the mean-mode phrases, "end prompt"). Otherwise `400 invalid_custom_triggers` with a
+  ("prompt AI", "hey Whisper", "end prompt"). Otherwise `400 invalid_custom_triggers` with a
   readable `message` (show it).
 - Takes effect immediately; no restart. Replacing or removing first backs up the PC's word file (as §8).
 - Older servers return `404`: hide the screen's editing and say "Update the PC app to use custom triggers".
@@ -274,3 +289,35 @@ A trigger:
 `Say: "…" or "…"`, an on/off switch, Edit and Remove (Undo snackbar, as §8); "Browse the library" and "Write your
 own". Same wording as the Windows Settings page. Offline edits queue and replay as in §8. On-device and cloud
 transcription don't run custom triggers yet; say so on the screen when the PC isn't the transcriber.
+
+## 12. Typed instruction · LIVE in server code (Whisper-Unchained-Server, 2026-11-16; app side NEW, F-54)
+
+For when the user would rather not talk (an airport, an open office): they **type** what the AI should do. Same
+editor, same custom triggers, no audio.
+
+`POST /dictate/v1/edit_text` (JSON, same auth as everything else)
+```json
+{ "instruction": "make it more formal", "selection": "see you tmrw at the usual place" }
+```
+→ `200 { "text": "…", "edited": true }`
+
+- `instruction` (required, 1 to 4,000 characters) is what the user typed. `selection` (optional) is the text to
+  work on.
+- **With `selection`:** the reply is the selection rewritten to follow the instruction (the app replaces the
+  selection with it).
+- **Without `selection`:** the instruction is all there is, so the AI writes new text ("a two-line thank-you note
+  to a client") and the app inserts it at the cursor.
+- **Custom trigger phrases work in the typed text.** If the instruction contains a trigger's phrase, the trigger's
+  saved instruction is applied: to `selection` when there is one, otherwise to the rest of the typed text
+  (`"prompt ticket the login page crashes when you tap pay twice"` → a bug ticket). Only the phrase and nothing to
+  work on → `edited: false` and the input back.
+- `edited: false` means the AI gave no usable answer; `text` is then the selection unchanged, or `""` when there
+  was none. **Never paste an empty or unchanged result as if it worked**: keep what the user typed in the box and
+  say "The AI editor didn't answer."
+- Errors (§5 shape): `400 missing_instruction`, `413 instruction_too_long`, `413 selection_too_long`,
+  `503 server_paused`. Older servers answer `404`/`405`: say "Update the PC app to type instructions".
+- Not logged as a dictation and not added to the audio corpus (there is no audio).
+- Self-hosted preset only for now: with on-device or cloud transcription and no PC, the app would have to call the
+  user's editor LLM itself (contract 03 prompt); out of scope for F-54, hide the feature there.
+
+**Choosing a trigger without saying or typing its phrase** uses the `trigger` field of §1: the id from §11's list.
