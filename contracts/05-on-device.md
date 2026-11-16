@@ -1,6 +1,6 @@
 # 05 · On-device transcription (v1.3)
 
-**Version:** 1 (2026-11-11) · **Owner:** Claude (spec), Gemini (app) · **Asked for by:** Dominic
+**Version:** 2 (2026-11-15: model list changed, see §1.1 and §2 item 2; build item F-52) · **Owner:** Claude (spec), Gemini (app) · **Asked for by:** Dominic
 
 Why: the Play app has to work on its own. Dominic: "I don't want to launch an app that doesn't actually do anything
 unless you happen to have one of my other products." Minimum: **tap to start, tap to stop, transcribe on the phone,
@@ -34,6 +34,25 @@ PC CPU, 4 threads, sherpa-onnx 2.0.1, audio cut at pauses (Silero VAD, ≤ 25 s 
 
 No GPU or NPU needed. The Fold6 (8 Gen 3) should be somewhat slower; still well under real time.
 
+### 1.1 Second round (2026-11-15): the model list changes
+
+40 of Dominic's real recordings (627 s, 2 to 87 s each), same comparison against his PC's large-v3-turbo,
+sherpa-onnx 2.0.1, greedy decoding, no hotwords, whole clip in one piece (no VAD). Punctuation and capitals are
+ignored in "words differ"; commas are counted separately (turbo wrote 92).
+
+| Model (int8) | Words differ | Clips word-identical | Commas | S25, typical clip | Verdict |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Parakeet unified-en 0.6B, non-streaming** (English) | **2.7 %** | **29 / 40** | 59 | ~0.31 s (same design as v2; PC speed identical) | **add: "Higher accuracy"** |
+| Parakeet TDT 0.6B v2 (English) | 3.7 % | 22 / 40 | 69 | 0.31 s | remove (unified replaces it) |
+| Parakeet TDT 0.6B "ultra" (Moondream, from v3) | 4.0 % | 25 / 40 | 69 | same | not added |
+| Parakeet TDT 1.1B (third-party conversion) | 4.0 % | 23 / 40 | none (lowercase only) | 1.09 s | not added |
+| **Parakeet TDT 110M** (English) | 5.1 % | 22 / 40 | 38 | **0.13 s** | stays the default |
+| Parakeet TDT 0.6B "redux" (Moondream, 1.58-bit v3) | 7.3 % | 15 / 40 | 56 | same | not added |
+| Parakeet TDT 0.6B v3 (25 languages) | 12.1 % | 22 / 40 | 45 | same | **remove: it drops speech** |
+
+v3 returned an empty string for one 22 s clip and lost about 50 words of the 87 s clip. Losing what was said is the
+one failure dictation can't have, so it goes even though that leaves no "other languages" option for now.
+
 ## 2. What to build
 
 1. **Engine:** sherpa-onnx (Apache-2.0) through its Android Kotlin/JNI API (the official AAR or the
@@ -41,13 +60,28 @@ No GPU or NPU needed. The Fold6 (8 Gen 3) should be somewhat slower; still well 
    kafkasl/phone-whisper (Apache-2.0) is a working reference for the wiring and the download screen.
 2. **Models** (downloaded, not bundled, so the APK stays small):
    - **Default: Parakeet TDT 110M int8** (English).
-   - Optional "Higher accuracy (661 MB)": Parakeet TDT 0.6B v2 int8 (English).
-   - Optional "Other languages (671 MB)": Parakeet TDT 0.6B v3 int8 (25 European languages).
+   - Optional "Higher accuracy (633 MB)": **Parakeet unified-en 0.6B int8, non-streaming** (English), model id
+     `parakeet-unified-en-0.6b-int8`. Same recognizer settings as the others (`model_type = nemo_transducer`,
+     encoder/decoder/joiner/tokens). Source package: sherpa-onnx `asr-models` release,
+     `sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming.tar.bz2`. Files (bytes, SHA-256):
+     - `encoder.int8.onnx` 654040552 `6716910b7a0833997fec7a410494c995d70124001a0e9b66d6370d6aced577e0`
+     - `decoder.int8.onnx` 7257753 `a5e223392c90e75f8144cdb5eb95af7625db389e39edef2bd1a9c872b3298fe6`
+     - `joiner.int8.onnx` 1735860 `869f43f7d24595c55581ad3bf249a935fb8a71389fbdaa7504b9f46f93140f8a`
+     - `tokens.txt` 8952 `dc0b4584ab2e4ddbf888425c076c61b736e7356a015250db7d307e6f1a8188ff`
+   - **Removed in version 2:** Parakeet TDT 0.6B v2 and 0.6B v3 (§1.1). Take both out of the model list and the
+     manifest. On update, delete their downloaded files; if one of them was the selected model, switch to the 110M
+     (download it if it isn't there) and say so once ("That model was replaced. Using the standard model.").
+   - Open, Dominic to decide: whether the 110M stays as the small default (135 MB, 0.13 s) or unified becomes the
+     only model. Until he says, 110M stays the default.
    - **Silero VAD** (`silero_vad.onnx`, MIT, ~2 MB) always, to cut recordings at pauses into ≤ 25 s pieces
      (bounds memory on long dictations; the pieces are transcribed in order and joined with a space).
    - Host the exact files we tested on **our own GitHub release** (tag `models-v1` in this repo) and pin each file's
      SHA-256 in the app; verify after download, delete on mismatch. (Claude will create that release.)
-   - Licenses: NVIDIA Parakeet weights are **CC-BY-4.0** → credit in About and ATTRIBUTIONS.md; sherpa-onnx Apache-2.0;
+   - The unified model is under the **NVIDIA Open Model License**, not CC-BY-4.0. Claude adds its files to our
+     models release only after Dominic has okayed re-hosting under that licence; until then the build can pin the
+     hashes above but must not ship a download link for it.
+   - Licenses: NVIDIA Parakeet 110M weights are **CC-BY-4.0** → credit in About and ATTRIBUTIONS.md; unified-en 0.6B
+     is NVIDIA Open Model License → name the licence and link it in About and ATTRIBUTIONS.md; sherpa-onnx Apache-2.0;
      Silero VAD MIT.
 3. **Where your voice is transcribed** (Transcription page, top): **On this phone** / **My PC** / **Cloud service**.
    - Fresh install defaults to *On this phone* once the model is downloaded, so the app works with nothing else.
