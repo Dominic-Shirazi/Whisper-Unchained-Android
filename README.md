@@ -21,10 +21,10 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 
 ## What's New in v1.3 (Build 29)
 
-- **Skills UI Remodel (F-62)**:
+- **Skills UI Remodel (F-62 & F-63)**:
   - Renamed user-facing "Triggers" / "Custom triggers" to **Skills** ("New skill", "Edit skill", "Skill library", "Type an instruction, or / for your skills", and "Skill" picker in the dictation style sheet) while keeping all wire formats, endpoints (`/v1/custom_triggers`, `/v1/trigger_phrases`, `trigger=<id>`), and contracts untouched.
   - **Skills Screen**: Starts with an "Ask the AI to change your text" card dynamically built from the user's first AI-edit phrase (`GET /v1/trigger_phrases`) and a "Choose your own phrase" button, followed immediately (visible without scrolling) by "Your skills" (`+ New skill`, `Browse the library`, and compact rows showing `say "<first phrase>" (+N more)`).
-  - **Phrase Editor Screen ("What you say to ask the AI")**: Dedicated screen featuring a 3-colour single-sentence example with centred labels (`message` in `#6CB4FF`, `phrase`, `directions` in `#F0B44C`), optional "End of instruction" help text, editable phrase list, "+ Add a phrase", and "Restore original phrases".
+  - **Phrase Editor Screen ("What you say to ask the AI")**: Dedicated screen featuring a 3-colour single-sentence portrait phone example (`You say: "send me the report by friday prompt AI make it polite"`) with centred labels (`message` in `#6CB4FF`, `phrase`, `directions` in `#F0B44C`), optional "End of instruction" help text, editable phrase list, "+ Add a phrase", and "Restore original phrases".
   - **New Skill Screen**: Dedicated screen housing the explanation of skills (`The phrase can be anything you like: "prompt intake", "skill intake", or your own words.`), the Client intake sheet example, and "How skills work" notes.
 
 ## What's New in v1.3 (Build 28)

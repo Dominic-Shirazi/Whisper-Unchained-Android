@@ -1,7 +1,8 @@
 // This file is called by MainActivity navigation.
 // Inputs: SettingsRepository and ApiClient for built-in AI-edit phrases and skills (custom triggers) synchronization.
 // Outputs: TriggersScreen Composable presenting the "Skills" screen, the "What you say to ask the AI" phrase editor screen, and the "New skill" / "Edit skill" screen.
-// Conforms to contracts/01-transcription-api.md §11, §13 and F-53, F-60, F-61, F-62.
+// Conforms to contracts/01-transcription-api.md §11, §13 and F-53, F-60, F-61, F-62, F-63.
+// Reason for edit: Shorten Phrase Editor example first part to "send me the report by friday" without horizontal scroll per F-63.
 // Reason for edit: Remodel screen to "Skills" with top "Ask the AI to change your text" card, compact "Your skills" list visible without scrolling, dedicated Phrase Editor screen with 3-colour labelled example, and dedicated New Skill screen with explanation & client-intake example per F-62.
 // Reason for edit: Dedicated Triggers screen with editable built-in phrases ("Keep at least one" guard) and custom triggers with exact F-61 wording.
 
@@ -10,7 +11,6 @@ package com.example.whisperremote.ui.screens
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -568,7 +568,6 @@ fun TriggersScreen(
             // =========================================================================
             SkillsSubView.PHRASE_EDITOR -> {
                 val phraseScroll = rememberScrollState()
-                val exampleHorizScroll = rememberScrollState()
                 val messageBlue = Color(0xFF6CB4FF)
                 val directionsAmber = Color(0xFFF0B44C)
                 val normalColor = MaterialTheme.colorScheme.onSurface
@@ -588,7 +587,7 @@ fun TriggersScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Three-colour labelled example box (F-62 Phrase editor screen)
+                    // Three-colour labelled example box (F-62 & F-63 Phrase editor screen)
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                         shape = RoundedCornerShape(12.dp),
@@ -596,9 +595,7 @@ fun TriggersScreen(
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(exampleHorizScroll),
+                                modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.Top
                             ) {
                                 Column {
@@ -612,7 +609,7 @@ fun TriggersScreen(
                                 }
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
-                                        text = "hey man, can you get me the report by friday",
+                                        text = "send me the report by friday",
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.Normal,
                                         color = messageBlue,
