@@ -353,3 +353,30 @@ instruction ("end prompt") were only editable on the PC. Now the phone can show 
 other PC pastes it in Settings > Transcription. Mentioned here so the format is written down in one place; the
 phone keeps using the QR code and needs nothing new. (If the app ever wants a "paste code" fallback for a phone
 whose camera is broken, this is the format.)
+
+## 14. Speak an instruction over highlighted text · LIVE in server code (since 2026-10; app side NEW, F-65)
+
+The spoken twin of §12. When a recording **starts with text highlighted** in the focused field, the recording is
+the instruction, not dictation.
+
+`POST /dictate/v1/edit_selection` (multipart form, same auth as everything else)
+
+| Field | |
+| --- | --- |
+| `file` | the recording (same formats as §1) |
+| `selection` | the highlighted text, 1 to 20,000 characters |
+| `language` | optional, as §1 |
+
+→ `200 { "text": "…", "instruction": "make it more formal", "edited": true }`
+
+- The server transcribes the recording and applies it to `selection` with the same editor as §12. Custom trigger
+  phrases work: say only a skill's phrase and its saved instruction is applied to the highlight.
+- The app replaces the highlight with `text`. The instruction is never typed out.
+- `edited: false` (nothing was said, or the AI gave no usable answer): `text` is the selection unchanged. **Do not
+  paste**; show a short notice ("The AI made no changes."). Treat a `text` equal to the selection the same way.
+- Errors: `400 missing_selection`, `413 selection_too_long`, `503 server_paused` / `model_unavailable` (keep the
+  recording and retry as for §1).
+- No highlight when the recording starts: ordinary dictation (§1), exactly as today.
+- Plain text only: formatting inside the highlight (bold, links) is not carried either way.
+- On-device and cloud-key modes have no editor: with a highlight there, dictate over it as today (or say so in a
+  notice); do not call this endpoint.
