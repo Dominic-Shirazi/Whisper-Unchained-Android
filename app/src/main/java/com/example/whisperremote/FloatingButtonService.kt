@@ -108,7 +108,7 @@ class FloatingButtonService : Service() {
         fun getInstance(): FloatingButtonService? = instance
     }
 
-    private enum class ButtonState {
+    internal enum class ButtonState {
         HIDDEN,               // no text field focused, not recording
         IDLE,                 // text field focused, ready to record
         RECORDING,            // recording, text field still focused
@@ -626,6 +626,8 @@ class FloatingButtonService : Service() {
             private var initialTouchX = 0f
             private var initialTouchY = 0f
             private var isMoved = false
+            private var longPressRunnable: Runnable? = null
+            private var isLongPressFired = false
 
             override fun onTouch(v: View, event: MotionEvent): Boolean {
                 when (event.action) {
@@ -636,13 +638,26 @@ class FloatingButtonService : Service() {
                         initialTouchX = event.rawX
                         initialTouchY = event.rawY
                         isMoved = false
+                        isLongPressFired = false
                         expandPill()
+
+                        // Reason for edit: Detect long press for button options menu per F-59
+                        longPressRunnable?.let { mainHandler.removeCallbacks(it) }
+                        val runnable = Runnable {
+                            if (!isMoved && state == ButtonState.IDLE) {
+                                isLongPressFired = true
+                                showButtonOptionsMenu()
+                            }
+                        }
+                        longPressRunnable = runnable
+                        mainHandler.postDelayed(runnable, android.view.ViewConfiguration.getLongPressTimeout().toLong())
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val dx = (event.rawX - initialTouchX).toInt()
                         val dy = (event.rawY - initialTouchY).toInt()
                         if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                            longPressRunnable?.let { mainHandler.removeCallbacks(it) }
                             expandPill()
                             params.x = initialX + dx
                             val screenHeight = resources.displayMetrics.heightPixels
@@ -657,11 +672,20 @@ class FloatingButtonService : Service() {
                         return true
                     }
                     MotionEvent.ACTION_UP -> {
+                        longPressRunnable?.let { mainHandler.removeCallbacks(it) }
+                        if (isLongPressFired) {
+                            return true
+                        }
                         if (!isMoved) {
                             handleTap()
                         } else {
                             snapToEdge()
                         }
+                        return true
+                    }
+                    MotionEvent.ACTION_CANCEL -> {
+                        longPressRunnable?.let { mainHandler.removeCallbacks(it) }
+                        isLongPressFired = false
                         return true
                     }
                 }
@@ -1210,8 +1234,170 @@ class FloatingButtonService : Service() {
     private var selectedSessionTrigger: String? = null
     private var typedOverlayView: View? = null
     private var typedInstructionDraft: String = ""
+    private var buttonOptionsMenuOverlay: View? = null
 
-    private fun closeTypedInstructionPanel() {
+    // Reason for edit: Floating button long-press options menu per F-59
+    fun showButtonOptionsMenu() {
+        if (buttonOptionsMenuOverlay != null) return
+        triggerHapticTick()
+
+        val screenWidth = resources.displayMetrics.widthPixels
+        val overlay = FrameLayout(this)
+        buttonOptionsMenuOverlay = overlay
+
+        val dimView = View(this).apply {
+            val hasSamsungBlur = SamsungBlurHelper.applySamsungWindowBlur(this)
+            val scrimAlpha = if (hasSamsungBlur) 0.28f else 0.58f
+            setBackgroundColor(Color.argb((255 * scrimAlpha).toInt(), 0, 0, 0))
+            setOnClickListener {
+                closeButtonOptionsMenu()
+            }
+        }
+        overlay.addView(dimView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        val menuCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(16).toFloat()
+                setColor(Color.parseColor("#1B1E25"))
+                setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+            }
+            background = bg
+            setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16))
+            setOnClickListener { /* consume */ }
+        }
+
+        val cardWidth = minOf(screenWidth - dpToPx(48), dpToPx(320))
+        val cardLp = FrameLayout.LayoutParams(
+            cardWidth,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER
+        )
+        overlay.addView(menuCard, cardLp)
+
+        fun createMenuItem(title: String, subtitle: String? = null, onClick: () -> Unit): View {
+            val itemLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dpToPx(12), dpToPx(10), dpToPx(12), dpToPx(10))
+                val bg = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dpToPx(8).toFloat()
+                    setColor(Color.TRANSPARENT)
+                }
+                background = bg
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    onClick()
+                }
+            }
+            val titleView = TextView(this).apply {
+                text = title
+                setTextColor(Color.parseColor("#E7E9EC"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setTypeface(typeface, Typeface.BOLD)
+            }
+            itemLayout.addView(titleView)
+            if (!subtitle.isNullOrBlank()) {
+                val subView = TextView(this).apply {
+                    text = subtitle
+                    setTextColor(Color.parseColor("#868E9C"))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                }
+                itemLayout.addView(subView, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).also { it.topMargin = dpToPx(2) })
+            }
+            return itemLayout
+        }
+
+        // 1. Type an instruction (opens typed panel without selection checkbox per F-59)
+        menuCard.addView(createMenuItem(
+            title = "Type an instruction",
+            subtitle = "Send a written command to the AI"
+        ) {
+            closeButtonOptionsMenu()
+            openTypedInstructionPanel(forceNoSelection = true)
+        })
+
+        val divider1 = View(this).apply {
+            setBackgroundColor(Color.parseColor("#2B313C"))
+        }
+        menuCard.addView(divider1, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dpToPx(1)
+        ).also {
+            it.topMargin = dpToPx(4)
+            it.bottomMargin = dpToPx(4)
+        })
+
+        // 2. Hide button
+        menuCard.addView(createMenuItem(
+            title = "Hide button",
+            subtitle = "Hide until a text field is tapped"
+        ) {
+            closeButtonOptionsMenu()
+            setState(ButtonState.HIDDEN)
+        })
+
+        val divider2 = View(this).apply {
+            setBackgroundColor(Color.parseColor("#2B313C"))
+        }
+        menuCard.addView(divider2, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dpToPx(1)
+        ).also {
+            it.topMargin = dpToPx(4)
+            it.bottomMargin = dpToPx(4)
+        })
+
+        // 3. Settings
+        menuCard.addView(createMenuItem(
+            title = "Settings",
+            subtitle = "Open Whisper Unchained app"
+        ) {
+            closeButtonOptionsMenu()
+            val intent = Intent(this@FloatingButtonService, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            startActivity(intent)
+        })
+
+        val overlayParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        )
+
+        try {
+            windowManager.addView(overlay, overlayParams)
+        } catch (e: Exception) {
+            Log.e("FloatingButtonService", "Error showing options menu overlay", e)
+        }
+    }
+
+    fun closeButtonOptionsMenu() {
+        val overlay = buttonOptionsMenuOverlay ?: return
+        buttonOptionsMenuOverlay = null
+        try {
+            windowManager.removeView(overlay)
+        } catch (e: Exception) {
+            Log.e("FloatingButtonService", "Error removing options menu overlay", e)
+        }
+    }
+
+    fun closeTypedInstructionPanel() {
         val overlay = typedOverlayView ?: return
         typedOverlayView = null
         try {
@@ -1221,7 +1407,7 @@ class FloatingButtonService : Service() {
         }
     }
 
-    private fun openTypedInstructionPanel() {
+    fun openTypedInstructionPanel(forceNoSelection: Boolean = false) {
         if (typedOverlayView != null) return
         triggerHapticTick()
 
@@ -1272,7 +1458,7 @@ class FloatingButtonService : Service() {
         )
         overlay.addView(card, cardLp)
 
-        val selectedText = DictationAccessibilityService.getInstance()?.getSelectedText()
+        val selectedText = if (forceNoSelection) null else DictationAccessibilityService.getInstance()?.getSelectedText()
         val wordCount = selectedText?.trim()?.split("\\s+".toRegex())?.filter { it.isNotEmpty() }?.size ?: 0
 
         // 1. Suggestion container
@@ -2402,6 +2588,7 @@ class FloatingButtonService : Service() {
             when (state) {
                 ButtonState.HIDDEN -> setState(ButtonState.IDLE)
                 ButtonState.RECORDING_NO_FOCUS -> setState(ButtonState.RECORDING)
+                ButtonState.IDLE -> updateTypePillVisibility()
                 else -> {}
             }
         }
@@ -2414,7 +2601,26 @@ class FloatingButtonService : Service() {
                 ButtonState.RECORDING -> setState(ButtonState.RECORDING_NO_FOCUS)
                 else -> {}
             }
+            updateTypePillVisibility()
         }
+    }
+
+    // Reason for edit: Follow text selection changes for Type pill visibility per F-59
+    fun onTextSelectionChanged() {
+        mainHandler.post {
+            updateTypePillVisibility()
+        }
+    }
+
+    fun updateTypePillVisibility() {
+        val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+        val hasSelection = try {
+            val sel = DictationAccessibilityService.getInstance()?.getSelectedText()
+            !sel.isNullOrBlank()
+        } catch (_: Exception) { false }
+
+        val shouldShow = state == ButtonState.IDLE && isSelfHosted && hasSelection
+        typePillView?.visibility = if (shouldShow) View.VISIBLE else View.GONE
     }
 
     fun onPasteComplete(hasFocus: Boolean) {
@@ -2450,6 +2656,7 @@ class FloatingButtonService : Service() {
             ButtonState.HIDDEN -> {
                 cancelTemporaryHint()
                 closeStyleSheet()
+                closeButtonOptionsMenu()
                 closeTypedInstructionPanel()
                 topLabel?.visibility = View.GONE
                 stylePillView?.visibility = View.GONE
@@ -2460,10 +2667,10 @@ class FloatingButtonService : Service() {
             }
             ButtonState.IDLE -> {
                 closeStyleSheet()
+                closeButtonOptionsMenu()
                 topLabel?.visibility = View.GONE
                 stylePillView?.visibility = View.GONE
-                val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
-                typePillView?.visibility = if (isSelfHosted) View.VISIBLE else View.GONE
+                updateTypePillVisibility()
                 if (wasHidden) bringToFront()
                 container?.visibility = View.VISIBLE
                 floatingButton?.alpha = 1.0f
@@ -2471,6 +2678,7 @@ class FloatingButtonService : Service() {
             }
             ButtonState.RECORDING -> {
                 cancelTemporaryHint()
+                closeButtonOptionsMenu()
                 closeTypedInstructionPanel()
                 typePillView?.visibility = View.GONE
                 topLabel?.text = if (currentAudioSource == ActiveAudioSource.MEDIA_PLAYBACK) "Media" else "Mic"
@@ -2481,6 +2689,7 @@ class FloatingButtonService : Service() {
                 floatingButton?.setImageResource(R.drawable.whisper_remote_record)
             }
             ButtonState.RECORDING_NO_FOCUS -> {
+                closeButtonOptionsMenu()
                 closeTypedInstructionPanel()
                 typePillView?.visibility = View.GONE
                 topLabel?.text = if (currentAudioSource == ActiveAudioSource.MEDIA_PLAYBACK) "Media" else "Mic"
@@ -2493,6 +2702,7 @@ class FloatingButtonService : Service() {
             ButtonState.PROCESSING -> {
                 cancelTemporaryHint()
                 closeStyleSheet()
+                closeButtonOptionsMenu()
                 closeTypedInstructionPanel()
                 topLabel?.visibility = View.GONE
                 stylePillView?.visibility = View.GONE
@@ -3127,6 +3337,8 @@ class FloatingButtonService : Service() {
         instance = null
         stopPollingForResume()
         closeStyleSheet()
+        closeButtonOptionsMenu()
+        closeTypedInstructionPanel()
         closeSetupMissingPrompt()
         // Reason for edit: Release on-device recognizer and VAD native resources per contract 05 §2.8
         onDeviceEngine.release()

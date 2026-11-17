@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -91,7 +92,9 @@ fun HomeScreen(
     onNavigateToPermissions: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onLaunchIntro: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onNavigateToWords: () -> Unit = onNavigateToWordsTriggers,
+    onNavigateToTriggers: () -> Unit = onNavigateToWordsTriggers
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val context = LocalContext.current
@@ -225,18 +228,28 @@ fun HomeScreen(
                 }
             }
 
-            // Group 1: Text modification (Words & Triggers + AI Editing)
+            // Group 1: Your text (Words, Triggers, AI Editing) per F-60 §2
             item {
                 SettingsGroup(
+                    header = "Your text",
                     modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                 ) {
                     SettingsNavRow(
-                        title = "Words & Triggers",
-                        subtitle = "Vocabulary, name corrections & prompts",
+                        title = "Words",
+                        subtitle = repository.getWordsSubtitle(),
                         subtitleIsValue = false,
                         icon = Icons.Default.Edit,
                         iconBackgroundColor = Color(0xFF8A56E2),
-                        onClick = onNavigateToWordsTriggers
+                        onClick = onNavigateToWords
+                    )
+                    SettingsDivider()
+                    SettingsNavRow(
+                        title = "Triggers",
+                        subtitle = repository.getTriggersSubtitle(),
+                        subtitleIsValue = false,
+                        icon = Icons.Default.Star,
+                        iconBackgroundColor = Color(0xFF6750A4),
+                        onClick = onNavigateToTriggers
                     )
                     SettingsDivider()
                     SettingsNavRow(
@@ -250,20 +263,12 @@ fun HomeScreen(
                 }
             }
 
-            // Group 2: How it types & floats
+            // Group 2: The button (Floating button, Paste into apps) per F-60 §2
             item {
                 SettingsGroup(
+                    header = "The button",
                     modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                 ) {
-                    SettingsNavRow(
-                        title = "Paste into apps",
-                        subtitle = pasteModeSubtitle,
-                        subtitleIsValue = true,
-                        icon = Icons.Default.Check,
-                        iconBackgroundColor = Color(0xFFE57E3B),
-                        onClick = onNavigateToPasteMode
-                    )
-                    SettingsDivider()
                     SettingsNavRow(
                         title = "Floating button",
                         subtitle = "Overlay behavior & Tailscale auto-restart",
@@ -274,6 +279,23 @@ fun HomeScreen(
                     )
                     SettingsDivider()
                     SettingsNavRow(
+                        title = "Paste into apps",
+                        subtitle = pasteModeSubtitle,
+                        subtitleIsValue = true,
+                        icon = Icons.Default.Check,
+                        iconBackgroundColor = Color(0xFFE57E3B),
+                        onClick = onNavigateToPasteMode
+                    )
+                }
+            }
+
+            // Group 3: This phone (Permissions, Transcribe audio playing on this phone) per F-60 §2
+            item {
+                SettingsGroup(
+                    header = "This phone",
+                    modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
+                ) {
+                    SettingsNavRow(
                         title = "Permissions",
                         subtitle = "Microphone, overlay, accessibility & battery",
                         subtitleIsValue = false,
@@ -281,17 +303,8 @@ fun HomeScreen(
                         iconBackgroundColor = Color(0xFF38A169),
                         onClick = onNavigateToPermissions
                     )
-                }
-            }
-
-            // Group 4: Phone Audio (Full flavor only)
-            if (BuildConfig.FEATURE_INTERNAL_AUDIO) {
-                item {
-                    SettingsGroup(
-                        header = "Phone audio",
-                        footer = "Note: Phone calls cannot be captured.",
-                        modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
-                    ) {
+                    if (BuildConfig.FEATURE_INTERNAL_AUDIO) {
+                        SettingsDivider()
                         SettingsNavRow(
                             title = "Transcribe audio playing on this phone",
                             subtitle = "Capture audio from videos and podcasts",
@@ -307,7 +320,7 @@ fun HomeScreen(
                 }
             }
 
-            // Group 5: About
+            // Group 4: About on its own per F-60 §2
             item {
                 SettingsGroup(
                     modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)

@@ -54,6 +54,8 @@ import com.example.whisperremote.ui.screens.HomeScreen
 import com.example.whisperremote.ui.screens.PasteModeScreen
 import com.example.whisperremote.ui.screens.PermissionsScreen
 import com.example.whisperremote.ui.screens.TranscriptionScreen
+import com.example.whisperremote.ui.screens.TriggersScreen
+import com.example.whisperremote.ui.screens.WordsScreen
 import com.example.whisperremote.ui.screens.WordsTriggersScreen
 import com.example.whisperremote.ui.theme.WhisperTheme
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -317,7 +319,9 @@ private fun MainAppNavHost(
                 repository = repository,
                 statusCardState = statusCardState,
                 onNavigateToTranscription = { navController.navigate("transcription") },
-                onNavigateToWordsTriggers = { navController.navigate("words_triggers") },
+                onNavigateToWordsTriggers = { navController.navigate("words") },
+                onNavigateToWords = { navController.navigate("words") },
+                onNavigateToTriggers = { navController.navigate("triggers") },
                 onNavigateToAiEditing = { navController.navigate("ai_editing") },
                 onNavigateToPasteMode = { navController.navigate("paste_mode") },
                 onNavigateToFloatingButton = { navController.navigate("floating_button") },
@@ -334,8 +338,23 @@ private fun MainAppNavHost(
                 onNavigateBack = { navController.popBackStack() }
             )
         }
+        // Reason for edit: Add separate words and triggers routes per F-60, keeping words_triggers as alias
+        composable("words") {
+            WordsScreen(
+                repository = repository,
+                apiClient = apiClient,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        composable("triggers") {
+            TriggersScreen(
+                repository = repository,
+                apiClient = apiClient,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
         composable("words_triggers") {
-            WordsTriggersScreen(
+            WordsScreen(
                 repository = repository,
                 apiClient = apiClient,
                 onNavigateBack = { navController.popBackStack() }

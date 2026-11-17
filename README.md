@@ -19,6 +19,19 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## What's New in v1.3 (Build 28)
+
+- **Selection-Gated Type Pill & Button Options Menu (F-59)**: The floating "Type" pill appears only when text is currently highlighted in the focused field, automatically hiding when selection collapses without moving the button. Long-pressing the floating button opens an options menu with "Type an instruction" (opening the typed instruction panel directly without selection checkbox), "Hide button", and "Settings".
+- **Dedicated Words & Triggers Split (F-60)**: Split the unified "Words & Triggers" screen into two separate dedicated destinations with no tabs:
+  - **Words**: Vocabulary helper words and Corrections & shortcuts with instant 2-way PC synchronization and offline mutation replay.
+  - **Triggers**: Built-in trigger phrases backed by `GET`/`POST /v1/trigger_phrases` with "Keep at least one" edit phrase guard, and Custom triggers with interactive builder and library browser.
+- **Refined Triggers Screen Layout & Examples (F-61)**: Updated Triggers screen top-to-bottom layout starting immediately with "Trigger phrases" and an inline Windows-style example ("prompt AI make it polite"), scroll-to "Custom triggers ↓" navigation link, clear explanation of custom triggers with the "prompt intake" example, direct link to add "Client intake sheet" from the library, and pointer to mean mode in the library under Fun.
+- **Grouped Home Navigation with Dynamic Subtitles (F-60 §2)**: Reorganized Home screen into labelled Material 3 sections matching the desktop settings layout:
+  - **Your text**: Words (with live counts e.g. "42 words, 6 corrections"), Triggers (e.g. "hey Whisper · 3 custom"), and AI Editing.
+  - **The button**: Floating button and Paste into apps.
+  - **This phone**: Permissions and Transcribe audio playing on this phone.
+  - **About**: Privacy policy, source code, and version details.
+
 ## What's New in v1.3 (Build 27)
 
 - **Typed Instruction Pill & Panel (F-54)**: Tap the "Type" pill under the idle floating mic to type an instruction when you'd rather not speak. Features autocomplete trigger suggestions (`/` or prefix search), whole-phrase detection, highlighted text selection inclusion/replacement, and in-memory draft preservation on dismiss or failure.

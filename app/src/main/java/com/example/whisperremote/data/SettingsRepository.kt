@@ -25,14 +25,15 @@ import com.example.whisperremote.util.KeyStoreCryptoHelper
 import org.json.JSONArray
 import org.json.JSONObject
 
-// Reason for edit: Add QueuedMutation model with retry attempts and human-readable describe() per F-43 & F-45
+// Reason for edit: Add QueuedMutation model with retry attempts and human-readable describe() per F-43, F-45 & F-60
 data class QueuedMutation(
     val id: String = java.util.UUID.randomUUID().toString(),
-    val type: String, // "vocab" or "name"
+    val type: String, // "vocab", "name", or "phrases"
     val addWords: List<String> = emptyList(),
     val removeWords: List<String> = emptyList(),
     val setNameCorrections: Map<String, String> = emptyMap(),
     val removeNameCorrections: List<String> = emptyList(),
+    val triggerPhrases: List<TriggerPhrase> = emptyList(),
     val attempts: Int = 0
 ) {
     fun describe(): String {
@@ -57,6 +58,7 @@ data class QueuedMutation(
                         "remove '${removeNameCorrections.joinToString()}'"
                 }
             }
+            "phrases" -> "save ${triggerPhrases.size} trigger phrases"
             else -> "item $id"
         }
     }
@@ -74,6 +76,11 @@ data class QueuedMutation(
                 put("setNameCorrections", setObj)
             }
             if (removeNameCorrections.isNotEmpty()) put("removeNameCorrections", JSONArray(removeNameCorrections))
+            if (triggerPhrases.isNotEmpty()) {
+                val phrasesArray = JSONArray()
+                triggerPhrases.forEach { phrasesArray.put(it.toJson()) }
+                put("triggerPhrases", phrasesArray)
+            }
         }
     }
 
@@ -98,6 +105,9 @@ data class QueuedMutation(
             val removeNameArray = json.optJSONArray("removeNameCorrections") ?: JSONArray()
             val removeNameCorrections = (0 until removeNameArray.length()).map { removeNameArray.getString(it) }
 
+            val phrasesArray = json.optJSONArray("triggerPhrases") ?: JSONArray()
+            val triggerPhrases = (0 until phrasesArray.length()).map { TriggerPhrase.fromJson(phrasesArray.getJSONObject(it)) }
+
             return QueuedMutation(
                 id = id,
                 type = type,
@@ -105,6 +115,7 @@ data class QueuedMutation(
                 removeWords = removeWords,
                 setNameCorrections = setNameCorrections,
                 removeNameCorrections = removeNameCorrections,
+                triggerPhrases = triggerPhrases,
                 attempts = attempts
             )
         }
@@ -833,6 +844,18 @@ class SettingsRepository(context: Context) {
         }
     }
 
+    // Reason for edit: Added TriggerPhrases endpoint resolver per contract 01 §13 & F-60
+    fun getTriggerPhrasesUrl(): String = getTriggerPhrasesUrl(lastWorkingBaseUrl)
+
+    fun getTriggerPhrasesUrl(base: String): String {
+        val b = (if (base.isNotBlank()) base else baseUrl).trimEnd('/')
+        return if (b.endsWith("/v1")) {
+            "$b/trigger_phrases"
+        } else {
+            "$b/v1/trigger_phrases"
+        }
+    }
+
     // Reason for edit: Added EditText endpoint resolver for typed instructions per contract 01 §12 & F-54
     fun getEditTextUrl(): String = getEditTextUrl(lastWorkingBaseUrl)
 
@@ -948,6 +971,11 @@ class SettingsRepository(context: Context) {
                 }
                 updateCachedServerNameCorrections(currentMap)
             }
+            "phrases" -> {
+                if (mutation.triggerPhrases.isNotEmpty()) {
+                    updateCachedTriggerPhrases(mutation.triggerPhrases)
+                }
+            }
         }
     }
 
@@ -991,6 +1019,66 @@ class SettingsRepository(context: Context) {
     var cachedServerNameCorrectionsJson: String
         get() = getPlainString("cached_server_name_corrections_json", "")
         set(value) = putPlainString("cached_server_name_corrections_json", value)
+
+    // Reason for edit: Cache trigger phrases and custom triggers count for instant Home screen subtitles per F-60
+    var cachedTriggerPhrasesJson: String
+        get() = getPlainString("cached_trigger_phrases_json", "")
+        set(value) = putPlainString("cached_trigger_phrases_json", value)
+
+    fun parseCachedTriggerPhrases(): List<TriggerPhrase> {
+        val raw = cachedTriggerPhrasesJson
+        if (raw.isBlank()) return listOf(
+            TriggerPhrase("hey Whisper", "edit"),
+            TriggerPhrase("prompt AI", "edit"),
+            TriggerPhrase("end prompt", "end")
+        )
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { TriggerPhrase.fromJson(arr.getJSONObject(it)) }
+        } catch (e: Exception) {
+            listOf(
+                TriggerPhrase("hey Whisper", "edit"),
+                TriggerPhrase("prompt AI", "edit"),
+                TriggerPhrase("end prompt", "end")
+            )
+        }
+    }
+
+    fun updateCachedTriggerPhrases(phrases: List<TriggerPhrase>) {
+        val arr = JSONArray()
+        phrases.forEach { arr.put(it.toJson()) }
+        cachedTriggerPhrasesJson = arr.toString()
+    }
+
+    var cachedCustomTriggersCount: Int
+        get() = prefs.getInt("cached_custom_triggers_count", 0)
+        set(value) = prefs.edit().putInt("cached_custom_triggers_count", value).apply()
+
+    fun getWordsSubtitle(): String {
+        val vocabCount = cachedServerVocabulary.size
+        val corrCount = parseCachedServerNameCorrections().size
+        return if (vocabCount > 0 || corrCount > 0) {
+            val vocabLabel = if (vocabCount == 1) "1 word" else "$vocabCount words"
+            val corrLabel = if (corrCount == 1) "1 correction" else "$corrCount corrections"
+            "$vocabLabel, $corrLabel"
+        } else {
+            "Vocabulary, corrections and shortcuts"
+        }
+    }
+
+    fun getTriggersSubtitle(): String {
+        if (transcriptionTarget != TranscriptionTarget.PC.id) {
+            return "Set up on your PC"
+        }
+        val phrases = parseCachedTriggerPhrases()
+        val firstEdit = phrases.firstOrNull { it.isEdit() }?.phrase ?: "hey Whisper"
+        val customCount = cachedCustomTriggersCount
+        return if (customCount > 0) {
+            "$firstEdit · $customCount custom"
+        } else {
+            firstEdit
+        }
+    }
 
     var removeFillerSounds: Boolean
         get() = prefs.getBoolean("remove_filler_sounds", false)

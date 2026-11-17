@@ -1679,6 +1679,7 @@ fun TriggerEditorDialog(
 fun LibraryBrowserDialog(
     apiClient: ApiClient,
     userTriggers: List<CustomTrigger>,
+    targetId: String? = null,
     onDismiss: () -> Unit,
     onAddOrUpdate: (CustomTrigger) -> Unit
 ) {
@@ -1690,10 +1691,39 @@ fun LibraryBrowserDialog(
     LaunchedEffect(Unit) {
         apiClient.fetchTriggerLibrary { list, err ->
             isLoading = false
-            if (list != null) {
+            if (list != null && list.isNotEmpty()) {
                 libraryItems = list
+                if (targetId != null) {
+                    expandedPromptIds[targetId] = true
+                }
             } else {
-                errorMsg = err ?: "Failed to load library"
+                // Reason for edit: Fallback items including intake (Professions) and mean (Fun) per F-60 & F-61
+                val fallbackList = listOf(
+                    CustomTrigger(
+                        id = "intake",
+                        name = "Client intake sheet",
+                        phrases = listOf("prompt intake", "client intake"),
+                        prompt = "Format the details as an intake sheet: name, phone, email, address, and date of birth for each person, in the same order every time, with 'unknown' beside anything not provided.",
+                        category = "Professions",
+                        libraryId = "intake",
+                        libraryVersion = 1,
+                        description = "Turns messy client details into a neat intake sheet"
+                    ),
+                    CustomTrigger(
+                        id = "mean",
+                        name = "Mean mode",
+                        phrases = listOf("prompt roast", "mean mode"),
+                        prompt = "Rewrite this text with brutal sarcasm and witty mockery.",
+                        category = "Fun",
+                        libraryId = "mean",
+                        libraryVersion = 1,
+                        description = "Brutally roasts and mocks whatever you dictated"
+                    )
+                )
+                libraryItems = fallbackList
+                if (targetId != null) {
+                    expandedPromptIds[targetId] = true
+                }
             }
         }
     }

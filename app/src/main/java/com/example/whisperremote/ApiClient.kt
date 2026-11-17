@@ -25,6 +25,7 @@ import com.example.whisperremote.data.CustomTrigger
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.QueuedMutation
 import com.example.whisperremote.data.SettingsRepository
+import com.example.whisperremote.data.TriggerPhrase
 import com.example.whisperremote.net.PinnedCertificateHelper
 import com.example.whisperremote.util.CleanupOptions
 import com.example.whisperremote.util.EditCommandProcessor
@@ -122,6 +123,17 @@ sealed class EditTextResult {
         val statusCode: Int get() = code
     }
     data class NetworkError(val error: Throwable) : EditTextResult()
+}
+
+// Reason for edit: Add TriggerPhrasesResult per contract 01 §13 and F-60
+sealed class TriggerPhrasesResult {
+    data class Success(val phrases: List<TriggerPhrase>, val limits: Map<String, Int> = emptyMap()) : TriggerPhrasesResult()
+    data class Unsupported(val message: String = "Update the PC app to edit trigger phrases") : TriggerPhrasesResult()
+    data class ParseError(val message: String) : TriggerPhrasesResult()
+    data class Error(val code: Int, val message: String) : TriggerPhrasesResult() {
+        val statusCode: Int get() = code
+    }
+    data class NetworkError(val error: Throwable) : TriggerPhrasesResult()
 }
 
 class ApiClient(private val context: Context) {
@@ -853,6 +865,12 @@ class ApiClient(private val context: Context) {
             replayNextMutation(onComplete)
             return
         }
+        // Reason for edit: Drop empty phrases mutation per F-60
+        if (item.type == "phrases" && item.triggerPhrases.isEmpty()) {
+            repository.removePendingMutation(item.id)
+            replayNextMutation(onComplete)
+            return
+        }
 
         // 2. Wrap per-item step in try/catch to ensure exceptions before enqueue do not freeze isReplaying per F-45 item 2
         try {
@@ -998,6 +1016,71 @@ class ApiClient(private val context: Context) {
                         }
                     }
                 }
+                // Reason for edit: Handle phrases mutation replay per contract 01 §13 and F-60
+                "phrases" -> {
+                    saveTriggerPhrases(item.triggerPhrases) { result ->
+                        when (result) {
+                            is TriggerPhrasesResult.Success -> {
+                                authErrorNotified.set(false)
+                                repository.removePendingMutation(item.id)
+                                replayNextMutation(onComplete)
+                            }
+                            is TriggerPhrasesResult.ParseError -> {
+                                val attempts = repository.incrementMutationAttempts(item.id)
+                                if (attempts >= 3) {
+                                    repository.removePendingMutation(item.id)
+                                    runOnMain {
+                                        Toast.makeText(
+                                            context,
+                                            "Could not send edit (${item.describe()}) after 3 attempts.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                    replayNextMutation(onComplete)
+                                } else {
+                                    isReplaying.set(false)
+                                    onComplete?.invoke(false)
+                                }
+                            }
+                            is TriggerPhrasesResult.Error -> {
+                                when {
+                                    result.code == 400 -> {
+                                        repository.removePendingMutation(item.id)
+                                        runOnMain {
+                                            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                        }
+                                        replayNextMutation(onComplete)
+                                    }
+                                    result.code == 401 || result.code == 403 -> {
+                                        if (authErrorNotified.compareAndSet(false, true)) {
+                                            runOnMain {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Your PC didn't accept this phone's key. Scan the pairing code again to send your waiting edits.",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            }
+                                        }
+                                        isReplaying.set(false)
+                                        onComplete?.invoke(false)
+                                    }
+                                    else -> {
+                                        isReplaying.set(false)
+                                        onComplete?.invoke(false)
+                                    }
+                                }
+                            }
+                            is TriggerPhrasesResult.Unsupported -> {
+                                repository.removePendingMutation(item.id)
+                                replayNextMutation(onComplete)
+                            }
+                            is TriggerPhrasesResult.NetworkError -> {
+                                isReplaying.set(false)
+                                onComplete?.invoke(false)
+                            }
+                        }
+                    }
+                }
                 else -> {
                     repository.removePendingMutation(item.id)
                     replayNextMutation(onComplete)
@@ -1045,6 +1128,7 @@ class ApiClient(private val context: Context) {
                                 val triggers = (0 until array.length()).map {
                                     com.example.whisperremote.data.CustomTrigger.fromJson(array.getJSONObject(it))
                                 }
+                                repository.cachedCustomTriggersCount = triggers.size
                                 val limits = com.example.whisperremote.data.TriggerLimits.fromJson(json.optJSONObject("limits"))
                                 callback(CustomTriggersResult.Success(com.example.whisperremote.data.CustomTriggersResponse(triggers, limits)))
                             } catch (e: Exception) {
@@ -1114,6 +1198,7 @@ class ApiClient(private val context: Context) {
                                 val triggers = (0 until array.length()).map {
                                     com.example.whisperremote.data.CustomTrigger.fromJson(array.getJSONObject(it))
                                 }
+                                repository.cachedCustomTriggersCount = triggers.size
                                 val limits = com.example.whisperremote.data.TriggerLimits.fromJson(json.optJSONObject("limits"))
                                 callback(CustomTriggersResult.Success(com.example.whisperremote.data.CustomTriggersResponse(triggers, limits)))
                             } catch (e: Exception) {
@@ -1230,6 +1315,142 @@ class ApiClient(private val context: Context) {
                         callback(list, null)
                     } catch (e: Exception) {
                         callback(null, "Failed to parse trigger library: ${e.message}")
+                    }
+                }
+            }
+        })
+    }
+
+    // Reason for edit: Add fetchTriggerPhrases and saveTriggerPhrases per contract 01 §13 and F-60
+    /**
+     * Fetches built-in trigger phrases from GET /v1/trigger_phrases.
+     */
+    fun fetchTriggerPhrases(rawCallback: (TriggerPhrasesResult) -> Unit) {
+        val callback: (TriggerPhrasesResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
+        val url = repository.getTriggerPhrasesUrl()
+        if (url.isBlank() || !url.startsWith("http")) {
+            callback(TriggerPhrasesResult.Error(400, "Server URL is not configured"))
+            return
+        }
+
+        val requestBuilder = Request.Builder().url(url).get()
+        val token = repository.apiKey
+        if (token.isNotBlank()) {
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+
+        clientFor(url).newCall(requestBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback(TriggerPhrasesResult.NetworkError(mapError(e)))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    when (response.code) {
+                        404 -> callback(TriggerPhrasesResult.Unsupported("Update the PC app to edit trigger phrases"))
+                        200 -> {
+                            val body = response.body?.string().orEmpty()
+                            try {
+                                val json = JSONObject(body)
+                                val array = json.optJSONArray("trigger_phrases") ?: JSONArray()
+                                val phrases = (0 until array.length()).map {
+                                    TriggerPhrase.fromJson(array.getJSONObject(it))
+                                }
+                                val limitsMap = mutableMapOf<String, Int>()
+                                val limitsObj = json.optJSONObject("limits")
+                                limitsObj?.let {
+                                    for (key in it.keys()) {
+                                        limitsMap[key] = it.optInt(key)
+                                    }
+                                }
+                                repository.updateCachedTriggerPhrases(phrases)
+                                callback(TriggerPhrasesResult.Success(phrases, limitsMap))
+                            } catch (e: Exception) {
+                                callback(TriggerPhrasesResult.ParseError("Failed to parse trigger phrases: ${e.message}"))
+                            }
+                        }
+                        else -> {
+                            val errMsg = try {
+                                val errJson = JSONObject(response.body?.string().orEmpty())
+                                errJson.optString("message", null)
+                            } catch (_: Exception) { null }
+                            callback(TriggerPhrasesResult.Error(response.code, errMsg ?: "Server returned HTTP ${response.code}"))
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    /**
+     * Updates built-in trigger phrases via POST /v1/trigger_phrases.
+     */
+    fun saveTriggerPhrases(
+        phrases: List<TriggerPhrase>,
+        rawCallback: (TriggerPhrasesResult) -> Unit
+    ) {
+        val callback: (TriggerPhrasesResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
+        val url = repository.getTriggerPhrasesUrl()
+        if (url.isBlank() || !url.startsWith("http")) {
+            callback(TriggerPhrasesResult.Error(400, "Server URL is not configured"))
+            return
+        }
+
+        val payload = JSONObject().apply {
+            val phrasesArray = JSONArray()
+            phrases.forEach { phrasesArray.put(it.toJson()) }
+            put("phrases", phrasesArray)
+        }
+
+        val requestBody = payload.toString().toRequestBody("application/json".toMediaTypeOrNull())
+        val requestBuilder = Request.Builder().url(url).post(requestBody)
+        val token = repository.apiKey
+        if (token.isNotBlank()) {
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+
+        clientFor(url).newCall(requestBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback(TriggerPhrasesResult.NetworkError(mapError(e)))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    when (response.code) {
+                        404 -> callback(TriggerPhrasesResult.Unsupported("Update the PC app to edit trigger phrases"))
+                        200 -> {
+                            val body = response.body?.string().orEmpty()
+                            try {
+                                val json = JSONObject(body)
+                                val array = json.optJSONArray("trigger_phrases") ?: JSONArray()
+                                val newPhrases = (0 until array.length()).map {
+                                    TriggerPhrase.fromJson(array.getJSONObject(it))
+                                }
+                                val limitsMap = mutableMapOf<String, Int>()
+                                val limitsObj = json.optJSONObject("limits")
+                                limitsObj?.let {
+                                    for (key in it.keys()) {
+                                        limitsMap[key] = it.optInt(key)
+                                    }
+                                }
+                                repository.updateCachedTriggerPhrases(newPhrases)
+                                callback(TriggerPhrasesResult.Success(newPhrases, limitsMap))
+                            } catch (e: Exception) {
+                                callback(TriggerPhrasesResult.ParseError("Failed to parse trigger phrases response: ${e.message}"))
+                            }
+                        }
+                        else -> {
+                            val errMsg = try {
+                                val errJson = JSONObject(response.body?.string().orEmpty())
+                                if (errJson.has("error")) {
+                                    val errObj = errJson.optJSONObject("error")
+                                    errObj?.optString("message", null) ?: errJson.optString("error", null)
+                                } else {
+                                    errJson.optString("message", null)
+                                }
+                            } catch (_: Exception) { null }
+                            callback(TriggerPhrasesResult.Error(response.code, errMsg ?: "Server returned HTTP ${response.code}"))
+                        }
                     }
                 }
             }

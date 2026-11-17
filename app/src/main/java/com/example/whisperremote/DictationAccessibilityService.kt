@@ -111,12 +111,16 @@ class DictationAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        // Reason for edit: Restricted to minimal focus and window events per contract F-12
+        // Reason for edit: Minimal focus/window events per F-12, plus selection tracking per F-59
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_FOCUSED,
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
                 checkFocusState(event)
+                FloatingButtonService.getInstance()?.onTextSelectionChanged()
+            }
+            AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED -> {
+                FloatingButtonService.getInstance()?.onTextSelectionChanged()
             }
         }
     }

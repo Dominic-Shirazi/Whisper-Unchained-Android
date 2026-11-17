@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- This file configures the DictationAccessibilityService capabilities and event filters. -->
-<!-- Reason for edit: Restricted accessibilityEventTypes to minimal focus tracking and window events (dropping text/selection change events) per contract F-12. -->
+<!-- Reason for edit: Restricted accessibilityEventTypes to minimal focus tracking and window events per contract F-12. -->
+<!-- Reason for edit: Added typeViewTextSelectionChanged to follow text selection changes for Type pill per F-59. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeViewFocused|typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityEventTypes="typeViewFocused|typeWindowStateChanged|typeWindowContentChanged|typeViewTextSelectionChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
     android:canRetrieveWindowContent="true"
