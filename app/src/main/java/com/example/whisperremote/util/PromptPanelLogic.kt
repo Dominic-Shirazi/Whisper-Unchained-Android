@@ -6,6 +6,7 @@
 
 package com.example.whisperremote.util
 
+// Reason for edit: Add F-66 / F-66b highlight chip text, content description, and sheet wording helpers.
 // Reason for edit: Update PLACEHOLDER to "Type an instruction, or / for your skills" and add askAiLines, skillSummary, and skillWording helpers per F-62.
 // Reason for creation: Port Python prompt_panel pure suggestion logic to Kotlin per contract 01 §12 and F-54.
 
@@ -209,6 +210,42 @@ object PromptPanelLogic {
             "Include the highlighted text (1 word)"
         } else {
             "Include the highlighted text ($count words)"
+        }
+    }
+
+    // F-66 & F-66b: Highlighted text recording chip & sheet strings
+    const val HIGHLIGHT_REWRITE_TITLE = "Rewrite them"
+    const val HIGHLIGHT_REWRITE_BODY =
+        "What you say is used as directions. The highlighted words and your directions are sent to your AI, and the answer replaces them."
+    const val HIGHLIGHT_TYPE_OVER_TITLE = "Type over them"
+    const val HIGHLIGHT_TYPE_OVER_BODY =
+        "What you say replaces the highlighted words, as normal dictation."
+    const val HIGHLIGHT_NO_AI_BODY =
+        "What you say replaces the highlighted words. Rewriting needs your PC's AI, which this mode does not use."
+
+    fun highlightWordCount(selection: String?): Int {
+        return words(selection).size
+    }
+
+    fun highlightChipText(wordCount: Int, isRewrite: Boolean): String {
+        val countStr = if (wordCount == 1) "1 word" else "$wordCount words"
+        return if (isRewrite) "✎ $countStr" else countStr
+    }
+
+    fun highlightChipContentDescription(wordCount: Int, isRewrite: Boolean): String {
+        val wordsLabel = if (wordCount == 1) "1 highlighted word" else "$wordCount highlighted words"
+        return if (isRewrite) {
+            "$wordsLabel will be rewritten"
+        } else {
+            "$wordsLabel will be typed over"
+        }
+    }
+
+    fun highlightSheetTitle(wordCount: Int): String {
+        return if (wordCount == 1) {
+            "Your 1 highlighted word"
+        } else {
+            "Your $wordCount highlighted words"
         }
     }
 }

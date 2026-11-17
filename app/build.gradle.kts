@@ -41,8 +41,8 @@ android {
         applicationId = "com.cyrus_studio.whisperunchained"
         minSdk = 34
         targetSdk = 36
-        // Reason for edit: Bump versionCode to 30 for voice highlight editing (POST /dictate/v1/edit_selection) per F-65
-        versionCode = 30
+        // Reason for edit: Bump versionCode to 31 for highlight chip ("✎ 113 words" / struck-through "113 words") and highlight sheet per F-66 & F-66b
+        versionCode = 31
         versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

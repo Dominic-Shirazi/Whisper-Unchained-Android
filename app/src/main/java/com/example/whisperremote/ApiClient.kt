@@ -126,10 +126,10 @@ sealed class EditTextResult {
     data class NetworkError(val error: Throwable) : EditTextResult()
 }
 
-// Reason for edit: Add EditSelectionResult for spoken instructions over highlighted text per contract 01 §14 and F-65
+// Reason for edit: Add EditSelectionResult for spoken instructions over highlighted text per contract 01 §14 and F-65, F-66
 sealed class EditSelectionResult {
     data class Success(val text: String, val instruction: String, val edited: Boolean) : EditSelectionResult()
-    data class Unsupported(val message: String = "Update the PC app to edit highlighted text by voice") : EditSelectionResult()
+    data class Unsupported(val message: String = "Update the PC app to rewrite highlighted words by voice") : EditSelectionResult()
     data class ServerPaused(val message: String) : EditSelectionResult()
     data class ModelUnavailable(val retryAfterSeconds: Int) : EditSelectionResult()
     data class Error(val code: Int, val message: String) : EditSelectionResult() {
@@ -1324,7 +1324,7 @@ class ApiClient(private val context: Context) {
             return
         }
         if (selection.length > 20000) {
-            callback(EditSelectionResult.Error(413, "Highlighted text is too long (20,000 characters max)"))
+            callback(EditSelectionResult.Error(413, "Highlighted words are too long (20,000 characters max)"))
             return
         }
 
@@ -1391,7 +1391,7 @@ class ApiClient(private val context: Context) {
                             }
                         }
                         404, 405 -> {
-                            callback(EditSelectionResult.Unsupported("Update the PC app to edit highlighted text by voice"))
+                            callback(EditSelectionResult.Unsupported("Update the PC app to rewrite highlighted words by voice"))
                         }
                         else -> {
                             val errMsg = try {

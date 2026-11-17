@@ -19,6 +19,14 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## What's New in v1.3 (Build 31)
+
+- **Highlight Chip & Sheet During Recording (F-66 & F-66b)**:
+  - When a recording starts with text highlighted in the focused field, a compact chip appears under the recording mic button:
+    - **Rewrite mode (default when PC AI is available)**: Shows `✎ 113 words` (`1 word` for 1), hides the dictation style pill, and announces `"113 highlighted words will be rewritten"` to TalkBack.
+    - **Type over mode (when chosen in the sheet, or automatically in on-device / cloud-key mode)**: Shows `113 words` struck through, restores the dictation style pill, and announces `"113 highlighted words will be typed over"` to TalkBack.
+  - **Tap the chip while recording** to open the `"Your 113 highlighted words"` sheet without stopping the recording, offering two plain-language choices (`"Rewrite them"` vs `"Type over them"`) when PC AI is available, or explaining that what you say replaces the highlighted words when in on-device/cloud mode.
+
 ## What's New in v1.3 (Build 30)
 
 - **Voice Instruction Editing over Highlighted Text (F-65 / Contract 01 §14)**:

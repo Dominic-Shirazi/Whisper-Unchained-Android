@@ -4,6 +4,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Add unit tests for F-66 / F-66b highlight chip text, content description, and sheet wording.
 // Reason for edit: Add unit tests for F-62 skills wording, askAiLines, skillSummary, and skillWording.
 // Reason for creation: Unit test suite for PromptPanelLogic per contract 01 §12 and F-54.
 
@@ -120,5 +121,52 @@ class PromptPanelLogicTest {
             "Skills: \"prompt ticket\" is already one of your phrases for asking the AI.",
             PromptPanelLogic.skillWording("Custom triggers: \"prompt ticket\" is already a built-in trigger phrase.")
         )
+    }
+
+    @Test
+    fun testF66HighlightChipAndSheetWording() {
+        assertEquals(113, PromptPanelLogic.highlightWordCount((1..113).joinToString(" ") { "word" }))
+        assertEquals(1, PromptPanelLogic.highlightWordCount("hello"))
+        assertEquals(0, PromptPanelLogic.highlightWordCount(""))
+
+        // F-66b: "✎ 113 words" for Rewrite, "113 words" (struck through) for Type over
+        assertEquals("✎ 113 words", PromptPanelLogic.highlightChipText(113, isRewrite = true))
+        assertEquals("✎ 1 word", PromptPanelLogic.highlightChipText(1, isRewrite = true))
+        assertEquals("113 words", PromptPanelLogic.highlightChipText(113, isRewrite = false))
+        assertEquals("1 word", PromptPanelLogic.highlightChipText(1, isRewrite = false))
+
+        // Screen reader content descriptions
+        assertEquals(
+            "113 highlighted words will be rewritten",
+            PromptPanelLogic.highlightChipContentDescription(113, isRewrite = true)
+        )
+        assertEquals(
+            "113 highlighted words will be typed over",
+            PromptPanelLogic.highlightChipContentDescription(113, isRewrite = false)
+        )
+        assertEquals(
+            "1 highlighted word will be rewritten",
+            PromptPanelLogic.highlightChipContentDescription(1, isRewrite = true)
+        )
+        assertEquals(
+            "1 highlighted word will be typed over",
+            PromptPanelLogic.highlightChipContentDescription(1, isRewrite = false)
+        )
+
+        // Sheet title and option copy (no forbidden words: prompt, selection, LLM, endpoint, instruction)
+        assertEquals("Your 113 highlighted words", PromptPanelLogic.highlightSheetTitle(113))
+        assertEquals("Your 1 highlighted word", PromptPanelLogic.highlightSheetTitle(1))
+
+        val allCopy = listOf(
+            PromptPanelLogic.HIGHLIGHT_REWRITE_TITLE,
+            PromptPanelLogic.HIGHLIGHT_REWRITE_BODY,
+            PromptPanelLogic.HIGHLIGHT_TYPE_OVER_TITLE,
+            PromptPanelLogic.HIGHLIGHT_TYPE_OVER_BODY,
+            PromptPanelLogic.HIGHLIGHT_NO_AI_BODY
+        ).joinToString(" ").lowercase()
+
+        for (forbidden in listOf("prompt", "selection", "llm", "endpoint", "instruction")) {
+            assertFalse("Wording must not contain '$forbidden'", allCopy.contains(forbidden))
+        }
     }
 }

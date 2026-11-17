@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Add highlight recording chip ("✎ 113 words" / struck-through "113 words") and highlight sheet ("Your N highlighted words": Rewrite them vs Type over them) per F-66 and F-66b.
 // Reason for edit: Route voice recordings started with highlighted text to POST /dictate/v1/edit_selection and show "The AI made no changes." on unchanged/edited=false replies per contract 01 §14 and F-65.
 // Reason for edit: Rename user-visible "Trigger" / "triggers" copy in typed instruction box, matched badge, style pill, and style sheet to "Skill" / "skills" per F-62.
 // Reason for edit: Add Typed instruction pill & panel, Trigger row in style sheet, remove Mean tone, and full opacity thinking button per F-54, F-56, F-58.
@@ -222,10 +223,18 @@ class FloatingButtonService : Service() {
     private val CHANNEL_ID = "FloatingButtonServiceChannel"
     private var fadeHintRunnable: Runnable? = null
 
-    // Reason for edit: Variables and helpers for soft pause recovery per contract K-4 and voice selection edit per F-65
+    // Reason for edit: Variables and helpers for soft pause recovery per contract K-4 and voice selection edit per F-65, F-66, F-66b
     private var pendingRetryAudioFile: File? = null
     private var pendingRetrySelection: String? = null
     internal var pendingSelectionForRecording: String? = null
+    internal var sessionHighlightWordCount: Int = 0
+    internal var sessionHighlightHasAi: Boolean = false
+    internal var sessionHighlightRewriteMode: Boolean = true
+    private var highlightChipView: TextView? = null
+    private var highlightSheetOverlayView: FrameLayout? = null
+    private var isHighlightSheetOpen: Boolean = false
+    private var highlightSheetTimerView: TextView? = null
+    private var highlightSheetTimerRunnable: Runnable? = null
     private var pollResumeAttempts = 0
     private var pollResumeRunnable: Runnable? = null
 
@@ -566,6 +575,7 @@ class FloatingButtonService : Service() {
 
         setupStylePill()
         setupTypePill()
+        setupHighlightChip()
 
         bottomHintLabel = TextView(this).apply {
             text = "Tap a text field to finish"
@@ -586,6 +596,10 @@ class FloatingButtonService : Service() {
             ).also { it.bottomMargin = dpToPx(4) })
             addView(floatingButton, LinearLayout.LayoutParams(buttonPx, buttonPx))
             addView(typePillView, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.topMargin = dpToPx(6) })
+            addView(highlightChipView, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).also { it.topMargin = dpToPx(6) })
@@ -773,6 +787,355 @@ class FloatingButtonService : Service() {
             visibility = View.GONE
         }
         typePillView = pill
+    }
+
+    // Reason for edit: Setup Highlight Chip ("✎ 113 words" or struck-through "113 words") during recording per F-66 & F-66b
+    private fun setupHighlightChip() {
+        val chip = TextView(this).apply {
+            setTextColor(Color.parseColor("#E7E9EC"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(dpToPx(12), dpToPx(5), dpToPx(12), dpToPx(5))
+            val bg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(14).toFloat()
+                setColor(Color.parseColor("#EE1B1E25"))
+                setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+            }
+            background = bg
+            setOnClickListener {
+                openHighlightSheet()
+            }
+            visibility = View.GONE
+        }
+        highlightChipView = chip
+    }
+
+    internal fun updateHighlightChipContent() {
+        val hasHighlight = !pendingSelectionForRecording.isNullOrBlank() && sessionHighlightWordCount > 0
+        val isRecordingState = state == ButtonState.RECORDING || state == ButtonState.RECORDING_NO_FOCUS
+        if (!hasHighlight) {
+            highlightChipView?.visibility = View.GONE
+            if (isRecordingState) {
+                stylePillView?.visibility = View.VISIBLE
+            }
+            return
+        }
+
+        val isRewrite = sessionHighlightHasAi && sessionHighlightRewriteMode
+        highlightChipView?.let { tv ->
+            tv.text = PromptPanelLogic.highlightChipText(sessionHighlightWordCount, isRewrite)
+            tv.paintFlags = if (isRewrite) {
+                tv.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
+            } else {
+                tv.paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
+            }
+            tv.contentDescription = PromptPanelLogic.highlightChipContentDescription(sessionHighlightWordCount, isRewrite)
+            tv.visibility = if (isRecordingState) View.VISIBLE else View.GONE
+        }
+
+        if (isRecordingState) {
+            // F-66 §1 & §2: Style pill is hidden during a rewrite, and brought back when "Type over them" is active
+            stylePillView?.visibility = if (isRewrite) View.GONE else View.VISIBLE
+        }
+    }
+
+    // Reason for edit: Highlight options sheet ("Your N highlighted words": Rewrite them vs Type over them) per F-66 & F-66b
+    fun openHighlightSheet() {
+        if (isHighlightSheetOpen || (state != ButtonState.RECORDING && state != ButtonState.RECORDING_NO_FOCUS)) {
+            return
+        }
+        if (pendingSelectionForRecording.isNullOrBlank() || sessionHighlightWordCount <= 0) {
+            return
+        }
+        isHighlightSheetOpen = true
+        triggerHapticTick()
+
+        val screenWidth = resources.displayMetrics.widthPixels
+        val overlay = StyleSheetOverlayLayout(this).apply {
+            this.onOutsideTap = {
+                closeHighlightSheet()
+            }
+        }
+        highlightSheetOverlayView = overlay
+
+        val dimView = View(this)
+        val hasSamsungBlur = SamsungBlurHelper.applySamsungWindowBlur(dimView)
+        val scrimAlpha = if (hasSamsungBlur) 0.28f else 0.58f
+        dimView.setBackgroundColor(Color.argb((255 * scrimAlpha).toInt(), 0, 0, 0))
+        overlay.addView(dimView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(20).toFloat()
+                setColor(Color.parseColor("#1B1E25"))
+                setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+            }
+            background = bg
+            setPadding(dpToPx(20), dpToPx(18), dpToPx(20), dpToPx(18))
+            setOnClickListener { /* consume click on card */ }
+        }
+
+        val maxCardWidth = dpToPx(380)
+        val cardWidth = minOf(screenWidth - dpToPx(32), maxCardWidth)
+        val cardLp = FrameLayout.LayoutParams(
+            cardWidth,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER
+        )
+        overlay.addView(card, cardLp)
+        overlay.cardView = card
+
+        buildHighlightSheetCard(card)
+
+        val sheetParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_DIM_BEHIND or
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            dimAmount = 0.45f
+        }
+
+        try {
+            windowManager.addView(overlay, sheetParams)
+        } catch (e: Exception) {
+            Log.e("FloatingButtonService", "Failed to add highlight sheet overlay", e)
+            isHighlightSheetOpen = false
+            return
+        }
+
+        highlightSheetTimerRunnable = object : Runnable {
+            override fun run() {
+                if (!isRecording || !isHighlightSheetOpen) return
+                val elapsedSec = maxOf(0L, (System.currentTimeMillis() - recordingStartTimeMs) / 1000)
+                val mins = elapsedSec / 60
+                val secs = elapsedSec % 60
+                highlightSheetTimerView?.text = String.format("%02d:%02d", mins, secs)
+                mainHandler.postDelayed(this, 500L)
+            }
+        }
+        mainHandler.post(highlightSheetTimerRunnable!!)
+    }
+
+    fun closeHighlightSheet() {
+        if (!isHighlightSheetOpen) return
+        isHighlightSheetOpen = false
+        highlightSheetTimerRunnable?.let { mainHandler.removeCallbacks(it) }
+        highlightSheetTimerRunnable = null
+        val overlay = highlightSheetOverlayView ?: return
+        highlightSheetOverlayView = null
+        highlightSheetTimerView = null
+        try {
+            windowManager.removeView(overlay)
+        } catch (e: Exception) {
+            Log.e("FloatingButtonService", "Error removing highlight sheet overlay", e)
+        }
+    }
+
+    private fun buildHighlightSheetCard(card: LinearLayout) {
+        card.removeAllViews()
+
+        // 1. Header with REC indicator + timer + close button
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val recDot = View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#D9694A"))
+            }
+        }
+        header.addView(recDot, LinearLayout.LayoutParams(dpToPx(8), dpToPx(8)))
+
+        val recLabel = TextView(this).apply {
+            text = "REC"
+            setTextColor(Color.parseColor("#D9694A"))
+            textSize = 12f
+            setTypeface(typeface, Typeface.BOLD)
+        }
+        header.addView(recLabel, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also { it.marginStart = dpToPx(6) })
+
+        val timerView = TextView(this).apply {
+            val elapsedSec = maxOf(0L, (System.currentTimeMillis() - recordingStartTimeMs) / 1000)
+            val mins = elapsedSec / 60
+            val secs = elapsedSec % 60
+            text = String.format("%02d:%02d", mins, secs)
+            setTextColor(Color.parseColor("#E7E9EC"))
+            textSize = 13f
+            setTypeface(typeface, Typeface.BOLD)
+        }
+        highlightSheetTimerView = timerView
+        header.addView(timerView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also { it.marginStart = dpToPx(8) })
+
+        header.addView(View(this), LinearLayout.LayoutParams(0, 1, 1.0f))
+
+        val closeBtn = TextView(this).apply {
+            text = "✕"
+            setTextColor(Color.parseColor("#868E9C"))
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(4))
+            setOnClickListener {
+                closeHighlightSheet()
+            }
+        }
+        header.addView(closeBtn)
+        card.addView(header)
+
+        // 2. Title: "Your 113 highlighted words"
+        val sheetTitle = TextView(this).apply {
+            text = PromptPanelLogic.highlightSheetTitle(sessionHighlightWordCount)
+            setTextColor(Color.parseColor("#E7E9EC"))
+            textSize = 16f
+            setTypeface(typeface, Typeface.BOLD)
+        }
+        card.addView(sheetTitle, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also {
+            it.topMargin = dpToPx(10)
+            it.bottomMargin = dpToPx(12)
+        })
+
+        if (sessionHighlightHasAi) {
+            fun createChoiceCard(titleText: String, bodyText: String, isSelected: Boolean, onClick: () -> Unit): View {
+                val choiceLayout = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dpToPx(14), dpToPx(12), dpToPx(14), dpToPx(12))
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dpToPx(14).toFloat()
+                        setColor(if (isSelected) Color.parseColor("#1D2A28") else Color.parseColor("#222731"))
+                        setStroke(dpToPx(if (isSelected) 2 else 1), if (isSelected) Color.parseColor("#2FB79A") else Color.parseColor("#2B313C"))
+                    }
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener { onClick() }
+                }
+
+                val titleTv = TextView(this).apply {
+                    text = if (isSelected) "✓ $titleText" else titleText
+                    setTextColor(if (isSelected) Color.parseColor("#2FB79A") else Color.parseColor("#E7E9EC"))
+                    textSize = 14f
+                    setTypeface(typeface, Typeface.BOLD)
+                }
+                choiceLayout.addView(titleTv)
+
+                val bodyTv = TextView(this).apply {
+                    text = bodyText
+                    setTextColor(Color.parseColor("#C4CAD4"))
+                    textSize = 12f
+                }
+                choiceLayout.addView(bodyTv, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).also { it.topMargin = dpToPx(4) })
+
+                return choiceLayout
+            }
+
+            // Choice 1: Rewrite them
+            card.addView(
+                createChoiceCard(
+                    titleText = PromptPanelLogic.HIGHLIGHT_REWRITE_TITLE,
+                    bodyText = PromptPanelLogic.HIGHLIGHT_REWRITE_BODY,
+                    isSelected = sessionHighlightRewriteMode
+                ) {
+                    sessionHighlightRewriteMode = true
+                    triggerHapticTick()
+                    updateHighlightChipContent()
+                    ensureOverlayInBounds()
+                    buildHighlightSheetCard(card)
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).also { it.bottomMargin = dpToPx(10) }
+            )
+
+            // Choice 2: Type over them
+            card.addView(
+                createChoiceCard(
+                    titleText = PromptPanelLogic.HIGHLIGHT_TYPE_OVER_TITLE,
+                    bodyText = PromptPanelLogic.HIGHLIGHT_TYPE_OVER_BODY,
+                    isSelected = !sessionHighlightRewriteMode
+                ) {
+                    sessionHighlightRewriteMode = false
+                    triggerHapticTick()
+                    updateHighlightChipContent()
+                    ensureOverlayInBounds()
+                    buildHighlightSheetCard(card)
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        } else {
+            // F-66 §4: Where there is no AI to rewrite with (on-device mode, cloud key with no editor)
+            val noAiCard = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dpToPx(14), dpToPx(12), dpToPx(14), dpToPx(12))
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dpToPx(14).toFloat()
+                    setColor(Color.parseColor("#222731"))
+                    setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+                }
+            }
+            val noAiBody = TextView(this).apply {
+                text = PromptPanelLogic.HIGHLIGHT_NO_AI_BODY
+                setTextColor(Color.parseColor("#C4CAD4"))
+                textSize = 13f
+            }
+            noAiCard.addView(noAiBody)
+            card.addView(noAiCard, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
+        }
+
+        val doneBtn = Button(this).apply {
+            text = "Done"
+            textSize = 15f
+            setTextColor(Color.parseColor("#15171C"))
+            setTypeface(typeface, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(12).toFloat()
+                setColor(Color.parseColor("#2FB79A"))
+            }
+            setOnClickListener {
+                closeHighlightSheet()
+            }
+        }
+        card.addView(doneBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dpToPx(46)
+        ).also { it.topMargin = dpToPx(16) })
     }
 
     // Reason for edit: Setup Style Pill view under the floating button per contract F-6
@@ -2678,9 +3041,11 @@ class FloatingButtonService : Service() {
             ButtonState.HIDDEN -> {
                 cancelTemporaryHint()
                 closeStyleSheet()
+                closeHighlightSheet()
                 closeButtonOptionsMenu()
                 closeTypedInstructionPanel()
                 topLabel?.visibility = View.GONE
+                highlightChipView?.visibility = View.GONE
                 stylePillView?.visibility = View.GONE
                 typePillView?.visibility = View.GONE
                 container?.visibility = View.GONE
@@ -2689,8 +3054,10 @@ class FloatingButtonService : Service() {
             }
             ButtonState.IDLE -> {
                 closeStyleSheet()
+                closeHighlightSheet()
                 closeButtonOptionsMenu()
                 topLabel?.visibility = View.GONE
+                highlightChipView?.visibility = View.GONE
                 stylePillView?.visibility = View.GONE
                 updateTypePillVisibility()
                 if (wasHidden) bringToFront()
@@ -2705,7 +3072,7 @@ class FloatingButtonService : Service() {
                 typePillView?.visibility = View.GONE
                 topLabel?.text = if (currentAudioSource == ActiveAudioSource.MEDIA_PLAYBACK) "Media" else "Mic"
                 topLabel?.visibility = View.VISIBLE
-                stylePillView?.visibility = View.VISIBLE
+                updateHighlightChipContent()
                 container?.visibility = View.VISIBLE
                 floatingButton?.alpha = 1.0f
                 floatingButton?.setImageResource(R.drawable.whisper_remote_record)
@@ -2716,7 +3083,7 @@ class FloatingButtonService : Service() {
                 typePillView?.visibility = View.GONE
                 topLabel?.text = if (currentAudioSource == ActiveAudioSource.MEDIA_PLAYBACK) "Media" else "Mic"
                 topLabel?.visibility = View.VISIBLE
-                stylePillView?.visibility = View.VISIBLE
+                updateHighlightChipContent()
                 container?.visibility = View.VISIBLE
                 floatingButton?.alpha = 0.4f
                 floatingButton?.setImageResource(R.drawable.whisper_remote_record)
@@ -2724,9 +3091,11 @@ class FloatingButtonService : Service() {
             ButtonState.PROCESSING -> {
                 cancelTemporaryHint()
                 closeStyleSheet()
+                closeHighlightSheet()
                 closeButtonOptionsMenu()
                 closeTypedInstructionPanel()
                 topLabel?.visibility = View.GONE
+                highlightChipView?.visibility = View.GONE
                 stylePillView?.visibility = View.GONE
                 typePillView?.visibility = View.GONE
                 container?.visibility = View.VISIBLE
@@ -2744,16 +3113,15 @@ class FloatingButtonService : Service() {
         pendingRetrySelection = null
         selectedSessionTrigger = null
 
-        // Reason for edit: Capture highlighted text when recording starts per contract 01 §14 and F-65
+        // Reason for edit: Capture highlighted text and initialize highlight chip mode when recording starts per contract 01 §14 and F-65, F-66, F-66b
         val isSelfHostedPc = settingsRepository.transcriptionTarget == TranscriptionTarget.PC.id &&
             settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
-        pendingSelectionForRecording = if (isSelfHostedPc) {
-            try {
-                DictationAccessibilityService.getInstance()?.getSelectedText()?.takeIf { it.isNotBlank() }
-            } catch (_: Exception) { null }
-        } else {
-            null
-        }
+        pendingSelectionForRecording = try {
+            DictationAccessibilityService.getInstance()?.getSelectedText()?.takeIf { it.isNotBlank() }
+        } catch (_: Exception) { null }
+        sessionHighlightWordCount = PromptPanelLogic.highlightWordCount(pendingSelectionForRecording)
+        sessionHighlightHasAi = isSelfHostedPc
+        sessionHighlightRewriteMode = isSelfHostedPc // Every new recording with a highlight starts on "Rewrite them" when PC AI is available
 
         audioFile = File(cacheDir, "recording_${System.currentTimeMillis()}.wav")
         pauseActiveMedia()
@@ -3024,6 +3392,7 @@ class FloatingButtonService : Service() {
         pillShrinkRunnable = null
         isPillShrunk = false
         closeStyleSheet()
+        closeHighlightSheet()
         releaseAudioFocus()
 
         try {
@@ -3056,23 +3425,37 @@ class FloatingButtonService : Service() {
 
         val isSelfHostedPc = settingsRepository.transcriptionTarget == TranscriptionTarget.PC.id &&
             settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
-        val selectionToSend = pendingSelectionForRecording ?: if (isSelfHostedPc) {
-            try {
-                DictationAccessibilityService.getInstance()?.getSelectedText()?.takeIf { it.isNotBlank() }
-            } catch (_: Exception) { null }
+        val capturedHighlight = pendingSelectionForRecording ?: try {
+            DictationAccessibilityService.getInstance()?.getSelectedText()?.takeIf { it.isNotBlank() }
+        } catch (_: Exception) { null }
+
+        // If "Rewrite them" is selected and PC AI is available, send to edit_selection; otherwise send as ordinary dictation (pasting over highlight)
+        val selectionToRewrite = if (!capturedHighlight.isNullOrBlank() && isSelfHostedPc && sessionHighlightRewriteMode) {
+            capturedHighlight
+        } else {
+            null
+        }
+        val selectionToTypeOver = if (!capturedHighlight.isNullOrBlank() && selectionToRewrite == null) {
+            capturedHighlight
         } else {
             null
         }
         pendingSelectionForRecording = null
+        sessionHighlightWordCount = 0
 
         audioFile?.let { file ->
-            processAudioFile(file, overrides, selection = selectionToSend)
+            processAudioFile(file, overrides, selection = selectionToRewrite, typeOverSelection = selectionToTypeOver)
         } ?: run {
             returnToRest()
         }
     }
 
-    internal fun processAudioFile(file: File, styleOverrides: StyleOverrides? = null, selection: String? = null) {
+    internal fun processAudioFile(
+        file: File,
+        styleOverrides: StyleOverrides? = null,
+        selection: String? = null,
+        typeOverSelection: String? = null
+    ) {
         if (!file.exists() || file.length() <= 44) {
             showTemporaryHint("No speech detected")
             returnToRest()
@@ -3091,7 +3474,7 @@ class FloatingButtonService : Service() {
 
         // Reason for edit: Direct on-device transcription when Target is ON_DEVICE per contract 05 §2.3
         if (settingsRepository.transcriptionTarget == TranscriptionTarget.ON_DEVICE.id) {
-            processOnDeviceTranscription(file, fallbackNotice = false, styleOverrides = styleOverrides)
+            processOnDeviceTranscription(file, fallbackNotice = false, styleOverrides = styleOverrides, typeOverSelection = typeOverSelection)
             return
         }
 
@@ -3116,7 +3499,7 @@ class FloatingButtonService : Service() {
                         Log.d("FloatingButtonService", "Transcribed (sanitized): ${text.length} chars")
                     }
                     mainHandler.post {
-                        deliverTranscribedText(text)
+                        deliverTranscribedText(text, typeOverSelection = typeOverSelection)
                     }
                 }
                 is TranscriptionResult.Empty -> {
@@ -3134,7 +3517,7 @@ class FloatingButtonService : Service() {
                     // Reason for edit: Fallback to on-device immediately when PC is paused per F-31
                     if (settingsRepository.fallbackToOnDevice && (onDeviceModelManager.isModelReady(settingsRepository.selectedOnDeviceModelId) || onDeviceModelManager.isModelReady(OnDeviceModelManager.DEFAULT_MODEL_ID))) {
                         Log.i("FloatingButtonService", "Falling back to on-device transcription: PC is paused")
-                        processOnDeviceTranscription(file, fallbackNotice = true, customNotice = "Your PC is paused: transcribed on this phone", styleOverrides = styleOverrides)
+                        processOnDeviceTranscription(file, fallbackNotice = true, customNotice = "Your PC is paused: transcribed on this phone", styleOverrides = styleOverrides, typeOverSelection = typeOverSelection)
                         return@transcribeDetailed
                     }
 
@@ -3153,7 +3536,7 @@ class FloatingButtonService : Service() {
                     // Reason for edit: Fallback to on-device immediately when PC model is loading per F-31
                     if (settingsRepository.fallbackToOnDevice && (onDeviceModelManager.isModelReady(settingsRepository.selectedOnDeviceModelId) || onDeviceModelManager.isModelReady(OnDeviceModelManager.DEFAULT_MODEL_ID))) {
                         Log.i("FloatingButtonService", "Falling back to on-device transcription: PC model loading")
-                        processOnDeviceTranscription(file, fallbackNotice = true, customNotice = "PC model is loading: transcribed on this phone", styleOverrides = styleOverrides)
+                        processOnDeviceTranscription(file, fallbackNotice = true, customNotice = "PC model is loading: transcribed on this phone", styleOverrides = styleOverrides, typeOverSelection = typeOverSelection)
                         return@transcribeDetailed
                     }
 
@@ -3186,7 +3569,7 @@ class FloatingButtonService : Service() {
                     // Reason for edit: Fallback to on-device transcription when PC/cloud is unreachable per contract 05 §2.3 & F-31
                     if (settingsRepository.fallbackToOnDevice) {
                         Log.i("FloatingButtonService", "Falling back to on-device transcription: Network failure")
-                        processOnDeviceTranscription(file, fallbackNotice = true, styleOverrides = styleOverrides)
+                        processOnDeviceTranscription(file, fallbackNotice = true, styleOverrides = styleOverrides, typeOverSelection = typeOverSelection)
                         return@transcribeDetailed
                     }
 
@@ -3208,7 +3591,7 @@ class FloatingButtonService : Service() {
                     // Reason for edit: Fallback to on-device transcription on 5xx server errors per contract 05 §2.3 & F-31
                     if (result.code >= 500 && settingsRepository.fallbackToOnDevice) {
                         Log.i("FloatingButtonService", "Falling back to on-device transcription: Server error ${result.code}")
-                        processOnDeviceTranscription(file, fallbackNotice = true, styleOverrides = styleOverrides)
+                        processOnDeviceTranscription(file, fallbackNotice = true, styleOverrides = styleOverrides, typeOverSelection = typeOverSelection)
                         return@transcribeDetailed
                     }
 
@@ -3226,12 +3609,12 @@ class FloatingButtonService : Service() {
         }
     }
 
-    // Reason for edit: Handle spoken instruction over highlighted text via POST /dictate/v1/edit_selection per contract 01 §14 & F-65
+    // Reason for edit: Handle spoken instruction over highlighted text via POST /dictate/v1/edit_selection per contract 01 §14 & F-65, F-66
     private fun processVoiceSelectionEdit(file: File, selection: String) {
         if (selection.length > 20000) {
             cleanupActiveAudioFile(keepIfPendingRetry = false)
-            showTemporaryHint("Highlighted text is too long (20,000 characters max)")
-            Toast.makeText(applicationContext, "Highlighted text is too long (20,000 characters max)", Toast.LENGTH_SHORT).show()
+            showTemporaryHint("Highlighted words are too long (20,000 characters max)")
+            Toast.makeText(applicationContext, "Highlighted words are too long (20,000 characters max)", Toast.LENGTH_SHORT).show()
             returnToRest()
             return
         }
@@ -3314,7 +3697,8 @@ class FloatingButtonService : Service() {
         file: File,
         fallbackNotice: Boolean,
         customNotice: String? = null,
-        styleOverrides: StyleOverrides? = null
+        styleOverrides: StyleOverrides? = null,
+        typeOverSelection: String? = null
     ) {
         Thread {
             try {
@@ -3346,7 +3730,7 @@ class FloatingButtonService : Service() {
                         showTemporaryHint("No speech detected")
                         returnToRest()
                     } else {
-                        deliverTranscribedText(text)
+                        deliverTranscribedText(text, typeOverSelection = typeOverSelection)
                     }
                 }
             } catch (e: Exception) {
@@ -3379,7 +3763,7 @@ class FloatingButtonService : Service() {
         }
     }
 
-    private fun deliverTranscribedText(text: String) {
+    private fun deliverTranscribedText(text: String, typeOverSelection: String? = null) {
         cleanupActiveAudioFile(keepIfPendingRetry = false)
         if (text.isBlank()) {
             showTemporaryHint("No speech detected")
@@ -3400,7 +3784,16 @@ class FloatingButtonService : Service() {
         } else {
             val accessibilityService = DictationAccessibilityService.getInstance()
             if (accessibilityService != null) {
-                accessibilityService.pasteText(text)
+                if (!typeOverSelection.isNullOrBlank()) {
+                    // Reason for edit: When "Type over them" or non-AI mode is used with a highlight, paste over the highlighted words per F-66
+                    accessibilityService.replaceOrInsertText(
+                        text,
+                        replaceSelection = true,
+                        expectedSelection = typeOverSelection
+                    )
+                } else {
+                    accessibilityService.pasteText(text)
+                }
             } else {
                 // Fallback to clipboard if accessibility service is not active
                 try {

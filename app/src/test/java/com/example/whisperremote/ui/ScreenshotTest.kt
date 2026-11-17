@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -63,6 +64,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
 import com.example.whisperremote.ApiClient
 import com.example.whisperremote.R
+import com.example.whisperremote.util.PromptPanelLogic
 import com.example.whisperremote.data.CustomTrigger
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
@@ -1315,6 +1317,231 @@ class ScreenshotTest {
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // Reason for edit: Render F-66 / F-66b highlight chip ("✎ 113 words" and struck-through "113 words") and "Your 113 highlighted words" sheet screenshot
+    @Test
+    @Config(qualifiers = "w360dp-h780dp-xhdpi")
+    fun testStore07HighlightChipAndSheet() {
+        captureStore("07-highlight-chip-and-sheet") {
+            WhisperTheme(darkTheme = true, dynamicColor = false) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF0B0E14))
+                        .padding(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Top section: Side-by-side recording button + chip states (Rewrite vs Type over)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            // State A: Rewrite mode (default when PC AI is available)
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Mic",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier
+                                        .background(Color(0xB3000000), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Image(
+                                    painter = painterResource(R.drawable.whisper_remote_record),
+                                    contentDescription = "Recording",
+                                    modifier = Modifier.size(64.dp)
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color(0xFF15171C), RoundedCornerShape(16.dp))
+                                        .border(1.dp, Color(0xFF2FB79A), RoundedCornerShape(16.dp))
+                                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                                ) {
+                                    Text(
+                                        text = PromptPanelLogic.highlightChipText(113, isRewrite = true),
+                                        color = Color(0xFF2FB79A),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            // State B: Type over mode (struck through)
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Mic",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier
+                                        .background(Color(0xB3000000), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Image(
+                                    painter = painterResource(R.drawable.whisper_remote_record),
+                                    contentDescription = "Recording",
+                                    modifier = Modifier.size(64.dp)
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color(0xFF15171C), RoundedCornerShape(16.dp))
+                                        .border(1.dp, Color(0xFF2B313C), RoundedCornerShape(16.dp))
+                                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                                ) {
+                                    Text(
+                                        text = PromptPanelLogic.highlightChipText(113, isRewrite = false),
+                                        color = Color(0xFFE7E9EC),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        textDecoration = TextDecoration.LineThrough
+                                    )
+                                }
+                            }
+                        }
+
+                        // Center/Bottom section: Open sheet when tapping the chip during recording
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF1B1E25), RoundedCornerShape(20.dp))
+                                .border(1.dp, Color(0xFF2B313C), RoundedCornerShape(20.dp))
+                                .padding(horizontal = 20.dp, vertical = 18.dp)
+                        ) {
+                            // Header: REC dot + timer + title + close
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(Color(0xFFD9694A), CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "REC",
+                                    color = Color(0xFFD9694A),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "00:04",
+                                    color = Color(0xFFE7E9EC),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = PromptPanelLogic.highlightSheetTitle(113),
+                                    color = Color(0xFFE7E9EC),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "✕",
+                                    color = Color(0xFF868E9C),
+                                    fontSize = 18.sp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(Color(0xFF2B313C))
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Option 1: Rewrite them (selected)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFF1E2D2B), RoundedCornerShape(14.dp))
+                                    .border(1.5.dp, Color(0xFF2FB79A), RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                            ) {
+                                Text(
+                                    text = "✓  ${PromptPanelLogic.HIGHLIGHT_REWRITE_TITLE}",
+                                    color = Color(0xFF2FB79A),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = PromptPanelLogic.HIGHLIGHT_REWRITE_BODY,
+                                    color = Color(0xFFC4CAD4),
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Option 2: Type over them (unselected)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFF222731), RoundedCornerShape(14.dp))
+                                    .border(1.5.dp, Color(0xFF2B313C), RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                            ) {
+                                Text(
+                                    text = PromptPanelLogic.HIGHLIGHT_TYPE_OVER_TITLE,
+                                    color = Color(0xFFE7E9EC),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = PromptPanelLogic.HIGHLIGHT_TYPE_OVER_BODY,
+                                    color = Color(0xFFC4CAD4),
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // Done button
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(46.dp)
+                                    .background(Color(0xFF2FB79A), RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Done",
+                                    color = Color(0xFF15171C),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
             }
