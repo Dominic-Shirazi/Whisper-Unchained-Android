@@ -58,7 +58,7 @@ data class QueuedMutation(
                         "remove '${removeNameCorrections.joinToString()}'"
                 }
             }
-            "phrases" -> "save ${triggerPhrases.size} trigger phrases"
+            "phrases" -> "save ${triggerPhrases.size} phrases"
             else -> "item $id"
         }
     }
@@ -1020,6 +1020,7 @@ class SettingsRepository(context: Context) {
         get() = getPlainString("cached_server_name_corrections_json", "")
         set(value) = putPlainString("cached_server_name_corrections_json", value)
 
+    // Reason for edit: Remove hardcoded "hey Whisper" and use "skills" wording in subtitle per F-62
     // Reason for edit: Cache trigger phrases and custom triggers count for instant Home screen subtitles per F-60
     var cachedTriggerPhrasesJson: String
         get() = getPlainString("cached_trigger_phrases_json", "")
@@ -1028,8 +1029,8 @@ class SettingsRepository(context: Context) {
     fun parseCachedTriggerPhrases(): List<TriggerPhrase> {
         val raw = cachedTriggerPhrasesJson
         if (raw.isBlank()) return listOf(
-            TriggerPhrase("hey Whisper", "edit"),
             TriggerPhrase("prompt AI", "edit"),
+            TriggerPhrase("prompte I", "edit"),
             TriggerPhrase("end prompt", "end")
         )
         return try {
@@ -1037,8 +1038,8 @@ class SettingsRepository(context: Context) {
             (0 until arr.length()).map { TriggerPhrase.fromJson(arr.getJSONObject(it)) }
         } catch (e: Exception) {
             listOf(
-                TriggerPhrase("hey Whisper", "edit"),
                 TriggerPhrase("prompt AI", "edit"),
+                TriggerPhrase("prompte I", "edit"),
                 TriggerPhrase("end prompt", "end")
             )
         }
@@ -1071,10 +1072,11 @@ class SettingsRepository(context: Context) {
             return "Set up on your PC"
         }
         val phrases = parseCachedTriggerPhrases()
-        val firstEdit = phrases.firstOrNull { it.isEdit() }?.phrase ?: "hey Whisper"
+        val firstEdit = phrases.firstOrNull { it.isEdit() }?.phrase ?: "prompt AI"
         val customCount = cachedCustomTriggersCount
         return if (customCount > 0) {
-            "$firstEdit · $customCount custom"
+            val skillLabel = if (customCount == 1) "1 skill" else "$customCount skills"
+            "$firstEdit · $skillLabel"
         } else {
             firstEdit
         }

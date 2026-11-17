@@ -4,6 +4,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Add unit tests for F-62 skills wording, askAiLines, skillSummary, and skillWording.
 // Reason for creation: Unit test suite for PromptPanelLogic per contract 01 §12 and F-54.
 
 import com.example.whisperremote.data.CustomTrigger
@@ -97,5 +98,27 @@ class PromptPanelLogicTest {
         assertEquals("Include the highlighted text (3 words)", PromptPanelLogic.includeLabel("see you tomorrow"))
         assertEquals("Include the highlighted text (1 word)", PromptPanelLogic.includeLabel("hello"))
         assertEquals("Include the highlighted text (0 words)", PromptPanelLogic.includeLabel(""))
+    }
+
+    @Test
+    fun testF62SkillsWordingAndSummaries() {
+        assertEquals("Type an instruction, or / for your skills", PromptPanelLogic.PLACEHOLDER)
+
+        val (body, example) = PromptPanelLogic.askAiLines("prompt AI")
+        assertEquals("Say \"prompt AI\", then what you want.", body)
+        assertEquals("\"Prompt AI, make this sound more formal.\"", example)
+
+        val (noPhraseBody, noPhraseExample) = PromptPanelLogic.askAiLines("")
+        assertEquals(PromptPanelLogic.ASK_CARD_NO_PHRASE, noPhraseBody)
+        assertEquals("", noPhraseExample)
+
+        assertEquals("say \"skill email\"", PromptPanelLogic.skillSummary(listOf("skill email")))
+        assertEquals("say \"skill email\" (+2 more)", PromptPanelLogic.skillSummary(listOf("skill email", "prompt email", "write email")))
+        assertEquals("", PromptPanelLogic.skillSummary(emptyList()))
+
+        assertEquals(
+            "Skills: \"prompt ticket\" is already one of your phrases for asking the AI.",
+            PromptPanelLogic.skillWording("Custom triggers: \"prompt ticket\" is already a built-in trigger phrase.")
+        )
     }
 }

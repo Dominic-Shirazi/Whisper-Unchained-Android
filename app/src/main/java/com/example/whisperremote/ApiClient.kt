@@ -102,12 +102,13 @@ sealed class NameCorrectionsResult {
     data class NetworkError(val error: Throwable) : NameCorrectionsResult()
 }
 
+// Reason for edit: Update user-visible strings in CustomTriggersResult, TriggerPhrasesResult, and fetchTriggerLibrary to "skills" / "phrases" per F-62
 // Reason for edit: Add CustomTriggersResult and EditTextResult per contracts 01 §11 & §12 and F-53, F-54
 sealed class CustomTriggersResult {
     data class Success(val response: com.example.whisperremote.data.CustomTriggersResponse) : CustomTriggersResult() {
         val triggers: List<com.example.whisperremote.data.CustomTrigger> get() = response.triggers
     }
-    data class Unsupported(val message: String = "Update the PC app to use custom triggers") : CustomTriggersResult()
+    data class Unsupported(val message: String = "Update the PC app to use skills") : CustomTriggersResult()
     data class ParseError(val message: String) : CustomTriggersResult()
     data class Error(val code: Int, val message: String) : CustomTriggersResult() {
         val statusCode: Int get() = code
@@ -128,7 +129,7 @@ sealed class EditTextResult {
 // Reason for edit: Add TriggerPhrasesResult per contract 01 §13 and F-60
 sealed class TriggerPhrasesResult {
     data class Success(val phrases: List<TriggerPhrase>, val limits: Map<String, Int> = emptyMap()) : TriggerPhrasesResult()
-    data class Unsupported(val message: String = "Update the PC app to edit trigger phrases") : TriggerPhrasesResult()
+    data class Unsupported(val message: String = "Update the PC app to change these") : TriggerPhrasesResult()
     data class ParseError(val message: String) : TriggerPhrasesResult()
     data class Error(val code: Int, val message: String) : TriggerPhrasesResult() {
         val statusCode: Int get() = code
@@ -1119,7 +1120,7 @@ class ApiClient(private val context: Context) {
             override fun onResponse(call: Call, response: Response) {
                 response.use {
                     when (response.code) {
-                        404 -> callback(CustomTriggersResult.Unsupported("Update the PC app to use custom triggers"))
+                        404 -> callback(CustomTriggersResult.Unsupported("Update the PC app to use skills"))
                         200 -> {
                             val body = response.body?.string().orEmpty()
                             try {
@@ -1132,13 +1133,14 @@ class ApiClient(private val context: Context) {
                                 val limits = com.example.whisperremote.data.TriggerLimits.fromJson(json.optJSONObject("limits"))
                                 callback(CustomTriggersResult.Success(com.example.whisperremote.data.CustomTriggersResponse(triggers, limits)))
                             } catch (e: Exception) {
-                                callback(CustomTriggersResult.ParseError("Failed to parse custom triggers: ${e.message}"))
+                                callback(CustomTriggersResult.ParseError("Failed to parse skills: ${e.message}"))
                             }
                         }
                         else -> {
                             val errMsg = try {
                                 val errJson = JSONObject(response.body?.string().orEmpty())
-                                errJson.optString("message", null)
+                                val rawMsg = errJson.optJSONObject("error")?.optString("message", null) ?: errJson.optString("message", null)
+                                if (rawMsg != null) com.example.whisperremote.util.PromptPanelLogic.skillWording(rawMsg) else null
                             } catch (_: Exception) { null }
                             callback(CustomTriggersResult.Error(response.code, errMsg ?: "Server returned HTTP ${response.code}"))
                         }
@@ -1189,7 +1191,7 @@ class ApiClient(private val context: Context) {
             override fun onResponse(call: Call, response: Response) {
                 response.use {
                     when (response.code) {
-                        404 -> callback(CustomTriggersResult.Unsupported("Update the PC app to use custom triggers"))
+                        404 -> callback(CustomTriggersResult.Unsupported("Update the PC app to use skills"))
                         200 -> {
                             val body = response.body?.string().orEmpty()
                             try {
@@ -1202,13 +1204,14 @@ class ApiClient(private val context: Context) {
                                 val limits = com.example.whisperremote.data.TriggerLimits.fromJson(json.optJSONObject("limits"))
                                 callback(CustomTriggersResult.Success(com.example.whisperremote.data.CustomTriggersResponse(triggers, limits)))
                             } catch (e: Exception) {
-                                callback(CustomTriggersResult.ParseError("Failed to parse custom triggers response: ${e.message}"))
+                                callback(CustomTriggersResult.ParseError("Failed to parse skills response: ${e.message}"))
                             }
                         }
                         else -> {
                             val errMsg = try {
                                 val errJson = JSONObject(response.body?.string().orEmpty())
-                                errJson.optString("message", null)
+                                val rawMsg = errJson.optJSONObject("error")?.optString("message", null) ?: errJson.optString("message", null)
+                                if (rawMsg != null) com.example.whisperremote.util.PromptPanelLogic.skillWording(rawMsg) else null
                             } catch (_: Exception) { null }
                             callback(CustomTriggersResult.Error(response.code, errMsg ?: "Server returned HTTP ${response.code}"))
                         }
@@ -1295,7 +1298,7 @@ class ApiClient(private val context: Context) {
         val request = Request.Builder().url(url).get().build()
         clientFor(url).newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                callback(null, e.message ?: "Failed to connect to trigger library")
+                callback(null, e.message ?: "Failed to connect to skill library")
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -1314,7 +1317,7 @@ class ApiClient(private val context: Context) {
                         }
                         callback(list, null)
                     } catch (e: Exception) {
-                        callback(null, "Failed to parse trigger library: ${e.message}")
+                        callback(null, "Failed to parse skill library: ${e.message}")
                     }
                 }
             }
@@ -1347,7 +1350,7 @@ class ApiClient(private val context: Context) {
             override fun onResponse(call: Call, response: Response) {
                 response.use {
                     when (response.code) {
-                        404 -> callback(TriggerPhrasesResult.Unsupported("Update the PC app to edit trigger phrases"))
+                        404 -> callback(TriggerPhrasesResult.Unsupported("Update the PC app to change these"))
                         200 -> {
                             val body = response.body?.string().orEmpty()
                             try {
@@ -1366,13 +1369,14 @@ class ApiClient(private val context: Context) {
                                 repository.updateCachedTriggerPhrases(phrases)
                                 callback(TriggerPhrasesResult.Success(phrases, limitsMap))
                             } catch (e: Exception) {
-                                callback(TriggerPhrasesResult.ParseError("Failed to parse trigger phrases: ${e.message}"))
+                                callback(TriggerPhrasesResult.ParseError("Failed to parse phrases: ${e.message}"))
                             }
                         }
                         else -> {
                             val errMsg = try {
                                 val errJson = JSONObject(response.body?.string().orEmpty())
-                                errJson.optString("message", null)
+                                val rawMsg = errJson.optJSONObject("error")?.optString("message", null) ?: errJson.optString("message", null)
+                                if (rawMsg != null) com.example.whisperremote.util.PromptPanelLogic.skillWording(rawMsg) else null
                             } catch (_: Exception) { null }
                             callback(TriggerPhrasesResult.Error(response.code, errMsg ?: "Server returned HTTP ${response.code}"))
                         }
@@ -1417,7 +1421,7 @@ class ApiClient(private val context: Context) {
             override fun onResponse(call: Call, response: Response) {
                 response.use {
                     when (response.code) {
-                        404 -> callback(TriggerPhrasesResult.Unsupported("Update the PC app to edit trigger phrases"))
+                        404 -> callback(TriggerPhrasesResult.Unsupported("Update the PC app to change these"))
                         200 -> {
                             val body = response.body?.string().orEmpty()
                             try {
@@ -1436,18 +1440,19 @@ class ApiClient(private val context: Context) {
                                 repository.updateCachedTriggerPhrases(newPhrases)
                                 callback(TriggerPhrasesResult.Success(newPhrases, limitsMap))
                             } catch (e: Exception) {
-                                callback(TriggerPhrasesResult.ParseError("Failed to parse trigger phrases response: ${e.message}"))
+                                callback(TriggerPhrasesResult.ParseError("Failed to parse phrases response: ${e.message}"))
                             }
                         }
                         else -> {
                             val errMsg = try {
                                 val errJson = JSONObject(response.body?.string().orEmpty())
-                                if (errJson.has("error")) {
+                                val rawMsg = if (errJson.has("error")) {
                                     val errObj = errJson.optJSONObject("error")
                                     errObj?.optString("message", null) ?: errJson.optString("error", null)
                                 } else {
                                     errJson.optString("message", null)
                                 }
+                                if (rawMsg != null) com.example.whisperremote.util.PromptPanelLogic.skillWording(rawMsg) else null
                             } catch (_: Exception) { null }
                             callback(TriggerPhrasesResult.Error(response.code, errMsg ?: "Server returned HTTP ${response.code}"))
                         }

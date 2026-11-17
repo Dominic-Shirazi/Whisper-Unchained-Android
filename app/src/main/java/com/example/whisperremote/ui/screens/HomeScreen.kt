@@ -4,6 +4,7 @@
 //         navigation callbacks to subpages (transcription, words/triggers, ai-editing, paste-mode, permissions, floating-button, about, intro).
 // Outputs: Scrollable list with collapsing LargeTopAppBar, account-style StatusCard, grouped borderless rows,
 //          colored circle icons on top-level rows only, and bottom "Looking for something else?" card.
+// Reason for edit: Rename "Triggers" row title to "Skills" per F-62.
 // Reason for edit: Remove redundant Transcription row under StatusCard and group Words & Triggers with AI Editing.
 // Reason for edit: Add backward-compatibility upgrade banner for old http:// pairings per contract 06 §3.5.
 
@@ -244,7 +245,7 @@ fun HomeScreen(
                     )
                     SettingsDivider()
                     SettingsNavRow(
-                        title = "Triggers",
+                        title = "Skills",
                         subtitle = repository.getTriggersSubtitle(),
                         subtitleIsValue = false,
                         icon = Icons.Default.Star,

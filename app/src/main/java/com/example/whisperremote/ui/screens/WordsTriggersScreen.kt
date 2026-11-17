@@ -3,6 +3,7 @@
 // Inputs: SettingsRepository, ApiClient for 2-way vocabulary, name corrections, and custom triggers synchronization.
 // Outputs: UI for editing helper words, corrections & shortcuts, and custom triggers with library browser.
 // Conforms to contracts/01-transcription-api.md §8, §11 and F-50, F-53.
+// Reason for edit: Update "Triggers" / "Trigger Library" / "Custom triggers" user-visible wording to "Skills" / "Skill library" per F-62.
 // Reason for edit: Add TabRow for Words & shortcuts and Custom triggers, rename Name corrections to Corrections & shortcuts with 200-char wrapping and rotating placeholders per F-50 and F-53.
 // Reason for edit: Exhaustive handling of ParseError for vocabulary and name corrections per F-46.
 // Reason for edit: Center-align name correction arrows in a straight vertical column per user feedback.
@@ -550,7 +551,7 @@ fun WordsTriggersScreen(
                     Tab(
                         selected = selectedTabIndex == 1,
                         onClick = { selectedTabIndex = 1 },
-                        text = { Text("Custom triggers") }
+                        text = { Text("Skills") }
                     )
                 }
             }
@@ -1301,12 +1302,12 @@ fun CustomTriggersTab(
         if (repository.providerPreset != ProviderPreset.SELF_HOSTED) {
             item {
                 SettingsGroup(
-                    header = "Custom triggers",
+                    header = "Skills",
                     modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Text(
-                            text = "Custom triggers only run through your PC for now.",
+                            text = "Skills only run through your PC for now.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1316,12 +1317,12 @@ fun CustomTriggersTab(
         } else if (!triggersSupported) {
             item {
                 SettingsGroup(
-                    header = "Custom triggers",
+                    header = "Skills",
                     modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Text(
-                            text = "Update the PC app to use custom triggers",
+                            text = "Update the PC app to use skills",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1346,7 +1347,7 @@ fun CustomTriggersTab(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Write your own")
+                        Text("New skill")
                     }
                     OutlinedButton(
                         onClick = { showLibraryDialog = true },
@@ -1369,12 +1370,12 @@ fun CustomTriggersTab(
             } else if (customTriggers.isEmpty()) {
                 item {
                     SettingsGroup(
-                        header = "Your triggers",
+                        header = "Your skills",
                         modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
                             Text(
-                                text = "No custom triggers yet. Add one from the library or write your own.",
+                                text = "None yet. Start with one from the library, or make your own.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1475,10 +1476,10 @@ fun CustomTriggersTab(
         }
     }
 
-    // Write your own dialog
+    // New skill dialog
     if (showWriteOwnDialog) {
         TriggerEditorDialog(
-            title = "Write your own trigger",
+            title = "New skill",
             initialTrigger = null,
             onDismiss = { showWriteOwnDialog = false },
             onSave = { trigger, callback ->
@@ -1496,7 +1497,7 @@ fun CustomTriggersTab(
                             callback(res.error.message ?: "Network error")
                         }
                         else -> {
-                            callback("Failed to save trigger")
+                            callback("Failed to save skill")
                         }
                     }
                 }
@@ -1507,7 +1508,7 @@ fun CustomTriggersTab(
     // Edit dialog
     editingTrigger?.let { trig ->
         TriggerEditorDialog(
-            title = "Edit trigger",
+            title = "Edit skill",
             initialTrigger = trig,
             onDismiss = { editingTrigger = null },
             onSave = { updated, callback ->
@@ -1525,7 +1526,7 @@ fun CustomTriggersTab(
                             callback(res.error.message ?: "Network error")
                         }
                         else -> {
-                            callback("Failed to update trigger")
+                            callback("Failed to update skill")
                         }
                     }
                 }
@@ -1555,6 +1556,7 @@ fun TriggerEditorDialog(
     title: String,
     initialTrigger: CustomTrigger?,
     onDismiss: () -> Unit,
+    onOpenLibraryTarget: ((String) -> Unit)? = null,
     onSave: (CustomTrigger, (error: String?) -> Unit) -> Unit
 ) {
     var name by remember { mutableStateOf(initialTrigger?.name ?: "") }
@@ -1562,6 +1564,7 @@ fun TriggerEditorDialog(
     var prompt by remember { mutableStateOf(initialTrigger?.prompt ?: "") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isSaving by remember { mutableStateOf(false) }
+    val isNew = initialTrigger == null
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1572,10 +1575,19 @@ fun TriggerEditorDialog(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
+                if (isNew) {
+                    Text(
+                        text = "A skill is your own phrase for an instruction you've saved. Say the phrase and the AI follows that instruction, so you never explain it twice.\n• The phrase can be anything you like: \"prompt intake\", \"skill intake\", or your own words.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it; errorMessage = null },
-                    label = { Text("Trigger name (1-40 chars)") },
+                    label = { Text("Skill name (1-40 chars)") },
+                    placeholder = { Text("e.g. Bug ticket") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1583,8 +1595,8 @@ fun TriggerEditorDialog(
                 OutlinedTextField(
                     value = phrasesText,
                     onValueChange = { phrasesText = it; errorMessage = null },
-                    label = { Text("Spoken phrases (1-6, one per line)") },
-                    placeholder = { Text("e.g. prompt ticket\nticket this") },
+                    label = { Text("What you'll say (1-6, one per line)") },
+                    placeholder = { Text("e.g. prompt ticket\nskill ticket") },
                     minLines = 2,
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth()
@@ -1593,8 +1605,8 @@ fun TriggerEditorDialog(
                 OutlinedTextField(
                     value = prompt,
                     onValueChange = { prompt = it; errorMessage = null },
-                    label = { Text("Instruction for AI (10-6000 chars)") },
-                    placeholder = { Text("Describe how the AI should rewrite or handle the speech...") },
+                    label = { Text("What the AI should do (10-6000 chars)") },
+                    placeholder = { Text("Write it the way you'd explain the job to a person...") },
                     minLines = 5,
                     maxLines = 10,
                     modifier = Modifier.fillMaxWidth()
@@ -1636,14 +1648,15 @@ fun TriggerEditorDialog(
                     }
 
                     val id = initialTrigger?.id ?: trimmedName.lowercase().replace("[^a-z0-9]+".toRegex(), "-").trim('-').ifBlank { java.util.UUID.randomUUID().toString().take(8) }
+                    val promptChanged = initialTrigger != null && trimmedPrompt != initialTrigger.prompt.trim()
                     val trigger = CustomTrigger(
                         id = id,
                         name = trimmedName,
                         phrases = lines,
                         prompt = trimmedPrompt,
                         enabled = initialTrigger?.enabled ?: true,
-                        libraryId = initialTrigger?.libraryId,
-                        libraryVersion = initialTrigger?.libraryVersion,
+                        libraryId = if (promptChanged) null else initialTrigger?.libraryId,
+                        libraryVersion = if (promptChanged) null else initialTrigger?.libraryVersion,
                         author = initialTrigger?.author,
                         temperature = initialTrigger?.temperature,
                         description = initialTrigger?.description,
@@ -1663,7 +1676,7 @@ fun TriggerEditorDialog(
                 if (isSaving) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
                 } else {
-                    Text("Save")
+                    Text(if (isNew) "Save skill" else "Done")
                 }
             }
         },
@@ -1697,7 +1710,7 @@ fun LibraryBrowserDialog(
                     expandedPromptIds[targetId] = true
                 }
             } else {
-                // Reason for edit: Fallback items including intake (Professions) and mean (Fun) per F-60 & F-61
+                // Reason for edit: Fallback items including intake (Professions) and mean (Fun) per F-60, F-61 & F-62
                 val fallbackList = listOf(
                     CustomTrigger(
                         id = "intake",
@@ -1730,9 +1743,16 @@ fun LibraryBrowserDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Trigger Library") },
+        title = { Text("Skill library") },
         text = {
-            Box(modifier = Modifier.fillMaxWidth().height(450.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().height(460.dp)) {
+                Text(
+                    text = "Skills other people have shared. Add one, then change its phrase or instruction to suit you.\n• A skill is only instructions for your AI: read them before adding",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Box(modifier = Modifier.fillMaxSize()) {
                 if (isLoading) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
@@ -1853,6 +1873,7 @@ fun LibraryBrowserDialog(
                             }
                         }
                     }
+                }
                 }
             }
         },

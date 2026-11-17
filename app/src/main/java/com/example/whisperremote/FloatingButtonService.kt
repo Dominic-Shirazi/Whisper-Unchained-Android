@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Rename user-visible "Trigger" / "triggers" copy in typed instruction box, matched badge, style pill, and style sheet to "Skill" / "skills" per F-62.
 // Reason for edit: Add Typed instruction pill & panel, Trigger row in style sheet, remove Mean tone, and full opacity thinking button per F-54, F-56, F-58.
 // Reason for edit: Add returnToRest() helper to restore IDLE state when text field remains focused on silent/empty recordings per F-47.
 // Reason for edit: Never lose recordings on fallback failure, instant phone fallback on PC paused/model-loading, target-specific notices, and blank audio deletion per F-31.
@@ -1085,6 +1086,14 @@ class FloatingButtonService : Service() {
     }
 
     private fun updatePillContent(animated: Boolean = false) {
+        val selectedSkill = cachedCustomTriggers.firstOrNull { it.id == selectedSessionTrigger }
+        if (selectedSkill != null) {
+            pillCategoryLabel?.text = "Skill"
+            pillValueLabel?.text = selectedSkill.name
+            updateDots(0)
+            stylePillView?.contentDescription = "Skill: ${selectedSkill.name}"
+            return
+        }
         val dim = dimensions[currentDimensionIndex]
         val valueIndex = getCurrentIndexInDimension()
         pillCategoryLabel?.text = dim.name
@@ -1544,7 +1553,7 @@ class FloatingButtonService : Service() {
         }
 
         val editText = android.widget.EditText(this).apply {
-            hint = "Type an instruction, or / for your triggers"
+            hint = PromptPanelLogic.PLACEHOLDER
             setHintTextColor(Color.parseColor("#868E9C"))
             setTextColor(Color.parseColor("#E7E9EC"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
@@ -1598,7 +1607,7 @@ class FloatingButtonService : Service() {
         fun updateSuggestions(text: String) {
             val whole = PromptPanelLogic.chosen(text, cachedCustomTriggers)
             if (whole != null) {
-                triggerMatchedLabel.text = "Trigger: ${whole.name}"
+                triggerMatchedLabel.text = "Skill: ${whole.name}"
                 triggerMatchedLabel.visibility = View.VISIBLE
                 suggestionsCard.removeAllViews()
                 suggestionsCard.visibility = View.GONE
@@ -2057,7 +2066,7 @@ class FloatingButtonService : Service() {
             LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        // Reason for edit: Add Trigger picker row for dictation style sheet per contract 01 §1 and F-54 §5
+        // Reason for edit: Add Skill picker row for dictation style sheet per contract 01 §1, F-54 §5 & F-62
         val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
         val hasTriggers = isSelfHosted && cachedCustomTriggers.isNotEmpty()
         if (hasTriggers) {
@@ -2069,7 +2078,7 @@ class FloatingButtonService : Service() {
                 orientation = LinearLayout.VERTICAL
             }
             val titleLabel = TextView(this).apply {
-                text = "Trigger"
+                text = "Skill"
                 setTextColor(Color.parseColor("#868E9C"))
                 textSize = 11f
                 setTypeface(typeface, Typeface.BOLD)
@@ -2110,9 +2119,10 @@ class FloatingButtonService : Service() {
                 setOnClickListener {
                     val items = arrayOf("None") + cachedCustomTriggers.map { "${it.name} (${it.phrases.firstOrNull() ?: ""})" }.toTypedArray()
                     android.app.AlertDialog.Builder(this@FloatingButtonService, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                        .setTitle("Select Trigger")
+                        .setTitle("Select Skill")
                         .setItems(items) { _, which ->
                             selectedSessionTrigger = if (which == 0) null else cachedCustomTriggers[which - 1].id
+                            updatePillContent()
                             buildStyleSheetCard(card)
                         }
                         .show()
@@ -2125,8 +2135,8 @@ class FloatingButtonService : Service() {
 
             if (selectedSessionTrigger != null) {
                 val triggerNote = TextView(this).apply {
-                    // Reason for edit: Clarify that picking None restores styles above matching Python style_pill
-                    text = "The trigger decides how this one comes out. Choose None to use the styles above."
+                    // Reason for edit: Use "skill" wording matching Python style_pill per F-62
+                    text = "The skill decides how this one comes out. Choose None to use the styles above."
                     setTextColor(Color.parseColor("#8C9EFF"))
                     textSize = 11f
                 }

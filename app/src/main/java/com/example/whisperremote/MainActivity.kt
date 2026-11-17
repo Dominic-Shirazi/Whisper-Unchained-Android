@@ -157,6 +157,9 @@ class MainActivity : ComponentActivity() {
                         if (!health.model.isNullOrBlank()) {
                             repository.modelName = health.model
                         }
+                        // Reason for edit: Refresh cached trigger phrases and skills on health OK so Home subtitle always shows actual first AI-edit phrase per F-62
+                        apiClient.fetchTriggerPhrases { _ -> }
+                        apiClient.fetchCustomTriggers { _ -> }
                         StatusCardState.Connected(
                             targetName = "Your PC",
                             model = health.model ?: repository.modelName.ifBlank { "Ready" }

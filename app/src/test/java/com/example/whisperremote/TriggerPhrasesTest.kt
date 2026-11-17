@@ -2,6 +2,7 @@
 // It is called by `./gradlew test` (Robolectric test runner).
 // Inputs: JSON payloads representing GET/POST /v1/trigger_phrases, SettingsRepository state.
 // Outputs: Verifies TriggerPhrase data class, API payloads, guard conditions, and Home subtitles per F-60 and F-61.
+// Reason for edit: Update Home screen Skills subtitle test to verify F-62 wording ("N skills") and no hardcoded "hey Whisper".
 // Reason for creation: Unit tests for trigger phrases and Home screen group subtitles per F-60 §3 and F-61.
 
 package com.example.whisperremote
@@ -162,18 +163,22 @@ class TriggerPhrasesTest {
     fun testHomeScreenTriggersSubtitle() {
         repository.transcriptionTarget = TranscriptionTarget.PC.id
         val phrases = listOf(
-            TriggerPhrase("hey Whisper", "edit"),
+            TriggerPhrase("prompt AI", "edit"),
             TriggerPhrase("end prompt", "end")
         )
         repository.updateCachedTriggerPhrases(phrases)
 
-        // 0 custom triggers
+        // 0 skills
         repository.cachedCustomTriggersCount = 0
-        assertEquals("hey Whisper", repository.getTriggersSubtitle())
+        assertEquals("prompt AI", repository.getTriggersSubtitle())
 
-        // 3 custom triggers per F-60 §2
+        // 1 skill per F-62
+        repository.cachedCustomTriggersCount = 1
+        assertEquals("prompt AI · 1 skill", repository.getTriggersSubtitle())
+
+        // 3 skills per F-62
         repository.cachedCustomTriggersCount = 3
-        assertEquals("hey Whisper · 3 custom", repository.getTriggersSubtitle())
+        assertEquals("prompt AI · 3 skills", repository.getTriggersSubtitle())
 
         // Non-PC transcriber
         repository.transcriptionTarget = TranscriptionTarget.CLOUD.id
