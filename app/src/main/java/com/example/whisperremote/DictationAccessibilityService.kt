@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Refresh node before reading selection, track selection source node for WebView/Gmail editors, prefer ACTION_PASTE when replacing active selection, and add hasRichFormattingInSelection() per F-65.
 // Reason for edit: Add getSelectedText() and replaceOrInsertText() for F-54 typed instructions.
 // Reason for edit: Add hasFocusedEditable() helper and auto-start FloatingButtonService in onServiceConnected() per F-47 and F-48.
 // Reason for edit: Added isEnabled helper checking Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES per contract F-16.
@@ -73,6 +74,7 @@ class DictationAccessibilityService : AccessibilityService() {
     }
 
     private var focusedNode: AccessibilityNodeInfo? = null
+    private var lastSelectionNode: AccessibilityNodeInfo? = null
     private var hasFocusedEditable = false
 
     // Reason for edit: Fresh focus lookup only (no stale tracked node) so the mic hides when focus has actually left per F-47
@@ -120,6 +122,12 @@ class DictationAccessibilityService : AccessibilityService() {
                 FloatingButtonService.getInstance()?.onTextSelectionChanged()
             }
             AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED -> {
+                event.source?.let { src ->
+                    if (!isSensitiveNode(src)) {
+                        @Suppress("DEPRECATION")
+                        lastSelectionNode = AccessibilityNodeInfo.obtain(src)
+                    }
+                }
                 FloatingButtonService.getInstance()?.onTextSelectionChanged()
             }
         }
@@ -299,31 +307,101 @@ class DictationAccessibilityService : AccessibilityService() {
         FloatingButtonService.getInstance()?.onPasteComplete(hasFocusedEditable)
     }
 
-    // Reason for edit: Add getSelectedText() to read highlighted text for F-54 typed instruction panel
-    fun getSelectedText(): String? {
-        val targetNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            ?: focusedNode
-            ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            ?: findEditableInTree(rootInActiveWindow) ?: return null
-
-        if (isSensitiveNode(targetNode) || !isEditableNode(targetNode)) return null
-
+    private fun extractSelectionFromNode(node: AccessibilityNodeInfo?): String? {
+        if (node == null) return null
+        try {
+            node.refresh()
+        } catch (_: Exception) {}
+        if (isSensitiveNode(node) || !isEditableNode(node)) return null
         val isShowingHint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            targetNode.isShowingHintText
+            node.isShowingHintText
         } else false
         if (isShowingHint) return null
-
-        val fullText = targetNode.text?.toString() ?: return null
-        val selStart = targetNode.textSelectionStart
-        val selEnd = targetNode.textSelectionEnd
+        val fullText = node.text?.toString() ?: return null
+        val selStart = node.textSelectionStart
+        val selEnd = node.textSelectionEnd
         if (selStart >= 0 && selEnd > selStart && selEnd <= fullText.length) {
             return fullText.substring(selStart, selEnd)
         }
         return null
     }
 
-    // Reason for edit: Add replaceOrInsertText() to handle replacement and insertion for F-54 typed instructions
-    fun replaceOrInsertText(text: String, replaceSelection: Boolean) {
+    private fun findEditableWithSelectionInTree(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (!isSensitiveNode(node) && isEditableNode(node)) {
+            val fullText = node.text?.toString() ?: ""
+            val selStart = node.textSelectionStart
+            val selEnd = node.textSelectionEnd
+            if (selStart >= 0 && selEnd > selStart && selEnd <= fullText.length) {
+                return node
+            }
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = findEditableWithSelectionInTree(child)
+            if (found != null) return found
+        }
+        return null
+    }
+
+    // Reason for edit: Add getSelectedText() to read highlighted text for F-54 typed instruction panel and F-65 voice selection edit
+    fun getSelectedText(): String? {
+        val candidates = listOf(
+            findFocus(AccessibilityNodeInfo.FOCUS_INPUT),
+            lastSelectionNode,
+            focusedNode,
+            rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT),
+            findEditableWithSelectionInTree(rootInActiveWindow),
+            findEditableInTree(rootInActiveWindow)
+        )
+        for (candidate in candidates) {
+            val selected = extractSelectionFromNode(candidate)
+            if (!selected.isNullOrEmpty()) return selected
+        }
+        return null
+    }
+
+    /**
+     * Checks whether the currently highlighted selection exposes rich-text ParcelableSpans
+     * (e.g. StyleSpan for bold/italic, UnderlineSpan, URLSpan, BulletSpan) or lives inside a WebView rich editor per F-65.
+     */
+    fun hasRichFormattingInSelection(): Boolean {
+        val targetNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: lastSelectionNode
+            ?: focusedNode
+            ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: findEditableWithSelectionInTree(rootInActiveWindow)
+            ?: findEditableInTree(rootInActiveWindow) ?: return false
+
+        try {
+            targetNode.refresh()
+        } catch (_: Exception) {}
+
+        val rawText = targetNode.text ?: return false
+        val selStart = targetNode.textSelectionStart
+        val selEnd = targetNode.textSelectionEnd
+        if (selStart < 0 || selEnd <= selStart || selEnd > rawText.length) return false
+
+        if (rawText is android.text.Spanned) {
+            val spans = rawText.getSpans(selStart, selEnd, Any::class.java) ?: emptyArray()
+            val hasStyleSpan = spans.any { span ->
+                span is android.text.style.StyleSpan ||
+                    span is android.text.style.UnderlineSpan ||
+                    span is android.text.style.StrikethroughSpan ||
+                    span is android.text.style.URLSpan ||
+                    span is android.text.style.BulletSpan ||
+                    span is android.text.style.ForegroundColorSpan ||
+                    span is android.text.style.BackgroundColorSpan ||
+                    span is android.text.style.RelativeSizeSpan ||
+                    span is android.text.style.TypefaceSpan
+            }
+            if (hasStyleSpan) return true
+        }
+        return false
+    }
+
+    // Reason for edit: Add replaceOrInsertText() to handle replacement and insertion for F-54 typed instructions and F-65 voice selection edits
+    fun replaceOrInsertText(text: String, replaceSelection: Boolean, expectedSelection: String? = null) {
         if (BuildConfig.DEBUG) {
             Log.d("DictationService", "replaceOrInsertText called: replaceSelection=$replaceSelection text=$text")
         }
@@ -337,8 +415,10 @@ class DictationAccessibilityService : AccessibilityService() {
         }
 
         val targetNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: lastSelectionNode?.takeIf { isEditableNode(it) }
             ?: focusedNode
             ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: findEditableWithSelectionInTree(rootInActiveWindow)
             ?: findEditableInTree(rootInActiveWindow)
 
         if (targetNode != null && isSensitiveNode(targetNode)) {
@@ -347,15 +427,38 @@ class DictationAccessibilityService : AccessibilityService() {
         }
 
         if (targetNode != null && isEditableNode(targetNode)) {
+            try {
+                targetNode.refresh()
+            } catch (_: Exception) {}
+
             val isShowingHint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 targetNode.isShowingHintText
             } else false
             val existingText = if (isShowingHint) "" else (targetNode.text?.toString() ?: "")
-            val selStart = targetNode.textSelectionStart
-            val selEnd = targetNode.textSelectionEnd
+            var selStart = targetNode.textSelectionStart
+            var selEnd = targetNode.textSelectionEnd
+
+            // If selection collapsed while waiting for the server, restore selection range if expectedSelection is uniquely found
+            if (replaceSelection && (selStart < 0 || selEnd <= selStart) && !expectedSelection.isNullOrEmpty()) {
+                val idx = existingText.indexOf(expectedSelection)
+                if (idx >= 0) {
+                    selStart = idx
+                    selEnd = idx + expectedSelection.length
+                    val restoreArgs = Bundle().apply {
+                        putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, selStart)
+                        putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, selEnd)
+                    }
+                    targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, restoreArgs)
+                }
+            }
 
             if (replaceSelection && selStart >= 0 && selEnd > selStart && selEnd <= existingText.length) {
-                // Ticked: replace selection with text
+                // Prefer ACTION_PASTE while selection is active so rich-text editors (e.g. Gmail) keep formatting outside the highlight
+                val pasteSuccess = targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                if (pasteSuccess) {
+                    return
+                }
+                // Fallback: splice replacement via ACTION_SET_TEXT
                 val newText = existingText.substring(0, selStart) + text + existingText.substring(selEnd)
                 val arguments = Bundle().apply {
                     putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)

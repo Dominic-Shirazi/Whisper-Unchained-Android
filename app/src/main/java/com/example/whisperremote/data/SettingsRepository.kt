@@ -869,6 +869,19 @@ class SettingsRepository(context: Context) {
         return "$root/dictate/v1/edit_text"
     }
 
+    // Reason for edit: Added EditSelection endpoint resolver for spoken instructions over highlighted text per contract 01 §14 & F-65
+    fun getEditSelectionUrl(): String = getEditSelectionUrl(lastWorkingBaseUrl)
+
+    fun getEditSelectionUrl(base: String): String {
+        if (base.isBlank()) return ""
+        val root = if (base.endsWith("/v1")) {
+            base.substring(0, base.length - 3).trimEnd('/')
+        } else {
+            base.trimEnd('/')
+        }
+        return "$root/dictate/v1/edit_selection"
+    }
+
     // Reason for edit: Added pending mutations queue and immediate cache sync per F-43
     var pendingMutationsJson: String
         get() = getPlainString("pending_word_mutations_json", "[]")

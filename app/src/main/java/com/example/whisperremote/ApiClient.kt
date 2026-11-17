@@ -126,6 +126,18 @@ sealed class EditTextResult {
     data class NetworkError(val error: Throwable) : EditTextResult()
 }
 
+// Reason for edit: Add EditSelectionResult for spoken instructions over highlighted text per contract 01 §14 and F-65
+sealed class EditSelectionResult {
+    data class Success(val text: String, val instruction: String, val edited: Boolean) : EditSelectionResult()
+    data class Unsupported(val message: String = "Update the PC app to edit highlighted text by voice") : EditSelectionResult()
+    data class ServerPaused(val message: String) : EditSelectionResult()
+    data class ModelUnavailable(val retryAfterSeconds: Int) : EditSelectionResult()
+    data class Error(val code: Int, val message: String) : EditSelectionResult() {
+        val statusCode: Int get() = code
+    }
+    data class NetworkError(val error: Throwable) : EditSelectionResult()
+}
+
 // Reason for edit: Add TriggerPhrasesResult per contract 01 §13 and F-60
 sealed class TriggerPhrasesResult {
     data class Success(val phrases: List<TriggerPhrase>, val limits: Map<String, Int> = emptyMap()) : TriggerPhrasesResult()
@@ -1281,6 +1293,112 @@ class ApiClient(private val context: Context) {
                                 errJson.optString("message", null)
                             } catch (_: Exception) { null }
                             callback(EditTextResult.Error(response.code, errMsg ?: "Server returned HTTP ${response.code}"))
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    /**
+     * Executes spoken instruction edit over highlighted text via POST /dictate/v1/edit_selection per contract 01 §14 & F-65.
+     */
+    fun editSelection(
+        file: File,
+        selection: String,
+        language: String? = null,
+        rawCallback: (EditSelectionResult) -> Unit
+    ) {
+        val callback: (EditSelectionResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
+        val url = repository.getEditSelectionUrl()
+        if (url.isBlank() || !url.startsWith("http")) {
+            callback(EditSelectionResult.Error(400, "Server URL is not configured"))
+            return
+        }
+        if (!file.exists()) {
+            callback(EditSelectionResult.Error(400, "Audio file does not exist"))
+            return
+        }
+        if (selection.isBlank()) {
+            callback(EditSelectionResult.Error(400, "missing_selection"))
+            return
+        }
+        if (selection.length > 20000) {
+            callback(EditSelectionResult.Error(413, "Highlighted text is too long (20,000 characters max)"))
+            return
+        }
+
+        val mediaType = if (file.name.endsWith(".m4a", ignoreCase = true)) {
+            "audio/m4a".toMediaTypeOrNull()
+        } else {
+            "audio/wav".toMediaTypeOrNull()
+        }
+
+        val requestBodyBuilder = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", file.name, file.asRequestBody(mediaType))
+            .addFormDataPart("selection", selection)
+
+        if (!language.isNullOrBlank()) {
+            requestBodyBuilder.addFormDataPart("language", language)
+        }
+
+        val requestBuilder = Request.Builder()
+            .url(url)
+            .post(requestBodyBuilder.build())
+
+        val token = repository.apiKey
+        if (token.isNotBlank()) {
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+
+        clientFor(url).newCall(requestBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback(EditSelectionResult.NetworkError(mapError(e)))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    val code = response.code
+                    val rawBody = response.body?.string().orEmpty()
+                    when (code) {
+                        200 -> {
+                            try {
+                                val resJson = JSONObject(rawBody)
+                                val text = resJson.optString("text", "")
+                                val instruction = resJson.optString("instruction", "")
+                                val edited = resJson.optBoolean("edited", false)
+                                callback(EditSelectionResult.Success(text, instruction, edited))
+                            } catch (e: Exception) {
+                                callback(EditSelectionResult.Error(500, "Failed to parse edit_selection response: ${e.message}"))
+                            }
+                        }
+                        503 -> {
+                            var errCode = ""
+                            var errMsg = "Dictation is paused on your PC"
+                            try {
+                                val errJson = JSONObject(rawBody).optJSONObject("error")
+                                if (errJson != null) {
+                                    errCode = errJson.optString("code", "")
+                                    errMsg = errJson.optString("message", errMsg)
+                                }
+                            } catch (_: Exception) {}
+                            if (errCode == "server_paused") {
+                                callback(EditSelectionResult.ServerPaused(errMsg))
+                            } else {
+                                val retryAfter = response.header("Retry-After")?.toIntOrNull() ?: 30
+                                callback(EditSelectionResult.ModelUnavailable(retryAfter))
+                            }
+                        }
+                        404, 405 -> {
+                            callback(EditSelectionResult.Unsupported("Update the PC app to edit highlighted text by voice"))
+                        }
+                        else -> {
+                            val errMsg = try {
+                                val errJson = JSONObject(rawBody)
+                                errJson.optJSONObject("error")?.optString("message", null) ?: errJson.optString("message", null)
+                            } catch (_: Exception) { null }
+                            callback(EditSelectionResult.Error(code, errMsg ?: "Server returned HTTP $code"))
                         }
                     }
                 }

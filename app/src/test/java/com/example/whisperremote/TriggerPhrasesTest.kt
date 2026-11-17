@@ -2,11 +2,14 @@
 // It is called by `./gradlew test` (Robolectric test runner).
 // Inputs: JSON payloads representing GET/POST /v1/trigger_phrases, SettingsRepository state.
 // Outputs: Verifies TriggerPhrase data class, API payloads, guard conditions, and Home subtitles per F-60 and F-61.
+// Reason for edit: Add unit tests for F-65 verifying that a recording started with highlighted text goes to POST /dictate/v1/edit_selection and unchanged replies show "The AI made no changes."
 // Reason for edit: Update Home screen Skills subtitle test to verify F-62 wording ("N skills") and no hardcoded "hey Whisper".
 // Reason for creation: Unit tests for trigger phrases and Home screen group subtitles per F-60 §3 and F-61.
 
 package com.example.whisperremote
 
+import android.Manifest
+import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.whisperremote.FloatingButtonService.ButtonState
@@ -14,14 +17,22 @@ import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
 import com.example.whisperremote.data.TranscriptionTarget
 import com.example.whisperremote.data.TriggerPhrase
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLooper
+import org.robolectric.shadows.ShadowToast
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -206,5 +217,69 @@ class TriggerPhrasesTest {
         assertFalse("Hidden when processing", shouldShowTypePill(ButtonState.PROCESSING, ProviderPreset.SELF_HOSTED, "Selected"))
         assertFalse("Hidden when cloud provider", shouldShowTypePill(ButtonState.IDLE, ProviderPreset.GROQ, "Selected"))
         assertFalse("Hidden when custom endpoint", shouldShowTypePill(ButtonState.IDLE, ProviderPreset.CUSTOM, "Selected"))
+    }
+
+    @Test
+    fun testRecordingWithSelectionGoesToEditSelection() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            val baseUrl = server.url("/v1").toString().trimEnd('/')
+            repository.baseUrl = baseUrl
+            repository.lastWorkingBaseUrl = baseUrl
+            repository.transcriptionTarget = TranscriptionTarget.PC.id
+            repository.providerPreset = ProviderPreset.SELF_HOSTED
+
+            assertEquals(
+                server.url("/dictate/v1/edit_selection").toString(),
+                repository.getEditSelectionUrl()
+            )
+
+            val app = ApplicationProvider.getApplicationContext<Application>()
+            Shadows.shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+            val service = Robolectric.buildService(FloatingButtonService::class.java).create().get()
+
+            // Create a valid >44 byte dummy WAV file
+            val wavFile = File(context.cacheDir, "test_highlight_rec.wav")
+            wavFile.writeBytes(ByteArray(256) { 1 })
+
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setBody("""{"text":"Here is the clearer version.","instruction":"make this more easily readable","edited":true}""")
+            )
+
+            val highlight = "Line 1 of Gmail draft.\nLine 2 of Gmail draft.\nLine 3 of Gmail draft."
+            service.processAudioFile(wavFile, selection = highlight)
+
+            val req = server.takeRequest(5, TimeUnit.SECONDS)
+            assertNotNull("Expected a request to be sent to MockWebServer", req)
+            assertEquals("/dictate/v1/edit_selection", req!!.path)
+            assertEquals("POST", req.method)
+            val bodyUtf8 = req.body.readUtf8()
+            assertTrue("Multipart body must include selection field", bodyUtf8.contains("name=\"selection\""))
+            assertTrue("Multipart body must include highlighted text", bodyUtf8.contains("Line 1 of Gmail draft."))
+            assertTrue("Multipart body must include audio file", bodyUtf8.contains("name=\"file\""))
+
+            // Also verify that when edited=false or text is unchanged, "The AI made no changes." is shown
+            val wavFile2 = File(context.cacheDir, "test_unchanged_rec.wav")
+            wavFile2.writeBytes(ByteArray(256) { 1 })
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setBody("""{"text":"$highlight","instruction":"make this more easily readable","edited":false}""")
+            )
+
+            service.processAudioFile(wavFile2, selection = highlight)
+            val req2 = server.takeRequest(5, TimeUnit.SECONDS)
+            assertNotNull(req2)
+            assertEquals("/dictate/v1/edit_selection", req2!!.path)
+
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            assertEquals("The AI made no changes.", ShadowToast.getTextOfLatestToast())
+        } finally {
+            server.shutdown()
+        }
     }
 }

@@ -19,6 +19,13 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## What's New in v1.3 (Build 30)
+
+- **Voice Instruction Editing over Highlighted Text (F-65 / Contract 01 §14)**:
+  - When a recording starts with text highlighted in the focused field (in self-hosted PC mode), the recording and highlighted selection are sent to `POST /dictate/v1/edit_selection`, and the AI's edited response replaces the highlight.
+  - When the server's answer is unchanged or `edited: false` (on both the voice selection path and the typed instruction path), the app does not paste over the highlight and instead displays `"The AI made no changes."`.
+  - When replacing an active highlight, `DictationAccessibilityService.replaceOrInsertText` prefers `ACTION_PASTE` before falling back to `ACTION_SET_TEXT` so rich-text editors (such as Gmail) preserve formatting outside the highlighted range.
+
 ## What's New in v1.3 (Build 29)
 
 - **Skills UI Remodel (F-62 & F-63)**:

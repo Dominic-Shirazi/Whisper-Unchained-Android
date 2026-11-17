@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Route voice recordings started with highlighted text to POST /dictate/v1/edit_selection and show "The AI made no changes." on unchanged/edited=false replies per contract 01 §14 and F-65.
 // Reason for edit: Rename user-visible "Trigger" / "triggers" copy in typed instruction box, matched badge, style pill, and style sheet to "Skill" / "skills" per F-62.
 // Reason for edit: Add Typed instruction pill & panel, Trigger row in style sheet, remove Mean tone, and full opacity thinking button per F-54, F-56, F-58.
 // Reason for edit: Add returnToRest() helper to restore IDLE state when text field remains focused on silent/empty recordings per F-47.
@@ -221,8 +222,10 @@ class FloatingButtonService : Service() {
     private val CHANNEL_ID = "FloatingButtonServiceChannel"
     private var fadeHintRunnable: Runnable? = null
 
-    // Reason for edit: Variables and helpers for soft pause recovery per contract K-4
+    // Reason for edit: Variables and helpers for soft pause recovery per contract K-4 and voice selection edit per F-65
     private var pendingRetryAudioFile: File? = null
+    private var pendingRetrySelection: String? = null
+    internal var pendingSelectionForRecording: String? = null
     private var pollResumeAttempts = 0
     private var pollResumeRunnable: Runnable? = null
 
@@ -252,12 +255,14 @@ class FloatingButtonService : Service() {
                             mainHandler.post {
                                 val retryFile = pendingRetryAudioFile
                                 val overrides = pendingRetryStyleOverrides
+                                val retrySelection = pendingRetrySelection
                                 pendingRetryAudioFile = null
                                 pendingRetryStyleOverrides = null
+                                pendingRetrySelection = null
                                 stopPollingForResume()
                                 if (retryFile != null && retryFile.exists()) {
                                     showTemporaryHint("PC resumed - transcribing...")
-                                    processAudioFile(retryFile, overrides)
+                                    processAudioFile(retryFile, overrides, selection = retrySelection)
                                 }
                             }
                         }
@@ -1687,11 +1692,18 @@ class FloatingButtonService : Service() {
             apiClient.editText(instruction, sel) { res ->
                 when (res) {
                     is EditTextResult.Success -> {
-                        if (res.edited) {
+                        val hasHighlight = isInclude && !selectedText.isNullOrBlank()
+                        val isUnchangedHighlight = hasHighlight && (!res.edited || res.text.isBlank() || res.text.trim() == selectedText!!.trim())
+                        if (isUnchangedHighlight) {
+                            setState(if (DictationAccessibilityService.hasFocusedEditable()) ButtonState.IDLE else ButtonState.HIDDEN)
+                            showTemporaryHint("The AI made no changes.")
+                            Toast.makeText(applicationContext, "The AI made no changes.", Toast.LENGTH_SHORT).show()
+                        } else if (res.edited && res.text.isNotEmpty()) {
                             typedInstructionDraft = ""
                             DictationAccessibilityService.getInstance()?.replaceOrInsertText(
                                 res.text,
-                                replaceSelection = isInclude && !selectedText.isNullOrBlank()
+                                replaceSelection = hasHighlight,
+                                expectedSelection = if (hasHighlight) selectedText else null
                             )
                             setState(if (DictationAccessibilityService.hasFocusedEditable()) ButtonState.IDLE else ButtonState.HIDDEN)
                         } else {
@@ -2729,7 +2741,20 @@ class FloatingButtonService : Service() {
         stopPollingForResume()
         pendingRetryAudioFile = null
         pendingRetryStyleOverrides = null
+        pendingRetrySelection = null
         selectedSessionTrigger = null
+
+        // Reason for edit: Capture highlighted text when recording starts per contract 01 §14 and F-65
+        val isSelfHostedPc = settingsRepository.transcriptionTarget == TranscriptionTarget.PC.id &&
+            settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+        pendingSelectionForRecording = if (isSelfHostedPc) {
+            try {
+                DictationAccessibilityService.getInstance()?.getSelectedText()?.takeIf { it.isNotBlank() }
+            } catch (_: Exception) { null }
+        } else {
+            null
+        }
+
         audioFile = File(cacheDir, "recording_${System.currentTimeMillis()}.wav")
         pauseActiveMedia()
 
@@ -3029,14 +3054,25 @@ class FloatingButtonService : Service() {
             null
         }
 
+        val isSelfHostedPc = settingsRepository.transcriptionTarget == TranscriptionTarget.PC.id &&
+            settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+        val selectionToSend = pendingSelectionForRecording ?: if (isSelfHostedPc) {
+            try {
+                DictationAccessibilityService.getInstance()?.getSelectedText()?.takeIf { it.isNotBlank() }
+            } catch (_: Exception) { null }
+        } else {
+            null
+        }
+        pendingSelectionForRecording = null
+
         audioFile?.let { file ->
-            processAudioFile(file, overrides)
+            processAudioFile(file, overrides, selection = selectionToSend)
         } ?: run {
             returnToRest()
         }
     }
 
-    private fun processAudioFile(file: File, styleOverrides: StyleOverrides? = null) {
+    internal fun processAudioFile(file: File, styleOverrides: StyleOverrides? = null, selection: String? = null) {
         if (!file.exists() || file.length() <= 44) {
             showTemporaryHint("No speech detected")
             returnToRest()
@@ -3044,6 +3080,14 @@ class FloatingButtonService : Service() {
         }
 
         setState(ButtonState.PROCESSING)
+
+        // Reason for edit: When recording starts with text highlighted in self-hosted PC mode, route to POST /dictate/v1/edit_selection per contract 01 §14 & F-65
+        val isSelfHostedPc = settingsRepository.transcriptionTarget == TranscriptionTarget.PC.id &&
+            settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+        if (isSelfHostedPc && !selection.isNullOrBlank()) {
+            processVoiceSelectionEdit(file, selection)
+            return
+        }
 
         // Reason for edit: Direct on-device transcription when Target is ON_DEVICE per contract 05 §2.3
         if (settingsRepository.transcriptionTarget == TranscriptionTarget.ON_DEVICE.id) {
@@ -3177,6 +3221,89 @@ class FloatingButtonService : Service() {
                 }
             }
             if (result !is TranscriptionResult.ServerPaused) {
+                cleanupActiveAudioFile(keepIfPendingRetry = false)
+            }
+        }
+    }
+
+    // Reason for edit: Handle spoken instruction over highlighted text via POST /dictate/v1/edit_selection per contract 01 §14 & F-65
+    private fun processVoiceSelectionEdit(file: File, selection: String) {
+        if (selection.length > 20000) {
+            cleanupActiveAudioFile(keepIfPendingRetry = false)
+            showTemporaryHint("Highlighted text is too long (20,000 characters max)")
+            Toast.makeText(applicationContext, "Highlighted text is too long (20,000 characters max)", Toast.LENGTH_SHORT).show()
+            returnToRest()
+            return
+        }
+
+        apiClient.editSelection(file, selection) { result ->
+            var keepForRetry = false
+            when (result) {
+                is EditSelectionResult.Success -> {
+                    pendingRetryAudioFile = null
+                    pendingRetrySelection = null
+                    stopPollingForResume()
+                    val isUnchanged = !result.edited || result.text.isBlank() || result.text.trim() == selection.trim()
+                    if (isUnchanged) {
+                        showTemporaryHint("The AI made no changes.")
+                        Toast.makeText(applicationContext, "The AI made no changes.", Toast.LENGTH_SHORT).show()
+                        returnToRest()
+                    } else {
+                        DictationAccessibilityService.getInstance()?.replaceOrInsertText(
+                            result.text,
+                            replaceSelection = true,
+                            expectedSelection = selection
+                        )
+                        returnToRest()
+                    }
+                }
+                is EditSelectionResult.ServerPaused -> {
+                    keepForRetry = true
+                    pendingRetryAudioFile = file
+                    pendingRetrySelection = selection
+                    showTemporaryHint("Paused on your PC")
+                    Toast.makeText(applicationContext, result.message.ifBlank { "Dictation is paused on your PC" }, Toast.LENGTH_LONG).show()
+                    setState(ButtonState.IDLE)
+                    startPollingForResume()
+                }
+                is EditSelectionResult.ModelUnavailable -> {
+                    keepForRetry = true
+                    pendingRetryAudioFile = file
+                    pendingRetrySelection = selection
+                    showTemporaryHint("Model loading (${result.retryAfterSeconds}s)")
+                    setState(ButtonState.IDLE)
+                    startPollingForResume()
+                }
+                is EditSelectionResult.Unsupported -> {
+                    pendingRetryAudioFile = null
+                    pendingRetrySelection = null
+                    stopPollingForResume()
+                    showTemporaryHint(result.message)
+                    Toast.makeText(applicationContext, result.message, Toast.LENGTH_SHORT).show()
+                    returnToRest()
+                }
+                is EditSelectionResult.Error -> {
+                    pendingRetryAudioFile = null
+                    pendingRetrySelection = null
+                    stopPollingForResume()
+                    val msg = result.message.ifBlank { "Server error ${result.code}" }
+                    showTemporaryHint(msg)
+                    Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
+                    returnToRest()
+                }
+                is EditSelectionResult.NetworkError -> {
+                    pendingRetryAudioFile = null
+                    pendingRetrySelection = null
+                    stopPollingForResume()
+                    if (settingsRepository.autoRestartTailscale && tailscaleManager.isTailscaleInstalled()) {
+                        tailscaleManager.restartTailscaleIfAllowed()
+                    }
+                    showTemporaryHint("Connection failed")
+                    Toast.makeText(applicationContext, "Connection failed: ${result.error.localizedMessage ?: "Cannot reach server"}", Toast.LENGTH_LONG).show()
+                    returnToRest()
+                }
+            }
+            if (!keepForRetry) {
                 cleanupActiveAudioFile(keepIfPendingRetry = false)
             }
         }
