@@ -321,3 +321,35 @@ editor, same custom triggers, no audio.
   user's editor LLM itself (contract 03 prompt); out of scope for F-54, hide the feature there.
 
 **Choosing a trigger without saying or typing its phrase** uses the `trigger` field of §1: the id from §11's list.
+
+## 13. Built-in trigger phrases · LIVE in server code (Whisper-Unchained-Server, 2026-11-16; app side NEW, F-60)
+
+The phrases that hand a dictation to the AI ("hey Whisper", "prompt AI") and the one that ends the spoken
+instruction ("end prompt") were only editable on the PC. Now the phone can show and change them too.
+
+`GET /v1/trigger_phrases` (same auth as everything else)
+```json
+{ "trigger_phrases": [ {"phrase": "prompt AI", "action": "edit"}, {"phrase": "hey Whisper", "action": "edit"},
+                       {"phrase": "end prompt", "action": "end"} ],
+  "actions": [ {"id": "edit", "label": "AI edit"}, {"id": "end", "label": "End of instruction"} ],
+  "limits": { "phrases": 40, "phrase_min": 2, "phrase": 60 } }
+```
+`POST /v1/trigger_phrases` with `{"phrases": [ {"phrase": "...", "action": "edit" | "end"}, ... ]}` replaces the
+**whole list** (it is short; send every row, edited or not) and returns the same shape as GET.
+- Rules, checked before anything is written (a refused call changes nothing): 1 to 40 rows; each phrase 2 to 60
+  characters with at least one letter, no commas or line breaks; no phrase twice (case-insensitive); **at least one
+  `edit` phrase must remain**; none may be a phrase one of the user's custom triggers already uses. Otherwise
+  `400 invalid_trigger_phrases` with a readable `message` (show it).
+- Takes effect immediately. The PC backs up its word file first.
+- Matching is forgiving on the server side: words may run together or be separated by punctuation, and an
+  ALL-CAPS word of 2 to 5 letters ("AI") also matches spelled out ("a.i.", "A. Eye"). So the user types the phrase
+  the way they'd write it; tell them to add a second row for a mishearing they keep getting ("prompte I").
+- Older servers answer `404`: show the phrases screen read-only with "Update the PC app to change these".
+- Older PC configs may still hold retired mean-mode rows; the server never returns them and drops them on the
+  first save.
+
+**Connection code (PC to PC, 2026-11-16).** The same payload as §7, as one line of text for a PC with no camera:
+`"WU1-" + base64url(payload JSON, no padding)`. The Windows app copies it from Settings > Devices & Apps and the
+other PC pastes it in Settings > Transcription. Mentioned here so the format is written down in one place; the
+phone keeps using the QR code and needs nothing new. (If the app ever wants a "paste code" fallback for a phone
+whose camera is broken, this is the format.)
