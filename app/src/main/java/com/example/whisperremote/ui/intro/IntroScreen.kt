@@ -115,6 +115,7 @@ import com.example.whisperremote.data.SettingsRepository
 import com.example.whisperremote.data.TranscriptionTarget
 import com.example.whisperremote.net.TailscaleDiagnosis
 import com.example.whisperremote.net.TailscaleManager
+import com.example.whisperremote.ui.screens.AboutConstants
 import com.example.whisperremote.ui.theme.WhisperTokens
 import com.example.whisperremote.util.ModelDownloadState
 import com.example.whisperremote.util.OnDeviceModelManager
@@ -1490,18 +1491,27 @@ fun IntroScreen(
                                                 .padding(18.dp)
                                         ) {
                                             Text(
-                                                text = "How Whisper Unchained uses Accessibility",
+                                                text = AboutConstants.ACCESSIBILITY_DISCLOSURE_TITLE,
                                                 style = MaterialTheme.typography.titleMedium,
                                                 fontWeight = FontWeight.SemiBold
                                             )
                                             Spacer(modifier = Modifier.height(8.dp))
                                             Text(
-                                                text = "Whisper Unchained uses Android's Accessibility Service solely to detect the active text field and insert your words at the cursor.\n\n" +
-                                                        "• What we read: The active editable field to place your text.\n" +
-                                                        "• What we NEVER touch: Password, PIN, and payment fields are never read or typed into.\n" +
-                                                        "• Privacy guarantee: No keystrokes or field contents are stored or sent anywhere.\n\n" +
-                                                        "You can turn this off anytime in Settings and use Clipboard mode instead.",
+                                                text = AboutConstants.ACCESSIBILITY_DISCLOSURE_TEXT,
                                                 style = MaterialTheme.typography.bodyMedium
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = "Read Privacy Policy",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier
+                                                    .clickable {
+                                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(AboutConstants.PRIVACY_POLICY_URL))
+                                                        context.startActivity(intent)
+                                                    }
+                                                    .padding(vertical = 4.dp)
                                             )
                                         }
                                     }

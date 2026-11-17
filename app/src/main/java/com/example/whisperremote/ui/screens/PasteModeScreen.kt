@@ -3,6 +3,7 @@
 // Inputs: SettingsRepository (injectionMode), system accessibility service status.
 // Outputs: Selection between Accessibility auto-paste and Clipboard chip, with re-showable prominent disclosure
 //          and shortcut to Android Accessibility Settings. Conforms to contracts/04-look-and-feel.md §3.3 and F-22.
+// Reason for edit: Require prominent disclosure & affirmative consent before opening Accessibility Settings when service is not enabled per F-64 §3.
 // Reason for edit: Automatically switch injectionMode to ACCESSIBILITY when service is enabled on resume per F-36 item 6.
 
 package com.example.whisperremote.ui.screens
@@ -203,8 +204,12 @@ fun PasteModeScreen(
                     Column(modifier = Modifier.padding(20.dp)) {
                         Button(
                             onClick = {
-                                val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                                context.startActivity(intent)
+                                if (!isAccessibilityActive) {
+                                    showDisclosureDialog = true
+                                } else {
+                                    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                    context.startActivity(intent)
+                                }
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -231,13 +236,13 @@ fun PasteModeScreen(
         }
     }
 
-    // Prominent Accessibility Disclosure Dialog (Re-showable per Play Policy & F-22)
+    // Prominent Accessibility Disclosure Dialog (Re-showable & required before enabling per Play Policy & F-22, F-64)
     if (showDisclosureDialog) {
         AlertDialog(
             onDismissRequest = { showDisclosureDialog = false },
             title = {
                 Text(
-                    text = "How Whisper Unchained uses Accessibility",
+                    text = AboutConstants.ACCESSIBILITY_DISCLOSURE_TITLE,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -245,11 +250,7 @@ fun PasteModeScreen(
             text = {
                 Column {
                     Text(
-                        text = "Whisper Unchained uses the Android Accessibility Service solely to detect the currently focused text field and paste your dictated text at your cursor.\n\n" +
-                                "• What we read: The active editable text field to place your words.\n" +
-                                "• What we NEVER touch: Password, PIN, and credit card fields are never accessed or typed into.\n" +
-                                "• Privacy guarantee: Nothing is stored or transmitted anywhere except your audio directly to your chosen transcription server.\n\n" +
-                                "You can turn this off at any time and use Clipboard mode instead.",
+                        text = AboutConstants.ACCESSIBILITY_DISCLOSURE_TEXT,
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -262,12 +263,12 @@ fun PasteModeScreen(
                         context.startActivity(intent)
                     }
                 ) {
-                    Text("Open Settings")
+                    Text("Agree & Open Settings")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDisclosureDialog = false }) {
-                    Text("Close")
+                    Text("Not now")
                 }
             },
             shape = RoundedCornerShape(26.dp)

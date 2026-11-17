@@ -1147,4 +1147,27 @@ class SettingsRepository(context: Context) {
         applyQrPayload(payload)
         return true
     }
+
+    /**
+     * Account-free deletion of all locally stored app data (preferences, encrypted keys,
+     * cached vocabulary/skills, downloaded on-device models, and cached audio clips) per F-64 §5.
+     */
+    fun clearAllLocalData(context: Context) {
+        prefs.edit().clear().apply()
+        try {
+            context.getSharedPreferences("WhisperRemotePrefs", Context.MODE_PRIVATE).edit().clear().apply()
+        } catch (_: Exception) {}
+        try {
+            context.getSharedPreferences("WhisperRemoteSecurePrefs", Context.MODE_PRIVATE).edit().clear().apply()
+        } catch (_: Exception) {}
+        try {
+            java.io.File(context.filesDir, "models").deleteRecursively()
+        } catch (_: Exception) {}
+        try {
+            context.cacheDir?.listFiles()?.forEach { it.deleteRecursively() }
+        } catch (_: Exception) {}
+        try {
+            context.stopService(android.content.Intent(context, com.example.whisperremote.FloatingButtonService::class.java))
+        } catch (_: Exception) {}
+    }
 }

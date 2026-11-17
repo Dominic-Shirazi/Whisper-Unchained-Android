@@ -1694,14 +1694,21 @@ fun LibraryBrowserDialog(
     userTriggers: List<CustomTrigger>,
     targetId: String? = null,
     onDismiss: () -> Unit,
-    onAddOrUpdate: (CustomTrigger) -> Unit
+    onAddOrUpdate: (CustomTrigger) -> Unit,
+    initialLibraryItems: List<CustomTrigger> = emptyList()
 ) {
-    var libraryItems by remember { mutableStateOf<List<CustomTrigger>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    var libraryItems by remember { mutableStateOf(initialLibraryItems) }
+    var isLoading by remember { mutableStateOf(initialLibraryItems.isEmpty()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     val expandedPromptIds = remember { mutableStateMapOf<String, Boolean>() }
 
     LaunchedEffect(Unit) {
+        if (initialLibraryItems.isNotEmpty()) {
+            if (targetId != null) {
+                expandedPromptIds[targetId] = true
+            }
+            return@LaunchedEffect
+        }
         apiClient.fetchTriggerLibrary { list, err ->
             isLoading = false
             if (list != null && list.isNotEmpty()) {
@@ -1830,9 +1837,12 @@ fun LibraryBrowserDialog(
                                                 text = if (isExpanded) "Hide instruction" else "Show the instruction",
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.clickable {
-                                                    expandedPromptIds[item.id] = !isExpanded
-                                                }
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .padding(end = 8.dp)
+                                                    .clickable {
+                                                        expandedPromptIds[item.id] = !isExpanded
+                                                    }
                                             )
                                             if (!isAdded) {
                                                 Button(

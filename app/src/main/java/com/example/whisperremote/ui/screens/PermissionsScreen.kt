@@ -3,6 +3,7 @@
 // Inputs: System permission states (Microphone, Overlay, Accessibility, Notifications, Battery).
 // Outputs: Informative status rows with direct system settings intents and color-blind safe status text ("Allowed ✓" / "Not allowed").
 // Conforms to contracts/04-look-and-feel.md §3.3.
+// Reason for edit: Require prominent disclosure & affirmative consent before opening Accessibility Settings when service is not enabled per F-64 §3.
 // Reason for edit: Branch battery optimization in Play flavor to standard list intent without restricted REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission per F-27.
 // Reason for edit: Update Play flavor battery row copy to exact wording per F-36 item 8.
 
@@ -31,12 +32,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -75,6 +78,7 @@ fun PermissionsScreen(
     var isAccessibilityActive by remember { mutableStateOf(false) }
     var hasNotificationPermission by remember { mutableStateOf(false) }
     var isIgnoringBatteryOptimizations by remember { mutableStateOf(false) }
+    var showAccessibilityDisclosure by remember { mutableStateOf(false) }
 
     fun refreshPermissions() {
         hasMicPermission = ContextCompat.checkSelfPermission(
@@ -174,8 +178,12 @@ fun PermissionsScreen(
                         isGranted = isAccessibilityActive,
                         description = "Enables automatic text pasting into active fields",
                         onClick = {
-                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                            context.startActivity(intent)
+                            if (!isAccessibilityActive) {
+                                showAccessibilityDisclosure = true
+                            } else {
+                                val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                context.startActivity(intent)
+                            }
                         }
                     )
                 }
@@ -251,6 +259,41 @@ fun PermissionsScreen(
                 }
             }
         }
+    }
+
+    if (showAccessibilityDisclosure) {
+        AlertDialog(
+            onDismissRequest = { showAccessibilityDisclosure = false },
+            title = {
+                Text(
+                    text = AboutConstants.ACCESSIBILITY_DISCLOSURE_TITLE,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                Text(
+                    text = AboutConstants.ACCESSIBILITY_DISCLOSURE_TEXT,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showAccessibilityDisclosure = false
+                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        context.startActivity(intent)
+                    }
+                ) {
+                    Text("Agree & Open Settings")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAccessibilityDisclosure = false }) {
+                    Text("Not now")
+                }
+            }
+        )
     }
 }
 

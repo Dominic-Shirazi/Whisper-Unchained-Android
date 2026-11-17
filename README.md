@@ -26,6 +26,11 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
   - **Skills Screen**: Starts with an "Ask the AI to change your text" card dynamically built from the user's first AI-edit phrase (`GET /v1/trigger_phrases`) and a "Choose your own phrase" button, followed immediately (visible without scrolling) by "Your skills" (`+ New skill`, `Browse the library`, and compact rows showing `say "<first phrase>" (+N more)`).
   - **Phrase Editor Screen ("What you say to ask the AI")**: Dedicated screen featuring a 3-colour single-sentence portrait phone example (`You say: "send me the report by friday prompt AI make it polite"`) with centred labels (`message` in `#6CB4FF`, `phrase`, `directions` in `#F0B44C`), optional "End of instruction" help text, editable phrase list, "+ Add a phrase", and "Restore original phrases".
   - **New Skill Screen**: Dedicated screen housing the explanation of skills (`The phrase can be anything you like: "prompt intake", "skill intake", or your own words.`), the Client intake sheet example, and "How skills work" notes.
+- **Google Play Store Readiness (F-64)**:
+  - Signed Play release Android App Bundle (`bundlePlayRelease`, `targetSdk = 36`, `minSdk = 34`, `versionCode = 29`).
+  - Added account-free **Delete all local data** action in `About` (`SettingsRepository.clearAllLocalData`) to wipe all preferences, encrypted API keys, cached vocabulary/skills, downloaded on-device models, and audio cache.
+  - Enforced prominent disclosure and affirmative consent dialog before opening Android Accessibility Settings across `IntroScreen`, `PasteModeScreen`, and `PermissionsScreen`.
+  - Generated Play Store listing screenshots on sample data under `docs/store/`.
 
 ## What's New in v1.3 (Build 28)
 

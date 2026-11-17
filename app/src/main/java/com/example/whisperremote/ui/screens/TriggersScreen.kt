@@ -100,7 +100,8 @@ fun TriggersScreen(
     repository: SettingsRepository,
     apiClient: ApiClient,
     onNavigateBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    initialSkills: List<CustomTrigger> = emptyList()
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -120,7 +121,7 @@ fun TriggersScreen(
     var editingPhraseTarget by remember { mutableStateOf<TriggerPhrase?>(null) }
 
     // Skills (custom triggers) state
-    var customTriggers by remember { mutableStateOf<List<CustomTrigger>>(emptyList()) }
+    var customTriggers by remember { mutableStateOf(initialSkills) }
     var customTriggersSupported by remember { mutableStateOf(true) }
     var isLoadingCustomTriggers by remember { mutableStateOf(false) }
 
