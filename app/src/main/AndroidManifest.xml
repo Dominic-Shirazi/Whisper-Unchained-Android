@@ -32,8 +32,10 @@
         android:theme="@style/Theme.WhisperRemote"
         android:usesCleartextTraffic="true">
 
+        <!-- Reason for edit: Handle rotation, fold/unfold, and multi-window resizing in-place via Jetpack Compose recomposition so active recordings, model downloads, scroll positions, and half-typed text survive per F-71 Tier 3 -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

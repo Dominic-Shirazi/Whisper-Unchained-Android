@@ -2,6 +2,7 @@
 // Inputs: SettingsRepository and ApiClient for 2-way vocabulary and corrections synchronization.
 // Outputs: WordsScreen Composable managing Vocabulary and Corrections & shortcuts without tabs.
 // Conforms to contracts/01-transcription-api.md §8, §13 and F-50, F-60.
+// Reason for edit: Constrain content width to 640.dp centered on foldable/tablet screens per F-71.
 // Reason for edit: Dedicated Words screen with Vocabulary and Corrections & shortcuts (no tabs) per F-60.
 
 package com.example.whisperremote.ui.screens
@@ -474,6 +475,8 @@ fun WordsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = 640.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {

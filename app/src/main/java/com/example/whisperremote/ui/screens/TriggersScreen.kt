@@ -2,6 +2,7 @@
 // Inputs: SettingsRepository and ApiClient for built-in AI-edit phrases and skills (custom triggers) synchronization.
 // Outputs: TriggersScreen Composable presenting the "Skills" screen, the "What you say to ask the AI" phrase editor screen, and the "New skill" / "Edit skill" screen.
 // Conforms to contracts/01-transcription-api.md §11, §13 and F-53, F-60, F-61, F-62, F-63.
+// Reason for edit: Constrain content width to 640.dp centered on foldable/tablet screens per F-71.
 // Reason for edit: Shorten Phrase Editor example first part to "send me the report by friday" without horizontal scroll per F-63.
 // Reason for edit: Remodel screen to "Skills" with top "Ask the AI to change your text" card, compact "Your skills" list visible without scrolling, dedicated Phrase Editor screen with 3-colour labelled example, and dedicated New Skill screen with explanation & client-intake example per F-62.
 // Reason for edit: Dedicated Triggers screen with editable built-in phrases ("Keep at least one" guard) and custom triggers with exact F-61 wording.
@@ -14,6 +15,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,6 +26,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -94,7 +99,7 @@ private val ORIGINAL_DEFAULT_PHRASES = listOf(
     TriggerPhrase("end prompt", "end")
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TriggersScreen(
     repository: SettingsRepository,
@@ -327,7 +332,13 @@ fun TriggersScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         modifier = modifier
     ) { innerPadding ->
-        when (currentSubView) {
+                            // Reason for edit: Handle system Back inside Phrase Editor and Skill Editor to return to MAIN Skills view per F-71
+                            BackHandler(enabled = currentSubView != SkillsSubView.MAIN) {
+                                currentSubView = SkillsSubView.MAIN
+                                editingCustomTrigger = null
+                            }
+
+                            when (currentSubView) {
             // =========================================================================
             // 1. MAIN SKILLS SCREEN (F-62 Screen layout §1 & §2)
             // =========================================================================
@@ -340,6 +351,8 @@ fun TriggersScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
+                        .wrapContentWidth(Alignment.CenterHorizontally)
+                        .widthIn(max = 640.dp)
                         .verticalScroll(mainScroll)
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
@@ -577,6 +590,8 @@ fun TriggersScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
+                        .wrapContentWidth(Alignment.CenterHorizontally)
+                        .widthIn(max = 640.dp)
                         .verticalScroll(phraseScroll)
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
@@ -595,9 +610,8 @@ fun TriggersScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.Top
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column {
                                     Text(
@@ -837,6 +851,8 @@ fun TriggersScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
+                        .wrapContentWidth(Alignment.CenterHorizontally)
+                        .widthIn(max = 640.dp)
                         .verticalScroll(editorScroll)
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {

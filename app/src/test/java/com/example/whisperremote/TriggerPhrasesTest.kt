@@ -480,4 +480,38 @@ class TriggerPhrasesTest {
     fun testF70EndToEndFlowsOnApi33() {
         runApiLevelFlowVerification(33)
     }
+
+    @Test
+    @Config(qualifiers = "w864dp-h864dp-xxhdpi")
+    fun testF71FloatingButtonAndSheetsSurviveFoldAndRotate() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        val floatService = Robolectric.buildService(FloatingButtonService::class.java).create().get()
+        floatService.onTextFieldFocused()
+        ShadowLooper.idleMainLooper()
+
+        // Unfolded 1:1 display (864dp @ xxhdpi 3x = 2592px wide)
+        val unfoldedWidth = floatService.resources.displayMetrics.widthPixels
+        assertEquals(2592, unfoldedWidth)
+
+        // Verify initial x is on the right edge of the 2592px unfolded screen (> 2000px)
+        val windowParamsField = FloatingButtonService::class.java.getDeclaredField("windowParams").apply { isAccessible = true }
+        val params = windowParamsField.get(floatService) as android.view.WindowManager.LayoutParams
+        assertTrue("Initial button x (${params.x}) should be on right edge of unfolded screen", params.x > 2000)
+
+        // Simulate folding to 10:16 outer screen (1080x1728 px)
+        floatService.resources.displayMetrics.widthPixels = 1080
+        floatService.resources.displayMetrics.heightPixels = 1728
+        floatService.onConfigurationChanged(floatService.resources.configuration)
+
+        // Verify floating button x position was clamped / re-snapped inside the new 1080px outer screen
+        assertTrue(
+            "Floating button x (${params.x}) must remain inside 1080px folded screen width",
+            params.x in 0..1000
+        )
+        assertTrue(
+            "Floating button y (${params.y}) must remain inside 1728px folded screen height",
+            params.y in 0..1650
+        )
+    }
 }

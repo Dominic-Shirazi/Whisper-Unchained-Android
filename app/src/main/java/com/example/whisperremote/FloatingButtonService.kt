@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Handle onConfigurationChanged for rotation, fold/unfold, and multi-window resizing so the floating button and its open sheets stay on screen per F-71 Tier 3.
 // Reason for edit: Add highlight recording chip ("✎ 113 words" / struck-through "113 words") and highlight sheet ("Your N highlighted words": Rewrite them vs Type over them) per F-66 and F-66b.
 // Reason for edit: Route voice recordings started with highlighted text to POST /dictate/v1/edit_selection and show "The AI made no changes." on unchanged/edited=false replies per contract 01 §14 and F-65.
 // Reason for edit: Rename user-visible "Trigger" / "triggers" copy in typed instruction box, matched badge, style pill, and style sheet to "Skill" / "skills" per F-62.
@@ -615,6 +616,9 @@ class FloatingButtonService : Service() {
         }
 
         val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        lastScreenWidth = screenWidth
+        lastScreenHeight = screenHeight
         val defaultMargin = dpToPx(8)
         val defaultX = screenWidth - buttonPx - defaultMargin
         val defaultY = dpToPx(120)
@@ -635,8 +639,8 @@ class FloatingButtonService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = savedX
-            y = savedY
+            x = savedX.coerceIn(defaultMargin, (screenWidth - buttonPx - defaultMargin).coerceAtLeast(defaultMargin))
+            y = savedY.coerceIn(dpToPx(24), (screenHeight - buttonPx - dpToPx(48)).coerceAtLeast(dpToPx(24)))
         }
         windowParams = params
 
@@ -891,6 +895,7 @@ class FloatingButtonService : Service() {
         )
         overlay.addView(card, cardLp)
         overlay.cardView = card
+        currentHighlightSheetCard = card
 
         buildHighlightSheetCard(card)
 
@@ -939,6 +944,7 @@ class FloatingButtonService : Service() {
         highlightSheetTimerRunnable = null
         val overlay = highlightSheetOverlayView ?: return
         highlightSheetOverlayView = null
+        currentHighlightSheetCard = null
         highlightSheetTimerView = null
         try {
             windowManager.removeView(overlay)
@@ -1567,7 +1573,76 @@ class FloatingButtonService : Service() {
             .start()
     }
 
-    private fun ensureOverlayInBounds() {
+    private var lastScreenWidth: Int = 0
+    private var lastScreenHeight: Int = 0
+    private var currentHighlightSheetCard: View? = null
+
+    // Reason for edit: Keep floating button and open sheets on screen across rotation, fold/unfold, and multi-window resizing per F-71 Tier 3
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val newWidth = resources.displayMetrics.widthPixels
+        val newHeight = resources.displayMetrics.heightPixels
+        if (newWidth <= 0 || newHeight <= 0) return
+
+        val containerView = container
+        val params = windowParams
+        if (containerView != null && params != null) {
+            snapAnimator?.cancel()
+            containerView.measure(
+                View.MeasureSpec.makeMeasureSpec(newWidth, View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(newHeight, View.MeasureSpec.AT_MOST)
+            )
+            val measuredW = maxOf(containerView.measuredWidth, dpToPx(64))
+            val measuredH = maxOf(containerView.measuredHeight, dpToPx(64))
+            val margin = dpToPx(8)
+
+            val prevW = if (lastScreenWidth > 0) lastScreenWidth else newWidth
+            val prevH = if (lastScreenHeight > 0) lastScreenHeight else newHeight
+            val wasOnRightHalf = (params.x + measuredW / 2) >= (prevW / 2)
+
+            params.x = if (wasOnRightHalf) {
+                (newWidth - measuredW - margin).coerceAtLeast(margin)
+            } else {
+                margin
+            }
+            if (prevH > 0 && prevH != newHeight) {
+                val ratioY = (params.y.toFloat() / prevH.toFloat()).coerceIn(0f, 1f)
+                params.y = (ratioY * newHeight).toInt()
+            }
+            params.y = params.y.coerceIn(dpToPx(24), (newHeight - measuredH - dpToPx(48)).coerceAtLeast(dpToPx(24)))
+
+            if (containerView.isAttachedToWindow) {
+                try {
+                    windowManager.updateViewLayout(containerView, params)
+                } catch (e: Exception) {
+                    Log.e("FloatingButtonService", "Error updating overlay layout on config change", e)
+                }
+            }
+        }
+
+        // Resize any open sheet cards to fit the new window width
+        val maxSheetWidth = dpToPx(380)
+        val newSheetCardWidth = minOf(newWidth - dpToPx(32), maxSheetWidth).coerceAtLeast(dpToPx(240))
+        currentSheetCard?.let { card ->
+            (card.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+                lp.width = newSheetCardWidth
+                card.layoutParams = lp
+                card.requestLayout()
+            }
+        }
+        currentHighlightSheetCard?.let { card ->
+            (card.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+                lp.width = newSheetCardWidth
+                card.layoutParams = lp
+                card.requestLayout()
+            }
+        }
+
+        lastScreenWidth = newWidth
+        lastScreenHeight = newHeight
+    }
+
+    internal fun ensureOverlayInBounds() {
         val containerView = container ?: return
         val params = windowParams ?: return
         val screenWidth = resources.displayMetrics.widthPixels

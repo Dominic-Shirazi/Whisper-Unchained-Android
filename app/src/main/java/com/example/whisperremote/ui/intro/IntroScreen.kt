@@ -4,6 +4,7 @@
 // Outputs: 7-stage interactive sandbox onboarding with segmented progress bar, in-place practice dictation sandbox,
 //          mic permission requested on first practice mic tap, and Play-compliant prominent accessibility disclosure.
 // Conforms to contracts/04-look-and-feel.md §4 and Play policy requirements in F-22, F-24, F-25.
+// Reason for edit: Make Intro pages 1, 3, 4, and 6 vertically scrollable so buttons and practice box are never cut off in landscape or split-screen mode per F-71 Tier 3.
 // Reason for edit: Update accessibility step instructions to match One UI and set startOnBoot on setup completion per F-48.
 // Reason for edit: Out-of-the-box offline model download & on-device practice dictation per contract 05 §2.7.
 // Reason for edit: Branch battery optimization in Play flavor to open standard list settings without restricted REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission per F-27.
@@ -50,6 +51,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -446,44 +448,51 @@ fun IntroScreen(
                     when (page) {
                         // 1. Welcome (§4 item 1 & F-36 item 1: app logo instead of green mic)
                         1 -> {
-                            Spacer(modifier = Modifier.height(32.dp))
-                            Image(
-                                painter = painterResource(R.drawable.whisper_remote),
-                                contentDescription = "Whisper Unchained Logo",
-                                modifier = Modifier.size(96.dp)
-                            )
-                            Spacer(modifier = Modifier.height(32.dp))
-                            Text(
-                                text = "Talk instead of typing",
-                                style = MaterialTheme.typography.headlineLarge,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Dictate into any app with zero effort. Your voice goes directly to your own PC or private cloud key.",
-                                style = MaterialTheme.typography.bodyLarge,
-                                textAlign = TextAlign.Center,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "No account. No tracking. No ads.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-
-                            Spacer(modifier = Modifier.weight(1f))
-
-                            Button(
-                                onClick = { currentPage = 2 },
+                            Column(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(52.dp),
-                                shape = RoundedCornerShape(26.dp)
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState()),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text("Get started")
+                                Spacer(modifier = Modifier.height(32.dp))
+                                Image(
+                                    painter = painterResource(R.drawable.whisper_remote),
+                                    contentDescription = "Whisper Unchained Logo",
+                                    modifier = Modifier.size(96.dp)
+                                )
+                                Spacer(modifier = Modifier.height(32.dp))
+                                Text(
+                                    text = "Talk instead of typing",
+                                    style = MaterialTheme.typography.headlineLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "Dictate into any app with zero effort. Your voice goes directly to your own PC or private cloud key.",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    textAlign = TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "No account. No tracking. No ads.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+
+                                Spacer(modifier = Modifier.height(32.dp))
+
+                                Button(
+                                    onClick = { currentPage = 2 },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(52.dp),
+                                    shape = RoundedCornerShape(26.dp)
+                                ) {
+                                    Text("Get started")
+                                }
                             }
                         }
 
@@ -1049,6 +1058,12 @@ fun IntroScreen(
 
                         // 3. Try it (F-36 item 3: demo read-only display box, floating button demo, no shift continue)
                         3 -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState()),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = "Try it out",
@@ -1175,8 +1190,7 @@ fun IntroScreen(
                             // Read-only display box (Surface with Text per F-36 item 3)
                             Card(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f),
+                                    .fillMaxWidth(),
                                 shape = RoundedCornerShape(20.dp),
                                 colors = CardDefaults.cardColors(
                                     containerColor = MaterialTheme.colorScheme.surface
@@ -1184,7 +1198,7 @@ fun IntroScreen(
                             ) {
                                 Column(
                                     modifier = Modifier
-                                        .fillMaxSize()
+                                        .fillMaxWidth()
                                         .padding(16.dp)
                                 ) {
                                     Text(
@@ -1197,14 +1211,14 @@ fun IntroScreen(
                                     Surface(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .weight(1f)
+                                            .heightIn(min = 120.dp)
                                             .clip(RoundedCornerShape(12.dp)),
                                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .fillMaxSize()
+                                                .fillMaxWidth()
                                                 .padding(14.dp)
                                         ) {
                                             if (practiceText.isBlank()) {
@@ -1407,10 +1421,17 @@ fun IntroScreen(
                             ) {
                                 Text(if (practiceSuccessCelebration) "It works: Continue" else "Continue")
                             }
+                            }
                         }
 
                         // 4. Appear on top (§4 item 4)
                         4 -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState()),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
                             Spacer(modifier = Modifier.height(24.dp))
                             IntroIllustration(icon = Icons.Default.PlayArrow, tint = Color(0xFF29A6B8))
                             Spacer(modifier = Modifier.height(24.dp))
@@ -1428,7 +1449,7 @@ fun IntroScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
-                            Spacer(modifier = Modifier.weight(1f))
+                            Spacer(modifier = Modifier.height(32.dp))
 
                             Button(
                                 onClick = {
@@ -1454,6 +1475,7 @@ fun IntroScreen(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text("Not now")
+                            }
                             }
                         }
 
@@ -1595,6 +1617,12 @@ fun IntroScreen(
 
                         // 6. Stay ready (§4 item 6)
                         6 -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState()),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
                             Spacer(modifier = Modifier.height(24.dp))
                             IntroIllustration(icon = Icons.Default.Notifications, tint = Color(0xFF38A169))
                             Spacer(modifier = Modifier.height(24.dp))
@@ -1614,7 +1642,7 @@ fun IntroScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
-                            Spacer(modifier = Modifier.weight(1f))
+                            Spacer(modifier = Modifier.height(32.dp))
 
                             Button(
                                 onClick = {
@@ -1663,6 +1691,7 @@ fun IntroScreen(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text("Skip")
+                            }
                             }
                         }
 
