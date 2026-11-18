@@ -26,6 +26,8 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
     - **Rewrite mode (default when PC AI is available)**: Shows `✎ 113 words` (`1 word` for 1), hides the dictation style pill, and announces `"113 highlighted words will be rewritten"` to TalkBack.
     - **Type over mode (when chosen in the sheet, or automatically in on-device / cloud-key mode)**: Shows `113 words` struck through, restores the dictation style pill, and announces `"113 highlighted words will be typed over"` to TalkBack.
   - **Tap the chip while recording** to open the `"Your 113 highlighted words"` sheet without stopping the recording, offering two plain-language choices (`"Rewrite them"` vs `"Type over them"`) when PC AI is available, or explaining that what you say replaces the highlighted words when in on-device/cloud mode.
+- **Honest Cached Text Box Lifecycle on Paste (F-68)**:
+  - `DictationAccessibilityService` clears cached `focusedNode` and `lastSelectionNode` references whenever the active window/package changes (`TYPE_WINDOW_STATE_CHANGED`) or when focus leaves an editable field, and refreshes (`refresh()`) any cached node before paste to verify it is still both `isFocused` and `isEditable` — preventing text from ever being pasted into a text box the user has left while preserving fallback paste for apps where `findFocus(FOCUS_INPUT)` returns `null`.
 
 ## What's New in v1.3 (Build 30)
 

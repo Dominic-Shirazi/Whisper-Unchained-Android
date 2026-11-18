@@ -2,6 +2,7 @@
 // It is called by `./gradlew test` (Robolectric test runner).
 // Inputs: JSON payloads representing GET/POST /v1/trigger_phrases, SettingsRepository state.
 // Outputs: Verifies TriggerPhrase data class, API payloads, guard conditions, and Home subtitles per F-60 and F-61.
+// Reason for edit: Add F-68 unit tests for honest cached text box lifecycle on paste (tapped out -> clipboard notice, switched app -> new box, null findFocus with still-focused cached node -> pasted).
 // Reason for edit: Add unit tests for F-65 verifying that a recording started with highlighted text goes to POST /dictate/v1/edit_selection and unchanged replies show "The AI made no changes."
 // Reason for edit: Update Home screen Skills subtitle test to verify F-62 wording ("N skills") and no hardcoded "hey Whisper".
 // Reason for creation: Unit tests for trigger phrases and Home screen group subtitles per F-60 §3 and F-61.
@@ -10,7 +11,11 @@ package com.example.whisperremote
 
 import android.Manifest
 import android.app.Application
+import android.content.ClipboardManager
 import android.content.Context
+import android.os.Bundle
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ApplicationProvider
 import com.example.whisperremote.FloatingButtonService.ButtonState
 import com.example.whisperremote.data.ProviderPreset
@@ -281,5 +286,99 @@ class TriggerPhrasesTest {
         } finally {
             server.shutdown()
         }
+    }
+
+    private class FakeEditableNode(
+        var focusedState: Boolean = true,
+        var editableState: Boolean = true,
+        var pkg: String = "com.example.app1"
+    ) : AccessibilityNodeInfo() {
+        var refreshCount = 0
+        val performedActions = mutableListOf<Int>()
+
+        override fun refresh(): Boolean {
+            refreshCount++
+            return true
+        }
+
+        override fun isFocused(): Boolean = focusedState
+        override fun isEditable(): Boolean = editableState
+        override fun getPackageName(): CharSequence = pkg
+        override fun getClassName(): CharSequence = "android.widget.EditText"
+        override fun isPassword(): Boolean = false
+        override fun getInputType(): Int = android.text.InputType.TYPE_CLASS_TEXT
+
+        override fun performAction(action: Int): Boolean {
+            performedActions.add(action)
+            return action == ACTION_PASTE
+        }
+
+        override fun performAction(action: Int, arguments: Bundle?): Boolean {
+            performedActions.add(action)
+            return true
+        }
+    }
+
+    @Test
+    fun testF68CachedNodePasteScenarios() {
+        val a11yService = Robolectric.buildService(DictationAccessibilityService::class.java).create().get()
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+        // Scenario (a): Tapped out of the box, nothing focused -> clipboard notice, no ACTION_PASTE
+        val tappedOutBox = FakeEditableNode(focusedState = true, editableState = true, pkg = "com.example.notes")
+        a11yService.focusedNode = tappedOutBox
+        a11yService.activeWindowPackage = "com.example.notes"
+        a11yService.findFocusOverrideForTesting = { null }
+
+        // User taps out of the box before paste arrives
+        tappedOutBox.focusedState = false
+        a11yService.pasteText("Hello from scenario A")
+
+        assertTrue("refresh() must be called on cached node before using it", tappedOutBox.refreshCount > 0)
+        assertFalse(
+            "ACTION_PASTE must NOT be called on a box the user has left",
+            tappedOutBox.performedActions.contains(AccessibilityNodeInfo.ACTION_PASTE)
+        )
+        assertNull("Stale focusedNode must be cleared when no longer focused", a11yService.focusedNode)
+        assertEquals("Hello from scenario A", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+
+        // Scenario (b): Switched app during processing with a box focused there -> pasted in the new box
+        val oldAppBox = FakeEditableNode(focusedState = true, editableState = true, pkg = "com.example.app1")
+        val newAppBox = FakeEditableNode(focusedState = true, editableState = true, pkg = "com.example.app2")
+        a11yService.focusedNode = oldAppBox
+        a11yService.lastSelectionNode = oldAppBox
+        a11yService.activeWindowPackage = "com.example.app1"
+        a11yService.activeWindowId = 10
+
+        // Active window changes to app2
+        @Suppress("DEPRECATION")
+        val winEvent = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED).apply {
+            packageName = "com.example.app2"
+        }
+        a11yService.findFocusOverrideForTesting = { newAppBox }
+        a11yService.onAccessibilityEvent(winEvent)
+
+        a11yService.pasteText("Hello in app 2")
+        assertFalse(
+            "Old app box must not receive ACTION_PASTE",
+            oldAppBox.performedActions.contains(AccessibilityNodeInfo.ACTION_PASTE)
+        )
+        assertTrue(
+            "New app box must receive ACTION_PASTE",
+            newAppBox.performedActions.contains(AccessibilityNodeInfo.ACTION_PASTE)
+        )
+
+        // Scenario (c): App whose findFocus(FOCUS_INPUT) returns null, but cached node is still isFocused && isEditable -> pasted
+        val quirkyAppBox = FakeEditableNode(focusedState = true, editableState = true, pkg = "com.example.quirky")
+        a11yService.focusedNode = quirkyAppBox
+        a11yService.activeWindowPackage = "com.example.quirky"
+        a11yService.findFocusOverrideForTesting = { null }
+
+        a11yService.pasteText("Hello in quirky app")
+        assertTrue("refresh() must be called on cached node", quirkyAppBox.refreshCount > 0)
+        assertTrue(
+            "Cached node that is still focused and editable must receive ACTION_PASTE",
+            quirkyAppBox.performedActions.contains(AccessibilityNodeInfo.ACTION_PASTE)
+        )
     }
 }

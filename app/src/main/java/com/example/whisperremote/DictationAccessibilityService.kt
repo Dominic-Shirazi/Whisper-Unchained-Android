@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Clear cached focusedNode/lastSelectionNode on window change or focus loss, and refresh+verify isFocused && isEditable before using cached nodes on paste per F-68.
 // Reason for edit: Refresh node before reading selection, track selection source node for WebView/Gmail editors, prefer ACTION_PASTE when replacing active selection, and add hasRichFormattingInSelection() per F-65.
 // Reason for edit: Add getSelectedText() and replaceOrInsertText() for F-54 typed instructions.
 // Reason for edit: Add hasFocusedEditable() helper and auto-start FloatingButtonService in onServiceConnected() per F-47 and F-48.
@@ -73,14 +74,78 @@ class DictationAccessibilityService : AccessibilityService() {
         }
     }
 
-    private var focusedNode: AccessibilityNodeInfo? = null
-    private var lastSelectionNode: AccessibilityNodeInfo? = null
+    internal var focusedNode: AccessibilityNodeInfo? = null
+    internal var lastSelectionNode: AccessibilityNodeInfo? = null
+    internal var activeWindowPackage: String? = null
+    internal var activeWindowId: Int = -1
+    internal var findFocusOverrideForTesting: ((Int) -> AccessibilityNodeInfo?)? = null
     private var hasFocusedEditable = false
+
+    // Reason for edit: Refresh cached node and verify it is still isFocused && isEditable before using it per F-68
+    internal fun validateCachedNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        try {
+            node.refresh()
+        } catch (_: Exception) {}
+        return if (node.isFocused && node.isEditable) node else null
+    }
+
+    // Reason for edit: Resolve target node for paste using fresh focus first, then honest validated cached node per F-68
+    internal fun resolveTargetNodeForPaste(preferSelectionNode: Boolean = false): AccessibilityNodeInfo? {
+        val liveFocus = findFocusOverrideForTesting?.invoke(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (liveFocus != null) {
+            try {
+                liveFocus.refresh()
+            } catch (_: Exception) {}
+            if (liveFocus.isFocused && isEditableNode(liveFocus)) {
+                return liveFocus
+            }
+        }
+
+        if (preferSelectionNode) {
+            val validSel = validateCachedNode(lastSelectionNode)
+            if (validSel != null) {
+                return validSel
+            } else {
+                lastSelectionNode = null
+            }
+        }
+
+        val validFocused = validateCachedNode(focusedNode)
+        if (validFocused != null) {
+            return validFocused
+        } else {
+            focusedNode = null
+        }
+
+        if (!preferSelectionNode) {
+            val validSel = validateCachedNode(lastSelectionNode)
+            if (validSel != null) {
+                return validSel
+            } else {
+                lastSelectionNode = null
+            }
+        }
+
+        val rootLive = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (rootLive != null) {
+            try {
+                rootLive.refresh()
+            } catch (_: Exception) {}
+            if (rootLive.isFocused && isEditableNode(rootLive)) {
+                return rootLive
+            }
+        }
+
+        return findEditableInTree(rootInActiveWindow)
+    }
 
     // Reason for edit: Fresh focus lookup only (no stale tracked node) so the mic hides when focus has actually left per F-47
     fun hasFocusedEditable(): Boolean {
         return try {
-            val targetNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            val targetNode = findFocusOverrideForTesting?.invoke(AccessibilityNodeInfo.FOCUS_INPUT)
+                ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
                 ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
                 ?: findEditableInTree(rootInActiveWindow)
             targetNode != null && isEditableNode(targetNode)
@@ -113,6 +178,20 @@ class DictationAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        // Reason for edit: Clear cached nodes on window/package change per F-68
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val newPkg = event.packageName?.toString()
+            val newWinId = event.windowId
+            val pkgChanged = newPkg != null && activeWindowPackage != null && newPkg != activeWindowPackage
+            val winChanged = newWinId != -1 && activeWindowId != -1 && newWinId != activeWindowId
+            if (pkgChanged || winChanged) {
+                focusedNode = null
+                lastSelectionNode = null
+            }
+            if (newPkg != null) activeWindowPackage = newPkg
+            if (newWinId != -1) activeWindowId = newWinId
+        }
+
         // Reason for edit: Minimal focus/window events per F-12, plus selection tracking per F-59
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_FOCUSED,
@@ -123,9 +202,11 @@ class DictationAccessibilityService : AccessibilityService() {
             }
             AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED -> {
                 event.source?.let { src ->
-                    if (!isSensitiveNode(src)) {
+                    if (!isSensitiveNode(src) && src.isFocused && src.isEditable) {
                         @Suppress("DEPRECATION")
                         lastSelectionNode = AccessibilityNodeInfo.obtain(src)
+                    } else if (!src.isFocused || !src.isEditable) {
+                        lastSelectionNode = null
                     }
                 }
                 FloatingButtonService.getInstance()?.onTextSelectionChanged()
@@ -134,7 +215,8 @@ class DictationAccessibilityService : AccessibilityService() {
     }
 
     private fun checkFocusState(event: AccessibilityEvent) {
-        val inputFocus = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        val inputFocus = findFocusOverrideForTesting?.invoke(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
         val source = event.source
 
         val activeInput = when {
@@ -148,12 +230,21 @@ class DictationAccessibilityService : AccessibilityService() {
         if (activeInput != null && isEditableNode(activeInput)) {
             @Suppress("DEPRECATION")
             focusedNode = AccessibilityNodeInfo.obtain(activeInput)
+            activeInput.packageName?.toString()?.let { activeWindowPackage = it }
+            if (activeInput.windowId != -1) activeWindowId = activeInput.windowId
             if (!hasFocusedEditable) {
                 hasFocusedEditable = true
                 FloatingButtonService.getInstance()?.onTextFieldFocused()
                 Log.d("DictationService", "Editable field focused: ${activeInput.className}")
             }
         } else {
+            // Reason for edit: Clear cached nodes when focus leaves or node is no longer focused/editable per F-68
+            if (validateCachedNode(focusedNode) == null) {
+                focusedNode = null
+            }
+            if (validateCachedNode(lastSelectionNode) == null) {
+                lastSelectionNode = null
+            }
             if (hasFocusedEditable) {
                 hasFocusedEditable = false
                 FloatingButtonService.getInstance()?.onTextFieldFocusLost()
@@ -236,11 +327,8 @@ class DictationAccessibilityService : AccessibilityService() {
         }
 
         // 2. Try to find the currently focused editable field
-        // Strategy: current focus -> tracked node -> root focus -> tree search
-        val targetNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            ?: focusedNode
-            ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            ?: findEditableInTree(rootInActiveWindow)
+        // Strategy: current focus -> refreshed & validated cached node -> root focus -> tree search per F-68
+        val targetNode = resolveTargetNodeForPaste(preferSelectionNode = false)
 
         Log.d("DictationService", "Target node found: ${targetNode != null}")
 
@@ -328,7 +416,7 @@ class DictationAccessibilityService : AccessibilityService() {
 
     private fun findEditableWithSelectionInTree(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
-        if (!isSensitiveNode(node) && isEditableNode(node)) {
+        if (!isSensitiveNode(node) && node.isFocused && isEditableNode(node)) {
             val fullText = node.text?.toString() ?: ""
             val selStart = node.textSelectionStart
             val selEnd = node.textSelectionEnd
@@ -347,9 +435,9 @@ class DictationAccessibilityService : AccessibilityService() {
     // Reason for edit: Add getSelectedText() to read highlighted text for F-54 typed instruction panel and F-65 voice selection edit
     fun getSelectedText(): String? {
         val candidates = listOf(
-            findFocus(AccessibilityNodeInfo.FOCUS_INPUT),
-            lastSelectionNode,
-            focusedNode,
+            findFocusOverrideForTesting?.invoke(AccessibilityNodeInfo.FOCUS_INPUT) ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT),
+            validateCachedNode(lastSelectionNode),
+            validateCachedNode(focusedNode),
             rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT),
             findEditableWithSelectionInTree(rootInActiveWindow),
             findEditableInTree(rootInActiveWindow)
@@ -366,12 +454,7 @@ class DictationAccessibilityService : AccessibilityService() {
      * (e.g. StyleSpan for bold/italic, UnderlineSpan, URLSpan, BulletSpan) or lives inside a WebView rich editor per F-65.
      */
     fun hasRichFormattingInSelection(): Boolean {
-        val targetNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            ?: lastSelectionNode
-            ?: focusedNode
-            ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            ?: findEditableWithSelectionInTree(rootInActiveWindow)
-            ?: findEditableInTree(rootInActiveWindow) ?: return false
+        val targetNode = resolveTargetNodeForPaste(preferSelectionNode = true) ?: return false
 
         try {
             targetNode.refresh()
@@ -414,12 +497,7 @@ class DictationAccessibilityService : AccessibilityService() {
             Log.e("DictationService", "Clipboard copy failed", e)
         }
 
-        val targetNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            ?: lastSelectionNode?.takeIf { isEditableNode(it) }
-            ?: focusedNode
-            ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            ?: findEditableWithSelectionInTree(rootInActiveWindow)
-            ?: findEditableInTree(rootInActiveWindow)
+        val targetNode = resolveTargetNodeForPaste(preferSelectionNode = true)
 
         if (targetNode != null && isSensitiveNode(targetNode)) {
             FloatingButtonService.getInstance()?.showTemporaryHint("Password field protected: copied to clipboard")
