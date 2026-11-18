@@ -22,13 +22,13 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
   (Play delivers only the device's own), so 32-bit Android Go phones and x86 Chromebooks aren't excluded: apply the
   `abiFilters` only to APK builds, not `bundlePlayRelease`.
 - ⬜ Only the `play` flavor goes to Play (no MediaProjection, verified in v1.1).
-- ⬜ The `play` APK must **not** declare `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (restricted; dictation isn't an allowed
+- ✅ (checked: `app/src/play/AndroidManifest.xml` removes it) The `play` APK must **not** declare `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (restricted; dictation isn't an allowed
   use case). Play opens the battery settings list instead; `full` keeps the direct prompt (F-27). Check with
   `aapt2 dump permissions`.
 
 ## 2. In-app requirements (contract 04 §4 + F-22)
 - 🟡 **Accessibility prominent disclosure** before sending the user to Accessibility settings: separate screen, says what
-  the service reads (the focused text field) and why (to insert dictated text), that nothing is stored or sent, that it
+  the service reads (the focused text field) and why (to insert dictated text), that nothing is stored, and nothing is sent except words the user highlights and asks the AI to rewrite, that it
   never touches password/payment fields; **affirmative "Agree"** button (back/home is not consent); a "Not now" path;
   the disclosure can be **shown again** later (Paste into apps page / Run setup again).
   ([policy](https://support.google.com/googleplay/android-developer/answer/10964491))
@@ -129,7 +129,7 @@ The page is accurate for v1.1. Update it **before** each of these ships:
   deleted after the retry or 24 hours at most. Add to "Accessibility service": it never reads or types into password,
   PIN or card-number fields.
 - **v1.3:** add "On this phone" to "Where your voice and text go" (speech recognition runs on the phone; nothing leaves
-  it), and that the app downloads the speech model files from GitHub (GitHub sees your internet address, like any download).
+  it), and that the app downloads the speech model files from Hugging Face (the live page wrongly says GitHub; Hugging Face sees your internet address, like any download).
 - Mention the microphone notice shown before Android's permission prompt (optional; the page already explains it).
 - **Build 30 and later (must be fixed before the Play submission; the live page is wrong today):**
   - "Accessibility service" says "It does not read ... what you type, and nothing it sees is sent anywhere." Replace
