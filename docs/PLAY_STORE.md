@@ -13,7 +13,10 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
 
 ## 1. Build
 - ✅ targetSdk 36 (Play's minimum for new apps since 31 Aug 2026). minSdk 34 (Android 14+).
-- ⬜ **App bundle** (`gradlew :app:bundlePlayRelease`), signed with our key, which becomes the **upload key**; enroll in
+- 🟡 **App bundle** built for build 31 (commit fe07415, version code 31, 23,343,368 bytes, SHA-256
+  `e0e575a2d9a2e511f1587ccd384e23f2fba278257efb978ac2a4e16dac0cbd00`, at
+  `app/build/outputs/bundle/playRelease/app-play-release.aab`); not uploaded yet.
+  (`gradlew :app:bundlePlayRelease`), signed with our key, which becomes the **upload key**; enroll in
   **Play App Signing** (Google holds the app-signing key).
 - ⬜ **ABIs:** GitHub APKs are trimmed to `arm64-v8a` (v1.3, saves ~40 MB). The Play **bundle** should include all ABIs
   (Play delivers only the device's own), so 32-bit Android Go phones and x86 Chromebooks aren't excluded: apply the
@@ -40,7 +43,12 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
 - isAccessibilityTool: **false** (a dictation app isn't an accessibility tool under Play's definition).
 - Purpose: **App functionality**: "Inserts the user's dictated text into the text field they are typing in, at the
   cursor. Android has no other API that lets an app type into another app's text field."
-- Collects or shares personal/sensitive data via the API: **No** (the field's content never leaves the phone).
+- Collects or shares personal/sensitive data via the API: **Yes, since build 30** (was No). When the user highlights
+  text and asks for a rewrite, the highlighted words are read through the API and sent to the AI on the PC or service
+  the user set up. Only on that request, only the highlighted words, never to us. Answering No would no longer be
+  true. Wording for the form: "When the user highlights text and asks the app to rewrite it, the highlighted text is
+  sent to the user's own computer or the AI service they configured, and the result replaces it. Nothing is sent
+  otherwise, and nothing is sent to the developer."
 - **Video** (unlisted YouTube): see §5.
 - The listing's full description must mention the accessibility use (§4).
 
@@ -58,6 +66,8 @@ user configures, so we declare conservatively:
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | Audio → Voice or sound recordings | **Yes** (when transcribing on a PC or cloud service) | **No** (sent only where the user chose) | Required for that mode (on-device mode sends nothing) | App functionality | No (cloud services keep data under their own terms) |
 | App activity → Other user-generated content (dictated text sent for AI cleanup) | **Yes** | No | **Optional** | App functionality | No |
+
+| App activity → Other user-generated content (text the user highlighted and asked the AI to rewrite; typed instructions) | **Yes** (since build 30) | No | **Optional** | App functionality | No |
 
 - Nothing else (no identifiers, location, contacts, diagnostics, analytics).
 - **Encrypted in transit:** **Yes**, once contract 06 ships (until then a LAN `http://` address is allowed).
@@ -85,16 +95,22 @@ ads: no, government/financial/health/news: no.
 > • **Your cloud service**: use your own Groq or OpenAI key.
 >
 > Optional AI cleanup removes "um"s, applies "no wait, I mean…" corrections and fixes punctuation, using your own
-> computer or your own AI service. Say "prompt AI, make this formal" to rewrite what you just said.
+> computer or your own AI service. Say "prompt AI, make this formal" to rewrite what you just said, or highlight text
+> and say what to change. Skills save a long instruction under a short phrase: say "skill grocery list" and your
+> shopping is grouped by aisle.
 >
 > **Accessibility service:** Whisper Unchained uses Android's Accessibility service only to type your dictated text into
-> the text field you're using. It reads the focused field so it can insert at the cursor; it does not read password or
-> payment fields, and nothing it reads is stored or sent anywhere. You can use the clipboard instead if you prefer.
+> the text field you're using, and to rewrite text you highlight when you ask it to. It reads the focused field so it
+> can insert at the cursor. If you highlight text and ask for a rewrite, those words go to the AI on your own computer
+> or the service you set up, and nowhere else. It does not read password or payment fields, and nothing is stored or
+> sent to us. You can use the clipboard instead if you prefer.
 >
 > Source code: github.com/Dominic-Shirazi/Whisper-Unchained-Android
 
 - **Graphics:** icon 512×512 PNG (alpha OK, ≤ 1 MB); feature graphic 1024×500 (no alpha); 4–8 phone screenshots
-  (1080×1920 or similar, no alpha). Take them from the v1.2 build in light mode + one dark.
+  (1080×1920 or similar, no alpha). Take them on a real phone from build 31: the six screens are listed in the relay
+  message A-68 (home; mic recording with the style sheet; highlight chip and its sheet; Skills; phrase editor;
+  on-phone mode). The images in `docs/store/` are 720 px test renders and are not usable as they are.
 
 ## 5. Declaration video script (one recording covers both forms; unlisted YouTube)
 Screen-record on the S25, with captions:
@@ -115,4 +131,19 @@ The page is accurate for v1.1. Update it **before** each of these ships:
 - **v1.3:** add "On this phone" to "Where your voice and text go" (speech recognition runs on the phone; nothing leaves
   it), and that the app downloads the speech model files from GitHub (GitHub sees your internet address, like any download).
 - Mention the microphone notice shown before Android's permission prompt (optional; the page already explains it).
+- **Build 30 and later (must be fixed before the Play submission; the live page is wrong today):**
+  - "Accessibility service" says "It does not read ... what you type, and nothing it sees is sent anywhere." Replace
+    with: "It reads the text box you are in so it can put your words at the cursor. If you highlight text and ask
+    for a rewrite, the highlighted words are sent to the AI you set up (usually on your own PC) and the answer
+    replaces them. Nothing else it sees is stored or sent, and nothing is ever sent to us. It never reads or types
+    into password, PIN or card number fields."
+  - "The optional AI editing features" sentence: add highlighted text and typed instructions to what is sent.
+  - Remove "from v1.3, coming soon" (three places): 1.3 is out.
+  - "What stays on your phone": add that About > Delete all local data clears it.
+  - Skills are saved on the PC, not the phone.
+  - The page says "MIT License". The licence has not been decided (AGPL or MIT); make the page match the LICENSE
+    file once there is one.
+  - Windows section: setup can also download a second speech engine and its model (from GitHub and Hugging Face) for
+    AMD and Intel graphics cards.
+  - Change the effective date.
 
