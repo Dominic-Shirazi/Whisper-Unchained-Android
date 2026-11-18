@@ -19,14 +19,17 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## What's New in v1.3 (Build 33)
+
+- **Foldable & Large-Screen Adaptive Tier 3 Readiness (F-71 & F-72)**:
+  - Configured `MainActivity` (`android:configChanges`) and `FloatingButtonService.onConfigurationChanged` so active recordings, on-device model downloads, scroll positions, half-typed text inputs, and floating overlay sheets survive rotation, fold/unfold (1:1 and 4:3 inner displays $\leftrightarrow$ 10:16 outer display), and multi-window split-screen resizing without losing state or stranding the floating button off-screen.
+  - Constrained `WordsScreen` and `TriggersScreen` (`Skills`, `Phrase Editor`, `Skill Editor`) to a centered `640.dp` max width on wide foldable displays, made all 7 `IntroScreen` pages vertically scrollable for landscape/split-screen, and switched the Phrase Editor 3-colour example to `FlowRow` so it wraps cleanly at half-width split-screen.
+
 ## What's New in v1.3 (Build 32)
 
 - **Android 12+ Compatibility & Full-ABI Play Bundle (F-70)**:
   - Lowered `minSdk` from `34` to `31` (Android 12 or newer), expanding compatibility to Android 12, 12L, and 13 devices alongside Android 14+.
   - Configured the Google Play App Bundle (`bundlePlayRelease`) to carry all native ABIs (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64` from `sherpa-onnx-2.0.1.aar`, including 32-bit `armeabi-v7a` on-device speech support) while keeping the standalone GitHub APKs (`assemblePlayRelease` and `assembleFullRelease`) trimmed to `arm64-v8a` only.
-- **Foldable & Large-Screen Adaptive Tier 3 Readiness (F-71)**:
-  - Configured `MainActivity` (`android:configChanges`) and `FloatingButtonService.onConfigurationChanged` so active recordings, on-device model downloads, scroll positions, half-typed text inputs, and floating overlay sheets survive rotation, fold/unfold (1:1 and 4:3 inner displays $\leftrightarrow$ 10:16 outer display), and multi-window split-screen resizing without losing state or stranding the floating button off-screen.
-  - Constrained `WordsScreen` and `TriggersScreen` (`Skills`, `Phrase Editor`, `Skill Editor`) to a centered `640.dp` max width on wide foldable displays, made all 7 `IntroScreen` pages vertically scrollable for landscape/split-screen, and switched the Phrase Editor 3-colour example to `FlowRow` so it wraps cleanly at half-width split-screen.
 
 ## What's New in v1.3 (Build 31)
 
