@@ -15,9 +15,15 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 
 ## Requirements
 
-- Android 14+ (API 34)
+- Android 12 or newer (API 31+)
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
+
+## What's New in v1.3 (Build 32)
+
+- **Android 12+ Compatibility & Full-ABI Play Bundle (F-70)**:
+  - Lowered `minSdk` from `34` to `31` (Android 12 or newer), expanding compatibility to Android 12, 12L, and 13 devices alongside Android 14+.
+  - Configured the Google Play App Bundle (`bundlePlayRelease`) to carry all native ABIs (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64` from `sherpa-onnx-2.0.1.aar`, including 32-bit `armeabi-v7a` on-device speech support) while keeping the standalone GitHub APKs (`assemblePlayRelease` and `assembleFullRelease`) trimmed to `arm64-v8a` only.
 
 ## What's New in v1.3 (Build 31)
 

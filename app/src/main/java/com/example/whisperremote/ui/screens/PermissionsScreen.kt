@@ -94,7 +94,8 @@ fun PermissionsScreen(
                 context, Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
         } else {
-            true
+            // Reason for edit: On Android 12 (API 31-32), check actual NotificationManager enabled state per F-70
+            androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
         }
 
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager

@@ -381,4 +381,103 @@ class TriggerPhrasesTest {
             quirkyAppBox.performedActions.contains(AccessibilityNodeInfo.ACTION_PASTE)
         )
     }
+
+    private fun runApiLevelFlowVerification(expectedSdkInt: Int) {
+        assertEquals(expectedSdkInt, android.os.Build.VERSION.SDK_INT)
+
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+
+        // 1. Verify notification permission check on API 31 vs API 33
+        val notifAllowed = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            Shadows.shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
+        }
+        assertTrue("Notifications should be enabled on API $expectedSdkInt", notifAllowed)
+
+        // 2. Start FloatingButtonService & DictationAccessibilityService on API 31/33
+        val floatService = Robolectric.buildService(FloatingButtonService::class.java).create().get()
+        val a11yService = Robolectric.buildService(DictationAccessibilityService::class.java).create().get()
+        val activeBox = FakeEditableNode(focusedState = true, editableState = true, pkg = "com.example.chat")
+        a11yService.focusedNode = activeBox
+        a11yService.findFocusOverrideForTesting = { activeBox }
+
+        floatService.onTextFieldFocused()
+        ShadowLooper.idleMainLooper()
+
+        // 3. Record and paste with Accessibility Service ON, and Clipboard mode with it OFF
+        val server = MockWebServer()
+        server.start()
+        try {
+            val baseUrl = server.url("/v1").toString().trimEnd('/')
+            repository.baseUrl = baseUrl
+            repository.lastWorkingBaseUrl = baseUrl
+            repository.transcriptionTarget = TranscriptionTarget.PC.id
+            repository.providerPreset = ProviderPreset.SELF_HOSTED
+            repository.injectionMode = com.example.whisperremote.data.InjectionMode.ACCESSIBILITY
+
+            val wavFile = File(context.cacheDir, "api_${expectedSdkInt}_rec.wav")
+            wavFile.writeBytes(ByteArray(256) { 1 })
+            server.enqueue(MockResponse().setResponseCode(200).setBody("""{"text":"Dictated on API $expectedSdkInt"}"""))
+            floatService.processAudioFile(wavFile)
+            val a11yReq = server.takeRequest(5, TimeUnit.SECONDS)
+            assertNotNull(a11yReq)
+            assertEquals("/v1/audio/transcriptions", a11yReq!!.path)
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+
+            // Trigger accessibility paste via pasteText verification
+            a11yService.pasteText("Dictated on API $expectedSdkInt")
+            assertTrue(
+                "Expected ACTION_PASTE on API $expectedSdkInt",
+                activeBox.performedActions.contains(AccessibilityNodeInfo.ACTION_PASTE)
+            )
+
+            // 4. Clipboard mode with Accessibility off
+            repository.injectionMode = com.example.whisperremote.data.InjectionMode.CLIPBOARD
+            val wavFileClip = File(context.cacheDir, "api_${expectedSdkInt}_clip.wav")
+            wavFileClip.writeBytes(ByteArray(256) { 1 })
+            server.enqueue(MockResponse().setResponseCode(200).setBody("""{"text":"Clipboard text on API $expectedSdkInt"}"""))
+            floatService.processAudioFile(wavFileClip)
+            val clipReq = server.takeRequest(5, TimeUnit.SECONDS)
+            assertNotNull(clipReq)
+            assertEquals("/v1/audio/transcriptions", clipReq!!.path)
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            assertEquals("Clipboard text on API $expectedSdkInt", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+
+            // 5. Highlight chip and rewrite on API 31/33
+            repository.injectionMode = com.example.whisperremote.data.InjectionMode.ACCESSIBILITY
+            val wavFileRewrite = File(context.cacheDir, "api_${expectedSdkInt}_rewrite.wav")
+            wavFileRewrite.writeBytes(ByteArray(256) { 1 })
+            server.enqueue(
+                MockResponse().setResponseCode(200).setBody(
+                    """{"text":"Polite version on API $expectedSdkInt","instruction":"make it polite","edited":true}"""
+                )
+            )
+            floatService.processAudioFile(wavFileRewrite, selection = "Original highlighted words")
+            val rewriteReq = server.takeRequest(5, TimeUnit.SECONDS)
+            assertNotNull(rewriteReq)
+            assertEquals("/dictate/v1/edit_selection", rewriteReq!!.path)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    @Config(sdk = [31])
+    fun testF70EndToEndFlowsOnApi31() {
+        runApiLevelFlowVerification(31)
+    }
+
+    @Test
+    @Config(sdk = [33])
+    fun testF70EndToEndFlowsOnApi33() {
+        runApiLevelFlowVerification(33)
+    }
 }

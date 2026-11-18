@@ -33,24 +33,24 @@ val releaseStorePassword = localProperties.getProperty("RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS") ?: System.getenv("RELEASE_KEY_ALIAS")
 val releaseKeyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD") ?: System.getenv("RELEASE_KEY_PASSWORD")
 
+// Reason for edit: Include all ABIs in Play App Bundle (bundlePlayRelease) and debug emulator builds while keeping GitHub release APKs (assemble*Release) arm64-v8a only per F-70
+val isReleaseApkTask = gradle.startParameter.taskNames.any {
+    it.contains("assemble", ignoreCase = true) && it.contains("Release", ignoreCase = true)
+}
+
 android {
     namespace = "com.example.whisperremote"
     compileSdk = 36
 
     defaultConfig {
         applicationId = "com.cyrus_studio.whisperunchained"
-        minSdk = 34
+        // Reason for edit: Lower minSdk from 34 to 31 (Android 12+) and bump versionCode to 32 per F-70
+        minSdk = 31
         targetSdk = 36
-        // Reason for edit: Bump versionCode to 31 for highlight chip ("✎ 113 words" / struck-through "113 words") and highlight sheet per F-66 & F-66b
-        versionCode = 31
+        versionCode = 32
         versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        // Reason for edit: Limit native libraries to arm64-v8a per F-30 (all API 34+ phones are 64-bit ARM; saves ~115 MB in release APK)
-        ndk {
-            abiFilters += listOf("arm64-v8a")
-        }
     }
 
     flavorDimensions += "dist"
@@ -58,11 +58,21 @@ android {
         create("play") {
             dimension = "dist"
             buildConfigField("boolean", "FEATURE_INTERNAL_AUDIO", "false")
+            // Reason for edit: Play AAB and debug builds carry all ABIs (armeabi-v7a, arm64-v8a, x86, x86_64); GitHub play release APK stays arm64-v8a only per F-70
+            if (isReleaseApkTask) {
+                ndk {
+                    abiFilters += listOf("arm64-v8a")
+                }
+            }
         }
         create("full") {
             dimension = "dist"
             applicationIdSuffix = ".full"
             buildConfigField("boolean", "FEATURE_INTERNAL_AUDIO", "true")
+            // Reason for edit: Keep GitHub full APK trimmed to arm64-v8a only per F-30 & F-70
+            ndk {
+                abiFilters += listOf("arm64-v8a")
+            }
         }
     }
 

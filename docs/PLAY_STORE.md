@@ -12,7 +12,7 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
   **https://whisperunchained.cyrus-studio.com/privacy/** (the official policy; `PRIVACY.md` in the repo just points to it); linked in the app's About page.
 
 ## 1. Build
-- ✅ targetSdk 36 (Play's minimum for new apps since 31 Aug 2026). minSdk 34 (Android 14+).
+- ✅ targetSdk 36 (Play's minimum for new apps since 31 Aug 2026). minSdk 31 (Android 12+).
 - 🟡 **App bundle** built for build 31 (commit fe07415, version code 31, 23,343,368 bytes, SHA-256
   `e0e575a2d9a2e511f1587ccd384e23f2fba278257efb978ac2a4e16dac0cbd00`, at
   `app/build/outputs/bundle/playRelease/app-play-release.aab`); not uploaded yet.
