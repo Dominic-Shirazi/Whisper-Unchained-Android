@@ -111,6 +111,18 @@ ads: no, government/financial/health/news: no.
   (1080×1920 or similar, no alpha). Take them on a real phone from build 31: the six screens are listed in the relay
   message A-68 (home; mic recording with the style sheet; highlight chip and its sheet; Skills; phrase editor;
   on-phone mode). The images in `docs/store/` are 720 px test renders and are not usable as they are.
+- **Foldable screenshots** (required from April 2027, accepted now; Play Console > Grow > Store presence > Store
+  listings). Google asks for at least one unfolded 1:1 screen, one unfolded 4:3 screen and one folded 10:16 portrait
+  screen. Ready to upload, taken on the emulators with sample data only, in `docs/play/screenshots/foldable/`:
+  - 1:1 unfolded: `01-fold-1to1-home.png`, `02-fold-1to1-skills.png` (2160×2160)
+  - 4:3 unfolded: `03-fold-4to3-on-device.png`, `04-fold-4to3-phrase-editor.png` (2160×1620)
+  - 10:16 folded: `05-fold-outer-10to16-home.png` (1080×1728)
+  - optional 16:9 phone landscape: `06-phone-16to9-landscape-home.png` (1920×1080)
+- **Adaptive quality (Tier 3, required from April 2027):** checked and fixed in commit 440c2f5 (relay A-71): rotation,
+  fold and unfold keep recordings, typed text, scroll position and downloads; the floating button stays on screen;
+  split-screen works at half width. Checked on emulators, not on a real foldable. Rule:
+  developer.android.com/blog/posts/google-play-adaptive-quality-standards. Separate deadline: target API 37 by
+  August 2027.
 
 ## 5. Declaration video script (one recording covers both forms; unlisted YouTube)
 Screen-record on the S25, with captions:
