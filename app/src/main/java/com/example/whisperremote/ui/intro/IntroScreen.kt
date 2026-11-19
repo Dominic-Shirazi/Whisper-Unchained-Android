@@ -4,6 +4,7 @@
 // Outputs: 7-stage interactive sandbox onboarding with segmented progress bar, in-place practice dictation sandbox,
 //          mic permission requested on first practice mic tap, and Play-compliant prominent accessibility disclosure.
 // Conforms to contracts/04-look-and-feel.md §4 and Play policy requirements in F-22, F-24, F-25.
+// Reason for edit: Add Full-flavor restricted settings explanation and Open App info button on the Accessibility step when sideloaded APK has Accessibility off per F-75 §4.
 // Reason for edit: Make Intro pages 1, 3, 4, and 6 vertically scrollable so buttons and practice box are never cut off in landscape or split-screen mode per F-71 Tier 3.
 // Reason for edit: Update accessibility step instructions to match One UI and set startOnBoot on setup completion per F-48.
 // Reason for edit: Out-of-the-box offline model download & on-device practice dictation per contract 05 §2.7.
@@ -1588,6 +1589,43 @@ fun IntroScreen(
                                     }
 
                                     Spacer(modifier = Modifier.height(16.dp))
+
+                                    if (BuildConfig.FLAVOR != "play" && !DictationAccessibilityService.isEnabled(context)) {
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(16.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                                            )
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(14.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Android blocks this switch for apps installed from a file. Open App info, tap the three dots at the top right, choose Allow restricted settings, then come back.",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                Spacer(modifier = Modifier.height(10.dp))
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        val appInfoIntent = Intent(
+                                                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                            Uri.parse("package:${context.packageName}")
+                                                        )
+                                                        context.startActivity(appInfoIntent)
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = RoundedCornerShape(22.dp)
+                                                ) {
+                                                    Text("Open App info")
+                                                }
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(14.dp))
+                                    }
 
                                     Button(
                                         onClick = {

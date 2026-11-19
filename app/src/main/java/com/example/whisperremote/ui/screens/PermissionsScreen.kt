@@ -3,6 +3,7 @@
 // Inputs: System permission states (Microphone, Overlay, Accessibility, Notifications, Battery).
 // Outputs: Informative status rows with direct system settings intents and color-blind safe status text ("Allowed ✓" / "Not allowed").
 // Conforms to contracts/04-look-and-feel.md §3.3.
+// Reason for edit: Add Full-flavor restricted settings explanation and Open App info button when Accessibility service is off per F-75 §4.
 // Reason for edit: Require prominent disclosure & affirmative consent before opening Accessibility Settings when service is not enabled per F-64 §3.
 // Reason for edit: Branch battery optimization in Play flavor to standard list intent without restricted REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission per F-27.
 // Reason for edit: Update Play flavor battery row copy to exact wording per F-36 item 8.
@@ -187,6 +188,34 @@ fun PermissionsScreen(
                             }
                         }
                     )
+
+                    if (BuildConfig.FLAVOR != "play" && !isAccessibilityActive) {
+                        SettingsDivider(insetStart = false)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 14.dp)
+                        ) {
+                            Text(
+                                text = "Android blocks this switch for apps installed from a file. Open App info, tap the three dots at the top right, choose Allow restricted settings, then come back.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            androidx.compose.material3.OutlinedButton(
+                                onClick = {
+                                    val appInfoIntent = Intent(
+                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.parse("package:${context.packageName}")
+                                    )
+                                    context.startActivity(appInfoIntent)
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Open App info")
+                            }
+                        }
+                    }
                 }
             }
 

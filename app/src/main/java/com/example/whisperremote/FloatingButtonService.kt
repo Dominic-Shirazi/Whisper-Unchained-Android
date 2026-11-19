@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Replace Service-context AlertDialog skill picker with inline expandable rows (fixing BadTokenException crash), use real IME WindowInsets + Accessibility IME window height fallback for the Edit box on foldables, and eliminate main-thread IPC on ACTION_DOWN / during drag per F-75.
 // Reason for edit: Rename idle highlight pill from "Type" to "✎ N words" with live word count, matching recording chip geometry for zero-flicker transition, TalkBack label, and PC-AI visibility guard per F-74.
 // Reason for edit: Remember highlighted text when the Type pill appears and capture it on ACTION_DOWN / startRecording, use scaledTouchSlop for tap vs drag, and show a high-contrast blinking cursor in the Type instruction box per F-73.
 // Reason for edit: Handle onConfigurationChanged for rotation, fold/unfold, and multi-window resizing so the floating button and its open sheets stay on screen per F-71 Tier 3.
@@ -111,6 +112,9 @@ class FloatingButtonService : Service() {
 
     companion object {
         private var instance: FloatingButtonService? = null
+        // Reason for edit: Skip accessibility content-changed IPC work while the user is actively dragging the floating button per F-75 §2
+        @Volatile
+        var isDraggingOverlay: Boolean = false
         fun getInstance(): FloatingButtonService? = instance
     }
 
@@ -660,17 +664,17 @@ class FloatingButtonService : Service() {
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         snapAnimator?.cancel()
+                        isDraggingOverlay = false
                         initialX = params.x
                         initialY = params.y
                         initialTouchX = event.rawX
                         initialTouchY = event.rawY
                         isMoved = false
                         isLongPressFired = false
-                        // Reason for edit: Snapshot any active or Type-pill-remembered highlight on ACTION_DOWN before touching our overlay can dismiss the underlying app's selection per F-73
+                        // Reason for edit: Snapshot already-remembered highlight in memory on ACTION_DOWN without blocking the main thread with accessibility IPC before drag starts per F-73 & F-75 §2
                         if (state == ButtonState.IDLE) {
-                            val downSel = try {
-                                DictationAccessibilityService.getInstance()?.getSelectedTextOrRemembered()?.takeIf { it.isNotBlank() }
-                            } catch (_: Exception) { null } ?: rememberedSelectionFromTypePill?.takeIf { it.isNotBlank() }
+                            val downSel = rememberedSelectionFromTypePill?.takeIf { it.isNotBlank() }
+                                ?: DictationAccessibilityService.getInstance()?.peekRememberedHighlightText()
                             if (!downSel.isNullOrBlank()) {
                                 pendingSelectionForRecording = downSel
                             }
@@ -693,9 +697,12 @@ class FloatingButtonService : Service() {
                         val dx = (event.rawX - initialTouchX).toInt()
                         val dy = (event.rawY - initialTouchY).toInt()
                         val touchSlop = android.view.ViewConfiguration.get(this@FloatingButtonService).scaledTouchSlop.coerceAtLeast(10)
-                        if (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop) {
-                            longPressRunnable?.let { mainHandler.removeCallbacks(it) }
-                            expandPill()
+                        if (isMoved || Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop) {
+                            if (!isMoved) {
+                                isDraggingOverlay = true
+                                longPressRunnable?.let { mainHandler.removeCallbacks(it) }
+                                expandPill()
+                            }
                             params.x = initialX + dx
                             val screenHeight = resources.displayMetrics.heightPixels
                             val viewHeight = if (container?.height ?: 0 > 0) container!!.height else dpToPx(60)
@@ -710,6 +717,7 @@ class FloatingButtonService : Service() {
                     }
                     MotionEvent.ACTION_UP -> {
                         longPressRunnable?.let { mainHandler.removeCallbacks(it) }
+                        isDraggingOverlay = false
                         if (isLongPressFired) {
                             return true
                         }
@@ -722,6 +730,7 @@ class FloatingButtonService : Service() {
                     }
                     MotionEvent.ACTION_CANCEL -> {
                         longPressRunnable?.let { mainHandler.removeCallbacks(it) }
+                        isDraggingOverlay = false
                         isLongPressFired = false
                         return true
                     }
@@ -1650,6 +1659,17 @@ class FloatingButtonService : Service() {
                 card.requestLayout()
             }
         }
+        // Reason for edit: Resize and re-apply IME insets for the Edit box overlay when folding/unfolding or rotating per F-75 §3
+        currentTypedCard?.let { card ->
+            val newTypedWidth = minOf(newWidth - dpToPx(32), dpToPx(400)).coerceAtLeast(dpToPx(240))
+            (card.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+                lp.width = newTypedWidth
+                card.layoutParams = lp
+                card.requestLayout()
+            }
+        }
+        applyTypedPanelImePadding(lastTypedImeBottomPx, lastTypedSysTopPx, lastTypedSysBottomPx)
+        typedOverlayView?.requestApplyInsets()
 
         lastScreenWidth = newWidth
         lastScreenHeight = newHeight
@@ -1694,12 +1714,27 @@ class FloatingButtonService : Service() {
     private var currentDimView: View? = null
     private var sheetTimerView: TextView? = null
 
-    // Reason for edit: Custom triggers and per-session trigger selection per F-53, F-54, F-58
-    private var cachedCustomTriggers: List<CustomTrigger> = emptyList()
-    private var selectedSessionTrigger: String? = null
+    // Reason for edit: Custom triggers and per-session trigger selection per F-53, F-54, F-58, plus inline picker & IME-aware Edit box per F-75
+    internal var cachedCustomTriggers: List<CustomTrigger> = emptyList()
+    internal var selectedSessionTrigger: String? = null
+    internal var isSkillPickerExpanded: Boolean = false
     private var typedOverlayView: View? = null
+    private var currentTypedCardHost: FrameLayout? = null
+    private var currentTypedCard: View? = null
+    private var lastTypedImeBottomPx: Int = 0
+    private var lastTypedSysTopPx: Int = 0
+    private var lastTypedSysBottomPx: Int = 0
     private var typedInstructionDraft: String = ""
     private var buttonOptionsMenuOverlay: View? = null
+
+    private fun applyTypedPanelImePadding(imeBottomPx: Int, sysTopPx: Int, sysBottomPx: Int) {
+        val host = currentTypedCardHost ?: return
+        val screenHeight = resources.displayMetrics.heightPixels
+        val a11yImeHeight = DictationAccessibilityService.getInstance()?.getImeWindowHeightPx(screenHeight) ?: 0
+        val effectiveBottom = maxOf(imeBottomPx, a11yImeHeight, sysBottomPx)
+        val effectiveTop = maxOf(sysTopPx, dpToPx(24))
+        host.setPadding(0, effectiveTop + dpToPx(8), 0, effectiveBottom + dpToPx(12))
+    }
 
     // Reason for edit: Floating button long-press options menu per F-59
     fun showButtonOptionsMenu() {
@@ -1865,6 +1900,11 @@ class FloatingButtonService : Service() {
     fun closeTypedInstructionPanel() {
         val overlay = typedOverlayView ?: return
         typedOverlayView = null
+        currentTypedCardHost = null
+        currentTypedCard = null
+        lastTypedImeBottomPx = 0
+        lastTypedSysTopPx = 0
+        lastTypedSysBottomPx = 0
         try {
             windowManager.removeView(overlay)
         } catch (e: Exception) {
@@ -1916,15 +1956,36 @@ class FloatingButtonService : Service() {
         }
 
         val cardWidth = minOf(screenWidth - dpToPx(32), dpToPx(400))
+        // Reason for edit: Host the Edit box card inside a padded container driven by real WindowInsets.Type.ime() + Accessibility IME window bounds so it always sits above the keyboard on Fold inner/cover screens and phones per F-75 §3
+        val cardHost = FrameLayout(this).apply {
+            isClickable = false
+        }
+        currentTypedCardHost = cardHost
+        currentTypedCard = card
         val cardLp = FrameLayout.LayoutParams(
             cardWidth,
             FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        ).apply {
-            // Reason for edit: Position typed instruction card in upper screen region so the soft keyboard never clips the "Include the highlighted text" checkbox per F-73
-            topMargin = dpToPx(140)
+            Gravity.CENTER
+        )
+        cardHost.addView(card, cardLp)
+        overlay.addView(cardHost, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+
+        // Apply initial IME bounds immediately (handles case where keyboard was already open before pill was tapped)
+        applyTypedPanelImePadding(0, dpToPx(24), dpToPx(24))
+        overlay.setOnApplyWindowInsetsListener { _, insets ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val imeInsets = insets.getInsets(android.view.WindowInsets.Type.ime())
+                val sysInsets = insets.getInsets(android.view.WindowInsets.Type.systemBars())
+                lastTypedImeBottomPx = imeInsets.bottom
+                lastTypedSysTopPx = sysInsets.top
+                lastTypedSysBottomPx = sysInsets.bottom
+                applyTypedPanelImePadding(imeInsets.bottom, sysInsets.top, sysInsets.bottom)
+            }
+            insets
         }
-        overlay.addView(card, cardLp)
 
         val selectedText = if (forceNoSelection) {
             null
@@ -2236,6 +2297,7 @@ class FloatingButtonService : Service() {
 
         try {
             windowManager.addView(overlay, panelParams)
+            overlay.requestApplyInsets()
             editText.requestFocus()
             editText.post {
                 editText.requestFocus()
@@ -2243,7 +2305,14 @@ class FloatingButtonService : Service() {
                 editText.setSelection(editText.text?.length ?: 0)
                 val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
                 imm?.showSoftInput(editText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                applyTypedPanelImePadding(lastTypedImeBottomPx, lastTypedSysTopPx, lastTypedSysBottomPx)
             }
+            // Re-check IME bounds after keyboard animation settles in case an overlay window misses an inset callback
+            editText.postDelayed({
+                if (typedOverlayView != null) {
+                    applyTypedPanelImePadding(lastTypedImeBottomPx, lastTypedSysTopPx, lastTypedSysBottomPx)
+                }
+            }, 300L)
         } catch (e: Exception) {
             Log.e("FloatingButtonService", "Error showing typed instruction panel", e)
         }
@@ -2280,6 +2349,7 @@ class FloatingButtonService : Service() {
             return
         }
         isSheetOpen = true
+        isSkillPickerExpanded = false
         triggerHapticTick()
 
         val screenWidth = resources.displayMetrics.widthPixels
@@ -2423,6 +2493,7 @@ class FloatingButtonService : Service() {
             return
         }
         isSheetOpen = false
+        isSkillPickerExpanded = false
         sheetTimerRunnable?.let { mainHandler.removeCallbacks(it) }
         sheetTimerRunnable = null
 
@@ -2599,28 +2670,105 @@ class FloatingButtonService : Service() {
                 }
                 addView(nameTv, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f))
                 val arrow = TextView(this@FloatingButtonService).apply {
-                    text = "▼"
+                    text = if (isSkillPickerExpanded) "▲" else "▼"
                     setTextColor(Color.parseColor("#868E9C"))
                     textSize = 10f
                 }
                 addView(arrow)
 
+                // Reason for edit: Expand skill options inline inside the style sheet card instead of launching a Service-context AlertDialog (fixes WindowManager$BadTokenException crash per F-75 §1)
                 setOnClickListener {
-                    val items = arrayOf("None") + cachedCustomTriggers.map { "${it.name} (${it.phrases.firstOrNull() ?: ""})" }.toTypedArray()
-                    android.app.AlertDialog.Builder(this@FloatingButtonService, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                        .setTitle("Select Skill")
-                        .setItems(items) { _, which ->
-                            selectedSessionTrigger = if (which == 0) null else cachedCustomTriggers[which - 1].id
-                            updatePillContent()
-                            buildStyleSheetCard(card)
-                        }
-                        .show()
+                    triggerHapticTick()
+                    isSkillPickerExpanded = !isSkillPickerExpanded
+                    buildStyleSheetCard(card)
                 }
             }
             triggerContainer.addView(pickerCard, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ))
+
+            if (isSkillPickerExpanded) {
+                val listScroll = android.widget.ScrollView(this).apply {
+                    isVerticalScrollBarEnabled = true
+                }
+                val listContainer = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    val lBg = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dpToPx(10).toFloat()
+                        setColor(Color.parseColor("#181C24"))
+                        setStroke(dpToPx(1), Color.parseColor("#2B313C"))
+                    }
+                    background = lBg
+                    setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4))
+                }
+
+                val options: List<Pair<String?, String>> = listOf(null to "None") +
+                    cachedCustomTriggers.map { it.id to "${it.name} (${it.phrases.firstOrNull() ?: ""})" }
+
+                options.forEachIndexed { idx, (triggerId, label) ->
+                    val isSelected = selectedSessionTrigger == triggerId
+                    val row = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        if (isSelected) {
+                            val selBg = GradientDrawable().apply {
+                                shape = GradientDrawable.RECTANGLE
+                                cornerRadius = dpToPx(8).toFloat()
+                                setColor(Color.parseColor("#2A3548"))
+                            }
+                            background = selBg
+                        }
+                        setPadding(dpToPx(10), dpToPx(9), dpToPx(10), dpToPx(9))
+                        val rowText = TextView(this@FloatingButtonService).apply {
+                            text = label
+                            setTextColor(Color.parseColor(if (isSelected) "#FFFFFF" else "#E7E9EC"))
+                            textSize = 13f
+                            setTypeface(typeface, if (isSelected) Typeface.BOLD else Typeface.NORMAL)
+                        }
+                        addView(rowText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f))
+                        if (isSelected) {
+                            val check = TextView(this@FloatingButtonService).apply {
+                                text = "✓"
+                                setTextColor(Color.parseColor("#8C9EFF"))
+                                textSize = 13f
+                                setTypeface(typeface, Typeface.BOLD)
+                            }
+                            addView(check)
+                        }
+                        setOnClickListener {
+                            triggerHapticTick()
+                            selectedSessionTrigger = triggerId
+                            isSkillPickerExpanded = false
+                            updatePillContent()
+                            buildStyleSheetCard(card)
+                        }
+                    }
+                    listContainer.addView(row, LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ))
+                    if (idx < options.size - 1) {
+                        val div = View(this).apply {
+                            setBackgroundColor(Color.parseColor("#252B36"))
+                        }
+                        listContainer.addView(div, LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            dpToPx(1)
+                        ))
+                    }
+                }
+                listScroll.addView(listContainer, FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                ))
+                val maxListHeight = if (options.size > 5) dpToPx(200) else LinearLayout.LayoutParams.WRAP_CONTENT
+                triggerContainer.addView(listScroll, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    maxListHeight
+                ).also { it.topMargin = dpToPx(4) })
+            }
 
             if (selectedSessionTrigger != null) {
                 val triggerNote = TextView(this).apply {

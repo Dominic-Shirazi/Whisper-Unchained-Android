@@ -2,6 +2,7 @@
 // It is called by `./gradlew test` (Robolectric test runner).
 // Inputs: JSON payloads representing GET/POST /v1/trigger_phrases, SettingsRepository state.
 // Outputs: Verifies TriggerPhrase data class, API payloads, guard conditions, and Home subtitles per F-60 and F-61.
+// Reason for edit: Add F-75 unit test verifying the style sheet skill picker expands inline and selects a skill without crashing with WindowManager$BadTokenException.
 // Reason for edit: Add F-74 unit test verifying idle pill displays "✎ 1 word" / "✎ N words" following highlight changes, TalkBack label, and hides in non-PC-AI modes.
 // Reason for edit: Add F-73 unit tests verifying remembered highlight across Type pill and mic tap (when live selection collapses on touch or popup windowId changes, or in custom Compose/WebView nodes) and applyQrPayload target reset.
 // Reason for edit: Add F-68 unit tests for honest cached text box lifecycle on paste (tapped out -> clipboard notice, switched app -> new box, null findFocus with still-focused cached node -> pasted).
@@ -709,5 +710,71 @@ class TriggerPhrasesTest {
         repository.providerPreset = ProviderPreset.GROQ
         floatService.updateTypePillVisibility()
         assertEquals(android.view.View.GONE, floatService.typePillView?.visibility)
+    }
+
+    @Test
+    fun testF75SkillPickerExpandsInlineWithoutCrashing() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+
+        repository.providerPreset = ProviderPreset.SELF_HOSTED
+        repository.transcriptionTarget = TranscriptionTarget.PC.id
+
+        val floatService = Robolectric.buildService(FloatingButtonService::class.java).create().get()
+        floatService.cachedCustomTriggers = listOf(
+            com.example.whisperremote.data.CustomTrigger(
+                id = "skill_1",
+                name = "Mean mode",
+                phrases = listOf("prompt mean"),
+                prompt = "Make it snarky",
+                enabled = true
+            ),
+            com.example.whisperremote.data.CustomTrigger(
+                id = "skill_2",
+                name = "Grocery list",
+                phrases = listOf("prompt grocery"),
+                prompt = "Sort by aisle",
+                enabled = true
+            )
+        )
+
+        val card = android.widget.LinearLayout(floatService).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+        }
+        val buildMethod = FloatingButtonService::class.java.getDeclaredMethod(
+            "buildStyleSheetCard",
+            android.widget.LinearLayout::class.java
+        ).apply { isAccessible = true }
+        buildMethod.invoke(floatService, card)
+
+        fun findClickableWithText(root: android.view.View, targetText: String): android.view.View? {
+            if (root is android.widget.TextView && root.text?.toString() == targetText) {
+                var p: android.view.View? = root
+                while (p != null) {
+                    if (p.hasOnClickListeners()) return p
+                    p = p.parent as? android.view.View
+                }
+            }
+            if (root is android.view.ViewGroup) {
+                for (i in 0 until root.childCount) {
+                    val found = findClickableWithText(root.getChildAt(i), targetText)
+                    if (found != null) return found
+                }
+            }
+            return null
+        }
+
+        // Tapping the Skill picker ("None") must expand inline without throwing BadTokenException
+        val pickerRow = findClickableWithText(card, "None")
+        assertNotNull("Skill picker row must exist on style sheet card", pickerRow)
+        pickerRow!!.performClick()
+        assertTrue("Skill picker must expand inline", floatService.isSkillPickerExpanded)
+
+        // Tapping a skill option selects it and collapses the inline list
+        val skillOption = findClickableWithText(card, "Mean mode (prompt mean)")
+        assertNotNull("Inline skill option must be rendered after expanding picker", skillOption)
+        skillOption!!.performClick()
+        assertEquals("skill_1", floatService.selectedSessionTrigger)
+        assertFalse("Skill picker must collapse after selecting a skill", floatService.isSkillPickerExpanded)
     }
 }

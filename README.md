@@ -19,6 +19,14 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## What's New in v1.3 (Build 36)
+
+- **Fold Crash Fix, Smooth Dragging, Real IME-Aware Edit Box & Sideload Restricted Settings Guidance (F-75)**:
+  - **Skill Picker Crash Fix**: Replaced the Service-context `AlertDialog` in the recording Style Sheet (`FloatingButtonService.buildStyleSheetCard`) with inline expandable skill rows inside the sheet card, eliminating the `WindowManager$BadTokenException` crash when selecting a skill.
+  - **Sideload Restricted Settings Guidance & Restart Button**: Added a plain-language `"Allow restricted settings"` explanation and `"Open App info"` button in the Full flavor (`IntroScreen`, `PermissionsScreen`, and `FloatingButtonScreen`) when Accessibility is off, and updated `"Restart floating button"` to detect when Accessibility is off and lead the user straight to Accessibility Settings.
+  - **IME-Aware Edit Box Positioning**: Replaced the fixed top margin on the typed instruction overlay with a padded host driven by real `WindowInsets.Type.ime()` + `AccessibilityWindowInfo.TYPE_INPUT_METHOD` window bounds (and re-applied on `onConfigurationChanged`), keeping the Edit box above the keyboard on Fold inner/cover displays and phones even when the keyboard is already open.
+  - **Smooth Floating Button Drag & Pill Performance**: Ignored own-overlay `TYPE_WINDOW_CONTENT_CHANGED` events, paused content-changed accessibility work while dragging (`FloatingButtonService.isDraggingOverlay`), coalesced content-changed focus checks to 250 ms, removed synchronous accessibility IPC from `ACTION_DOWN`, and fast-pathed `getSelectedText()` when the focused field has a collapsed cursor.
+
 ## What's New in v1.3 (Build 35)
 
 - **Idle Highlight Pill Renamed to Pencil + Word Count (F-74)**:

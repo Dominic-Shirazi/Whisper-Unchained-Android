@@ -3,6 +3,7 @@
 // Inputs: SettingsRepository (startOnBoot, autoRestartTailscale), TailscaleManager.
 // Outputs: Switches for auto-boot start, Tailscale auto-restart (gated by Tailscale installation), and overlay management.
 // Conforms to contracts/04-look-and-feel.md §3.3.
+// Reason for edit: Check DictationAccessibilityService.isEnabled when restarting the floating button and guide the user to Accessibility Settings (and App info restricted settings in Full flavor) if Accessibility is off per F-75 §4.
 // Reason for edit: Verify RECORD_AUDIO before starting FloatingButtonService per F-26.
 
 package com.example.whisperremote.ui.screens
@@ -41,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +51,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.whisperremote.BuildConfig
+import com.example.whisperremote.DictationAccessibilityService
 import com.example.whisperremote.FloatingButtonService
 import com.example.whisperremote.net.TailscaleManager
 import com.example.whisperremote.data.SettingsRepository
@@ -66,8 +73,21 @@ fun FloatingButtonScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var startOnBoot by remember { mutableStateOf(repository.startOnBoot) }
     var autoRestartTailscale by remember { mutableStateOf(repository.autoRestartTailscale) }
+    var isAccessibilityEnabled by remember { mutableStateOf(DictationAccessibilityService.isEnabled(context)) }
+    var showAccessibilityOffDialog by remember { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isAccessibilityEnabled = DictationAccessibilityService.isEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val isTailscaleInstalled = remember { tailscaleManager.isTailscaleInstalled() }
 
@@ -171,12 +191,21 @@ fun FloatingButtonScreen(
                     modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
+                        if (!isAccessibilityEnabled) {
+                            Text(
+                                text = "Accessibility service is off. Turn it back on so the floating button can appear when you tap a text box.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
+                        }
                         Button(
                             onClick = {
                                 val hasMic = ContextCompat.checkSelfPermission(
                                     context,
                                     Manifest.permission.RECORD_AUDIO
                                 ) == PackageManager.PERMISSION_GRANTED
+                                isAccessibilityEnabled = DictationAccessibilityService.isEnabled(context)
                                 if (!hasMic) {
                                     micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                 } else if (!Settings.canDrawOverlays(context)) {
@@ -187,6 +216,8 @@ fun FloatingButtonScreen(
                                             Uri.parse("package:${context.packageName}")
                                         )
                                     )
+                                } else if (!isAccessibilityEnabled) {
+                                    showAccessibilityOffDialog = true
                                 } else {
                                     val intent = Intent(context, FloatingButtonService::class.java)
                                     try {
@@ -228,5 +259,59 @@ fun FloatingButtonScreen(
                 }
             }
         }
+    }
+
+    if (showAccessibilityOffDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showAccessibilityOffDialog = false },
+            title = { Text("Accessibility service is off") },
+            text = {
+                Column {
+                    Text(
+                        text = "The floating button needs Whisper Unchained's Accessibility service turned on to appear when you tap a text box.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    if (BuildConfig.FLAVOR != "play") {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Android blocks this switch for apps installed from a file. Open App info, tap the three dots at the top right, choose Allow restricted settings, then come back.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        showAccessibilityOffDialog = false
+                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    }
+                ) {
+                    Text("Open Accessibility Settings")
+                }
+            },
+            dismissButton = {
+                if (BuildConfig.FLAVOR != "play") {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            showAccessibilityOffDialog = false
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                            )
+                        }
+                    ) {
+                        Text("Open App info")
+                    }
+                } else {
+                    androidx.compose.material3.TextButton(onClick = { showAccessibilityOffDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            }
+        )
     }
 }

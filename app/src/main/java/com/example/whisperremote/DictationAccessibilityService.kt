@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Coalesce TYPE_WINDOW_CONTENT_CHANGED (250ms), ignore own-overlay content-changed events and skip during button drag, fast-path getSelectedText() to avoid redundant IPC tree walks, and add peekRememberedHighlightText() + getImeWindowHeightPx() per F-75.
 // Reason for edit: Remember highlighted text, range, and node when selection is detected or read for the Type pill, guard by package/window/node, and use isEditableNode in validateCachedNode so tapping the mic button always captures the same highlight as the Type pill per F-73.
 // Reason for edit: Clear cached focusedNode/lastSelectionNode on window change or focus loss, and refresh+verify isFocused && isEditable before using cached nodes on paste per F-68.
 // Reason for edit: Refresh node before reading selection, track selection source node for WebView/Gmail editors, prefer ACTION_PASTE when replacing active selection, and add hasRichFormattingInSelection() per F-65.
@@ -40,7 +41,9 @@ class DictationAccessibilityService : AccessibilityService() {
         private var instance: DictationAccessibilityService? = null
 
         fun getInstance(): DictationAccessibilityService? {
-            Log.d("DictationService", "Getting instance: ${instance != null}")
+            if (BuildConfig.DEBUG) {
+                Log.d("DictationService", "Getting instance: ${instance != null}")
+            }
             return instance
         }
 
@@ -93,6 +96,30 @@ class DictationAccessibilityService : AccessibilityService() {
     internal var activeWindowId: Int = -1
     internal var findFocusOverrideForTesting: ((Int) -> AccessibilityNodeInfo?)? = null
     private var hasFocusedEditable = false
+    // Reason for edit: Coalesce TYPE_WINDOW_CONTENT_CHANGED work to at most once per 250ms to prevent main-thread IPC storms during button drag per F-75 §2
+    private val contentChangedHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingContentChangedRunnable: Runnable? = null
+    private var lastContentCheckMs: Long = 0L
+
+    fun peekRememberedHighlightText(): String? = rememberedHighlight?.text?.takeIf { it.isNotBlank() }
+
+    // Reason for edit: Read real IME window height from AccessibilityWindowInfo.TYPE_INPUT_METHOD as fallback when overlay attaches while keyboard is already open per F-75 §3
+    fun getImeWindowHeightPx(screenHeight: Int): Int {
+        return try {
+            val rect = android.graphics.Rect()
+            for (win in windows) {
+                if (win.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+                    win.getBoundsInScreen(rect)
+                    if (rect.height() > 0 && rect.top in 1 until screenHeight) {
+                        return (screenHeight - rect.top).coerceAtLeast(0)
+                    }
+                }
+            }
+            0
+        } catch (_: Exception) {
+            0
+        }
+    }
 
     // Reason for edit: Refresh cached node and verify it is still isFocused && isEditableNode before using it per F-68 & F-73
     internal fun validateCachedNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
@@ -191,6 +218,36 @@ class DictationAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        // Reason for edit: Ignore own-overlay TYPE_WINDOW_CONTENT_CHANGED events and skip content-changed work during active button drags to keep drag smooth per F-75 §2
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            if (FloatingButtonService.isDraggingOverlay) {
+                return
+            }
+            val evtPkg = event.packageName?.toString()
+            if (evtPkg == packageName && event.className?.toString()?.contains("EditText", ignoreCase = true) != true) {
+                return
+            }
+            val now = android.os.SystemClock.uptimeMillis()
+            val elapsed = now - lastContentCheckMs
+            if (elapsed < 250L) {
+                if (pendingContentChangedRunnable == null) {
+                    val runnable = Runnable {
+                        pendingContentChangedRunnable = null
+                        if (!FloatingButtonService.isDraggingOverlay) {
+                            lastContentCheckMs = android.os.SystemClock.uptimeMillis()
+                            checkFocusState(null)
+                        }
+                    }
+                    pendingContentChangedRunnable = runnable
+                    contentChangedHandler.postDelayed(runnable, 250L - elapsed)
+                }
+                return
+            }
+            lastContentCheckMs = now
+            checkFocusState(event)
+            return
+        }
+
         // Reason for edit: Clear cached nodes on window/package change per F-68; keep rememberedHighlight across same-app floating Action Mode toolbar popups per F-73
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val newPkg = event.packageName?.toString()
@@ -208,11 +265,10 @@ class DictationAccessibilityService : AccessibilityService() {
             if (newWinId != -1) activeWindowId = newWinId
         }
 
-        // Reason for edit: Minimal focus/window events per F-12, plus selection tracking and remembered highlight per F-59 & F-73
+        // Reason for edit: Minimal focus/window events per F-12, plus selection tracking and remembered highlight per F-59, F-73, and F-75 §2
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_FOCUSED,
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 checkFocusState(event)
                 FloatingButtonService.getInstance()?.onTextSelectionChanged()
             }
@@ -252,10 +308,10 @@ class DictationAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun checkFocusState(event: AccessibilityEvent) {
+    private fun checkFocusState(event: AccessibilityEvent?) {
         val inputFocus = findFocusOverrideForTesting?.invoke(AccessibilityNodeInfo.FOCUS_INPUT)
             ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-        val source = event.source
+        val source = event?.source
 
         val activeInput = when {
             inputFocus != null && isEditableNode(inputFocus) -> inputFocus
@@ -491,21 +547,37 @@ class DictationAccessibilityService : AccessibilityService() {
         return null
     }
 
-    // Reason for edit: Add getSelectedText() to read highlighted text and update rememberedHighlight for F-54, F-65, and F-73
+    // Reason for edit: Add getSelectedText() with fast-path return when focused editable node clearly has a collapsed cursor, avoiding full-tree IPC walks per F-54, F-65, F-73, and F-75 §2
     fun getSelectedText(): String? {
-        val candidates = listOf(
-            findFocusOverrideForTesting?.invoke(AccessibilityNodeInfo.FOCUS_INPUT) ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT),
+        val liveFocus = findFocusOverrideForTesting?.invoke(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (liveFocus != null) {
+            val selected = extractSelectionFromNode(liveFocus, updateRemembered = true)
+            if (!selected.isNullOrEmpty()) return selected
+            if (isEditableNode(liveFocus) && liveFocus.isFocused) {
+                val start = liveFocus.textSelectionStart
+                val end = liveFocus.textSelectionEnd
+                if (start >= 0 && end == start) {
+                    // Focused editable node has a collapsed cursor, not a selection; skip full-tree IPC walks
+                    return null
+                }
+            }
+        }
+
+        val cachedCandidates = listOf(
             validateCachedNode(lastSelectionNode),
             validateCachedNode(focusedNode),
-            rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT),
-            findEditableWithSelectionInTree(rootInActiveWindow),
-            findEditableInTree(rootInActiveWindow)
+            rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
         )
-        for (candidate in candidates) {
+        for (candidate in cachedCandidates) {
             val selected = extractSelectionFromNode(candidate, updateRemembered = true)
             if (!selected.isNullOrEmpty()) return selected
         }
-        return null
+
+        // Only walk the full window tree if no focused editable node was found above
+        val root = rootInActiveWindow ?: return null
+        val treeNode = findEditableWithSelectionInTree(root) ?: findEditableInTree(root)
+        return extractSelectionFromNode(treeNode, updateRemembered = true)
     }
 
     // Reason for edit: Return live selection or guarded remembered highlight (same package/window/node) when touch or popup clears live selection per F-73
