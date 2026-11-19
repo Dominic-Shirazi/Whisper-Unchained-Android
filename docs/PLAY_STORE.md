@@ -13,8 +13,8 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
 
 ## 1. Build
 - ✅ targetSdk 36 (Play's minimum for new apps since 31 Aug 2026). minSdk 31 (Android 12+).
-- 🟡 **App bundle** built for build 37 (commit 407b3e7, version code 37, minSdk 31, all four ABIs, 60,836,352 bytes, SHA-256
-  `16264b8beb3071cf788da45f38dc89963bc7f04ae5e4d27a86697225f22305d2`, at
+- 🟡 **App bundle** built for build 38 (commit f4db020, version code 38, minSdk 31, all four ABIs, 60,836,240 bytes, SHA-256
+  `216c5c2f935bd9b3f66b5fc420a654d14ab2d98f506388850dd1857fa0835bdb`, at
   `app/build/outputs/bundle/playRelease/app-play-release.aab`); not uploaded yet.
   (`gradlew :app:bundlePlayRelease`), signed with our key, which becomes the **upload key**; enroll in
   **Play App Signing** (Google holds the app-signing key).
@@ -108,7 +108,7 @@ ads: no, government/financial/health/news: no.
 > Source code: github.com/Dominic-Shirazi/Whisper-Unchained-Android
 
 - **Graphics:** icon 512×512 PNG (alpha OK, ≤ 1 MB); feature graphic 1024×500 (no alpha); 4–8 phone screenshots
-  (1080×1920 or similar, no alpha). Take them on a real phone from build 37: the six screens are listed in the relay
+  (1080×1920 or similar, no alpha). Take them on a real phone from build 38: the six screens are listed in the relay
   message A-68 (home; mic recording with the style sheet; highlight chip and its sheet; Skills; phrase editor;
   on-phone mode). The images in `docs/store/` are 720 px test renders and are not usable as they are.
 - **Foldable screenshots** (required from April 2027, accepted now; Play Console > Grow > Store presence > Store
