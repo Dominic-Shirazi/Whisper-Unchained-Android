@@ -3,6 +3,7 @@
 // Inputs: SettingsRepository, ApiClient for 2-way vocabulary, name corrections, and custom triggers synchronization.
 // Outputs: UI for editing helper words, corrections & shortcuts, and custom triggers with library browser.
 // Conforms to contracts/01-transcription-api.md §8, §11 and F-50, F-53.
+// Reason for edit: Redesign LibraryBrowserDialog with pre-collapsed one-line skill rows, collapsible category headings with counts, search, "Small local models only" and dynamic category filters, 640dp max-width column, TalkBack descriptions, and saveable state per F-76.
 // Reason for edit: Update "Triggers" / "Trigger Library" / "Custom triggers" user-visible wording to "Skills" / "Skill library" per F-62.
 // Reason for edit: Add TabRow for Words & shortcuts and Custom triggers, rename Name corrections to Corrections & shortcuts with 200-char wrapping and rotating placeholders per F-50 and F-53.
 // Reason for edit: Exhaustive handling of ParseError for vocabulary and name corrections per F-46.
@@ -17,18 +18,23 @@ import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,6 +51,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +63,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -70,13 +79,18 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.whisperremote.ApiClient
 import com.example.whisperremote.CustomTriggersResult
 import com.example.whisperremote.NameCorrectionsResult
@@ -1688,6 +1702,7 @@ fun TriggerEditorDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LibraryBrowserDialog(
     apiClient: ApiClient,
@@ -1700,22 +1715,23 @@ fun LibraryBrowserDialog(
     var libraryItems by remember { mutableStateOf(initialLibraryItems) }
     var isLoading by remember { mutableStateOf(initialLibraryItems.isEmpty()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-    val expandedPromptIds = remember { mutableStateMapOf<String, Boolean>() }
+
+    // Reason for edit: Saveable state for search, model filter, dynamic category filter, collapsed category headings, and expanded skills/instructions per F-76 (survives rotation & fold Tier 3)
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var smallModelsOnly by rememberSaveable { mutableStateOf(false) }
+    var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    var expandedSkillIds by rememberSaveable { mutableStateOf(if (targetId != null) listOf(targetId) else emptyList()) }
+    var expandedInstructionIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var collapsedCategories by rememberSaveable { mutableStateOf(emptyList<String>()) }
 
     LaunchedEffect(Unit) {
         if (initialLibraryItems.isNotEmpty()) {
-            if (targetId != null) {
-                expandedPromptIds[targetId] = true
-            }
             return@LaunchedEffect
         }
         apiClient.fetchTriggerLibrary { list, err ->
             isLoading = false
             if (list != null && list.isNotEmpty()) {
                 libraryItems = list
-                if (targetId != null) {
-                    expandedPromptIds[targetId] = true
-                }
             } else {
                 // Reason for edit: Fallback items including intake (Professions) and mean (Fun) per F-60, F-61 & F-62
                 val fallbackList = listOf(
@@ -1741,156 +1757,388 @@ fun LibraryBrowserDialog(
                     )
                 )
                 libraryItems = fallbackList
-                if (targetId != null) {
-                    expandedPromptIds[targetId] = true
+                if (!err.isNullOrBlank()) {
+                    errorMsg = null
                 }
             }
         }
     }
 
-    AlertDialog(
+    val allCategories = remember(libraryItems) {
+        libraryItems.map { it.category?.ifBlank { "General" } ?: "General" }.distinct()
+    }
+
+    val filteredGrouped = remember(libraryItems, searchQuery, smallModelsOnly, selectedCategory) {
+        val q = searchQuery.trim().lowercase()
+        val filtered = libraryItems.filter { item ->
+            val cat = item.category?.ifBlank { "General" } ?: "General"
+            val matchesModel = !smallModelsOnly || item.model != "strong"
+            val matchesCategory = selectedCategory == null || cat == selectedCategory
+            val matchesQuery = q.isEmpty() ||
+                item.name.lowercase().contains(q) ||
+                (item.description?.lowercase()?.contains(q) == true) ||
+                item.phrases.any { it.lowercase().contains(q) } ||
+                cat.lowercase().contains(q)
+            matchesModel && matchesCategory && matchesQuery
+        }
+        filtered.groupBy { it.category?.ifBlank { "General" } ?: "General" }
+    }
+
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("Skill library") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth().height(460.dp)) {
-                Text(
-                    text = "Skills other people have shared. Add one, then change its phrase or instruction to suit you.\n• A skill is only instructions for your AI: read them before adding",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                Box(modifier = Modifier.fillMaxSize()) {
-                if (isLoading) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                } else if (errorMsg != null) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(text = errorMsg!!, color = MaterialTheme.colorScheme.error)
-                    }
-                } else {
-                    val grouped = remember(libraryItems) {
-                        libraryItems.groupBy { it.category?.ifBlank { "General" } ?: "General" }
-                    }
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        grouped.forEach { (category, items) ->
-                            item {
-                                Text(
-                                    text = category,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(top = 12.dp, bottom = 6.dp)
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("Skill library") },
+                        navigationIcon = {
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Close skill library"
                                 )
                             }
-                            items(items) { item ->
-                                val userTrigger = userTriggers.firstOrNull { it.id == item.id || it.libraryId == item.id }
-                                val isAdded = userTrigger != null
-                                val needsUpdate = userTrigger != null && (item.libraryVersion ?: 1) > (userTrigger.libraryVersion ?: 1)
-                                val isExpanded = expandedPromptIds[item.id] == true
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.background
+                        )
+                    )
+                },
+                containerColor = MaterialTheme.colorScheme.background
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .widthIn(max = 640.dp)
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Text(
+                            text = "Skills other people have shared. Add one, then change its phrase or instruction to suit you.\nA skill is only instructions for your AI: read them before adding.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 10.dp)
+                        )
 
-                                Card(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        // Search box
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search skills") },
+                            singleLine = true,
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear search")
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        )
+
+                        // Filters: compact single scrollable row ("Small local models only" + "All" + dynamic categories from the file) so the list has maximum vertical space on phones
+                        LazyRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            item(key = "filter_small_models") {
+                                FilterChip(
+                                    selected = smallModelsOnly,
+                                    onClick = { smallModelsOnly = !smallModelsOnly },
+                                    label = { Text("Small local models only") }
+                                )
+                            }
+                            if (allCategories.size > 1) {
+                                item(key = "filter_all") {
+                                    FilterChip(
+                                        selected = selectedCategory == null,
+                                        onClick = { selectedCategory = null },
+                                        label = { Text("All") }
+                                    )
+                                }
+                            }
+                            items(allCategories, key = { "filter_cat_$it" }) { cat ->
+                                FilterChip(
+                                    selected = selectedCategory == cat,
+                                    onClick = {
+                                        selectedCategory = if (selectedCategory == cat) null else cat
+                                    },
+                                    label = { Text(cat) }
+                                )
+                            }
+                        }
+
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth().navigationBarsPadding()) {
+                            if (isLoading) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator()
+                                }
+                            } else if (errorMsg != null) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text(text = errorMsg!!, color = MaterialTheme.colorScheme.error)
+                                }
+                            } else if (filteredGrouped.isEmpty()) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
                                 ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = item.name,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            val modelNote = if (item.model == "strong") "Needs a strong model" else "Works with small local models"
-                                            Text(
-                                                text = modelNote,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
+                                    Text(
+                                        text = "No skills match your search or filters.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (searchQuery.isNotEmpty() || smallModelsOnly || selectedCategory != null) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        TextButton(onClick = {
+                                            searchQuery = ""
+                                            smallModelsOnly = false
+                                            selectedCategory = null
+                                        }) {
+                                            Text("Clear filters")
                                         }
-                                        if (!item.description.isNullOrBlank()) {
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = item.description,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "Say: ${item.phrases.joinToString(" or ") { "\"$it\"" }}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = if (isExpanded) "Hide instruction" else "Show the instruction",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = MaterialTheme.colorScheme.primary,
+                                    }
+                                }
+                            } else {
+                                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                    filteredGrouped.forEach { (category, items) ->
+                                        val isCategoryCollapsed = category in collapsedCategories
+                                        item(key = "cat_$category") {
+                                            Row(
                                                 modifier = Modifier
-                                                    .weight(1f)
-                                                    .padding(end = 8.dp)
+                                                    .fillMaxWidth()
                                                     .clickable {
-                                                        expandedPromptIds[item.id] = !isExpanded
+                                                        collapsedCategories = if (isCategoryCollapsed) {
+                                                            collapsedCategories - category
+                                                        } else {
+                                                            collapsedCategories + category
+                                                        }
                                                     }
-                                            )
-                                            if (!isAdded) {
-                                                Button(
-                                                    onClick = { onAddOrUpdate(item) },
-                                                    shape = RoundedCornerShape(16.dp)
-                                                ) {
-                                                    Text("Add")
-                                                }
-                                            } else if (needsUpdate) {
-                                                Button(
-                                                    onClick = { onAddOrUpdate(item) },
-                                                    shape = RoundedCornerShape(16.dp)
-                                                ) {
-                                                    Text("Update")
-                                                }
-                                            } else {
-                                                OutlinedButton(
-                                                    onClick = {},
-                                                    enabled = false,
-                                                    shape = RoundedCornerShape(16.dp)
-                                                ) {
-                                                    Text("✓ Added")
-                                                }
+                                                    .semantics {
+                                                        contentDescription = if (isCategoryCollapsed) {
+                                                            "$category, ${items.size} skills, collapsed, double tap to expand"
+                                                        } else {
+                                                            "$category, ${items.size} skills, expanded, double tap to collapse"
+                                                        }
+                                                    }
+                                                    .padding(top = 12.dp, bottom = 6.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "$category (${items.size})",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = if (isCategoryCollapsed) "▸" else "▾",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
                                             }
                                         }
 
-                                        if (isExpanded) {
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Text(
-                                                text = item.prompt,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                modifier = Modifier.padding(4.dp)
-                                            )
+                                        if (!isCategoryCollapsed) {
+                                            items(items, key = { it.id }) { item ->
+                                                val userTrigger = userTriggers.firstOrNull { it.id == item.id || it.libraryId == item.id }
+                                                val isAdded = userTrigger != null
+                                                val needsUpdate = userTrigger != null && (item.libraryVersion ?: 1) > (userTrigger.libraryVersion ?: 1)
+                                                val isSkillExpanded = item.id in expandedSkillIds
+                                                val isInstructionExpanded = item.id in expandedInstructionIds
+                                                val modelNote = if (item.model == "strong") "Needs a strong model" else "Works with small local models"
+                                                val titleWithAdded = if (isAdded) "${item.name} ✓" else item.name
+                                                val chevron = if (isSkillExpanded) "▾" else "▸"
+
+                                                Card(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 3.dp),
+                                                    shape = RoundedCornerShape(14.dp),
+                                                    colors = CardDefaults.cardColors(
+                                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                                            alpha = if (isSkillExpanded) 1.0f else 0.65f
+                                                        )
+                                                    )
+                                                ) {
+                                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                                        // Collapsed/header row: tap opens or closes in place
+                                                        BoxWithConstraints(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .clickable {
+                                                                    expandedSkillIds = if (isSkillExpanded) {
+                                                                        expandedSkillIds - item.id
+                                                                    } else {
+                                                                        expandedSkillIds + item.id
+                                                                    }
+                                                                }
+                                                                .semantics(mergeDescendants = true) {
+                                                                    contentDescription = if (isSkillExpanded) {
+                                                                        "${item.name}, $modelNote, expanded, double tap to collapse"
+                                                                    } else {
+                                                                        "${item.name}, $modelNote, collapsed, double tap to expand"
+                                                                    }
+                                                                }
+                                                                .padding(horizontal = 12.dp, vertical = 11.dp)
+                                                        ) {
+                                                            val placeNoteBeside = maxWidth >= 380.dp && titleWithAdded.length <= 26
+                                                            if (placeNoteBeside) {
+                                                                Row(
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                                    verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                    Row(
+                                                                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                                                        verticalAlignment = Alignment.CenterVertically
+                                                                    ) {
+                                                                        Text(
+                                                                            text = "$titleWithAdded $chevron",
+                                                                            style = MaterialTheme.typography.bodyLarge,
+                                                                            fontWeight = FontWeight.SemiBold,
+                                                                            color = MaterialTheme.colorScheme.onSurface
+                                                                        )
+                                                                    }
+                                                                    Text(
+                                                                        text = modelNote,
+                                                                        style = MaterialTheme.typography.labelSmall,
+                                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                    )
+                                                                }
+                                                            } else {
+                                                                Column(modifier = Modifier.fillMaxWidth()) {
+                                                                    Text(
+                                                                        text = "$titleWithAdded $chevron",
+                                                                        style = MaterialTheme.typography.bodyLarge,
+                                                                        fontWeight = FontWeight.SemiBold,
+                                                                        color = MaterialTheme.colorScheme.onSurface
+                                                                    )
+                                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                                    Text(
+                                                                        text = modelNote,
+                                                                        style = MaterialTheme.typography.labelSmall,
+                                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+
+                                                        // Expanded details: description, Say: "...", Show the instruction, Add / ✓ Added / Update
+                                                        if (isSkillExpanded) {
+                                                            HorizontalDivider(
+                                                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                                                modifier = Modifier.padding(horizontal = 12.dp)
+                                                            )
+                                                            Column(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 12.dp)
+                                                            ) {
+                                                                if (!item.description.isNullOrBlank()) {
+                                                                    Text(
+                                                                        text = item.description,
+                                                                        style = MaterialTheme.typography.bodySmall,
+                                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                    )
+                                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                                }
+                                                                Text(
+                                                                    text = "Say: ${item.phrases.joinToString(" or ") { "\"$it\"" }}",
+                                                                    style = MaterialTheme.typography.bodySmall,
+                                                                    color = MaterialTheme.colorScheme.primary
+                                                                )
+                                                                Spacer(modifier = Modifier.height(8.dp))
+                                                                Row(
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                                    verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                    Text(
+                                                                        text = if (isInstructionExpanded) "Hide the instruction ▾" else "Show the instruction ▸",
+                                                                        style = MaterialTheme.typography.labelMedium,
+                                                                        color = MaterialTheme.colorScheme.primary,
+                                                                        modifier = Modifier
+                                                                            .weight(1f)
+                                                                            .padding(end = 8.dp)
+                                                                            .clickable {
+                                                                                expandedInstructionIds = if (isInstructionExpanded) {
+                                                                                    expandedInstructionIds - item.id
+                                                                                } else {
+                                                                                    expandedInstructionIds + item.id
+                                                                                }
+                                                                            }
+                                                                    )
+                                                                    if (!isAdded) {
+                                                                        Button(
+                                                                            onClick = { onAddOrUpdate(item) },
+                                                                            shape = RoundedCornerShape(16.dp)
+                                                                        ) {
+                                                                            Text("Add")
+                                                                        }
+                                                                    } else if (needsUpdate) {
+                                                                        Button(
+                                                                            onClick = { onAddOrUpdate(item) },
+                                                                            shape = RoundedCornerShape(16.dp)
+                                                                        ) {
+                                                                            Text("Update")
+                                                                        }
+                                                                    } else {
+                                                                        OutlinedButton(
+                                                                            onClick = {},
+                                                                            enabled = false,
+                                                                            shape = RoundedCornerShape(16.dp)
+                                                                        ) {
+                                                                            Text("✓ Added")
+                                                                        }
+                                                                    }
+                                                                }
+                                                                if (isInstructionExpanded) {
+                                                                    Spacer(modifier = Modifier.height(8.dp))
+                                                                    Surface(
+                                                                        shape = RoundedCornerShape(10.dp),
+                                                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                                                        modifier = Modifier.fillMaxWidth()
+                                                                    ) {
+                                                                        Text(
+                                                                            text = item.prompt,
+                                                                            style = MaterialTheme.typography.bodySmall,
+                                                                            color = MaterialTheme.colorScheme.onSurface,
+                                                                            modifier = Modifier.padding(10.dp)
+                                                                        )
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
+                                    item { Spacer(modifier = Modifier.height(16.dp)) }
                                 }
                             }
                         }
                     }
                 }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close")
             }
         }
-    )
+    }
 }

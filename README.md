@@ -19,6 +19,13 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## What's New in v1.3 (Build 37)
+
+- **Pre-Collapsed Skill Library List with Search & Dynamic Category Filters (F-76)**:
+  - Redesigned `LibraryBrowserDialog` (`WordsTriggersScreen.kt`) as a full-screen `640.dp`-constrained view where every skill starts collapsed to a single line (name + chevron + `✓` when already added, model note on the right or stacked underneath on narrow screens) with TalkBack labels (`"<name>, <model note>, collapsed, double tap to expand"`).
+  - Tapping a skill opens its description, `Say: "…"`, `"Show the instruction"` toggle, and `Add` / `✓ Added` / `Update` button in place.
+  - Added collapsible category headings with counts (open by default), a live search box, a `"Small local models only"` filter chip, dynamic category filter chips read directly from `library.json`, an empty-results state, and `rememberSaveable` state preservation across rotation and fold/unfold.
+
 ## What's New in v1.3 (Build 36)
 
 - **Fold Crash Fix, Smooth Dragging, Real IME-Aware Edit Box & Sideload Restricted Settings Guidance (F-75)**:

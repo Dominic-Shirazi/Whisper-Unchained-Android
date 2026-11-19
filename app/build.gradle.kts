@@ -44,6 +44,7 @@ android {
 
     defaultConfig {
         applicationId = "com.cyrus_studio.whisperunchained"
+        // Reason for edit: Bump versionCode to 37 for collapsed Skill Library list with search, dynamic category filters, model filter, and TalkBack labels per F-76
         // Reason for edit: Bump versionCode to 36 for inline skill picker crash fix, IME-inset Edit box positioning, smooth drag/accessibility throttling, and Full-flavor restricted settings guidance per F-75
         // Reason for edit: Bump versionCode to 35 for idle highlight pill rename ("✎ N words") per F-74
         // Reason for edit: Bump versionCode to 34 for remembered highlight across Type pill & mic tap and blinking cursor in typed instruction box per F-73
@@ -51,7 +52,7 @@ android {
         // Reason for edit: Lower minSdk from 34 to 31 (Android 12+) and bump versionCode to 32 per F-70
         minSdk = 31
         targetSdk = 36
-        versionCode = 36
+        versionCode = 37
         versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
