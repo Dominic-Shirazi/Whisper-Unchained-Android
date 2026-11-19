@@ -284,6 +284,14 @@ A trigger:
 - Show the full instruction before adding ("Show the instruction"), with the line "A trigger is only instructions
   for your AI: read them before adding."
 - If the fetch fails, say so; the app does not need to bundle a copy.
+- **Layout of the library list (Dominic, 2026-11-18; F-76).** Every skill starts collapsed to one line: its name
+  on the left with a chevron, the model note on the right ("Works with small local models" / "Needs a strong
+  model"), and a small "✓" after the name when it is already added. Tapping the line opens it in place:
+  the description, `Say: "…" or "…"`, "Show the instruction" (as above), and the Add / ✓ Added / Update button.
+  Tapping again closes it. Skills are grouped under their `category` as headings that themselves collapse (open to
+  start with; show the count, e.g. "Work writing (5)"). Above the list: the search box, a "Small local models
+  only" filter and one filter per category. A search or filter that matches nothing says so. Categories come
+  from the file: never hard-code the list, new ones will appear.
 
 **Expected app behavior:** a "Custom triggers" screen next to Corrections & shortcuts: each trigger with its name,
 `Say: "…" or "…"`, an on/off switch, Edit and Remove (Undo snackbar, as §8); "Browse the library" and "Write your
