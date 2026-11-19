@@ -295,6 +295,12 @@ transcription don't run custom triggers yet; say so on the screen when the PC is
 For when the user would rather not talk (an airport, an open office): they **type** what the AI should do. Same
 editor, same custom triggers, no audio.
 
+On the phone the way in is the small pill under the floating button, shown while text is highlighted and the
+PC's AI is in use. Since build 35 (F-74) it reads "✎ 1 word" / "✎ N words" (before: "Type"), follows the
+highlight as it changes, and has the TalkBack label "Edit N highlighted words by typing". It is hidden where there
+is no PC AI (on-phone mode, cloud services). It looks the same as the recording chip of §13; the button's own
+state tells them apart.
+
 `POST /dictate/v1/edit_text` (JSON, same auth as everything else)
 ```json
 { "instruction": "make it more formal", "selection": "see you tmrw at the usual place" }
