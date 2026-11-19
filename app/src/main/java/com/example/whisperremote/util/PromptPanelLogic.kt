@@ -6,6 +6,7 @@
 
 package com.example.whisperremote.util
 
+// Reason for edit: Add idleHighlightPillContentDescription helper for the idle pencil-and-word-count pill per F-74.
 // Reason for edit: Add F-66 / F-66b highlight chip text, content description, and sheet wording helpers.
 // Reason for edit: Update PLACEHOLDER to "Type an instruction, or / for your skills" and add askAiLines, skillSummary, and skillWording helpers per F-62.
 // Reason for creation: Port Python prompt_panel pure suggestion logic to Kotlin per contract 01 §12 and F-54.
@@ -239,6 +240,12 @@ object PromptPanelLogic {
         } else {
             "$wordsLabel will be typed over"
         }
+    }
+
+    // Reason for edit: TalkBack label for the idle highlight pill ("✎ 3 words") that opens the typed instruction box per F-74 §3
+    fun idleHighlightPillContentDescription(wordCount: Int): String {
+        val wordsLabel = if (wordCount == 1) "1 highlighted word" else "$wordCount highlighted words"
+        return "Edit $wordsLabel by typing"
     }
 
     fun highlightSheetTitle(wordCount: Int): String {

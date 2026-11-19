@@ -2,6 +2,7 @@
 // It is called by `./gradlew test` (Robolectric test runner).
 // Inputs: JSON payloads representing GET/POST /v1/trigger_phrases, SettingsRepository state.
 // Outputs: Verifies TriggerPhrase data class, API payloads, guard conditions, and Home subtitles per F-60 and F-61.
+// Reason for edit: Add F-74 unit test verifying idle pill displays "✎ 1 word" / "✎ N words" following highlight changes, TalkBack label, and hides in non-PC-AI modes.
 // Reason for edit: Add F-73 unit tests verifying remembered highlight across Type pill and mic tap (when live selection collapses on touch or popup windowId changes, or in custom Compose/WebView nodes) and applyQrPayload target reset.
 // Reason for edit: Add F-68 unit tests for honest cached text box lifecycle on paste (tapped out -> clipboard notice, switched app -> new box, null findFocus with still-focused cached node -> pasted).
 // Reason for edit: Add unit tests for F-65 verifying that a recording started with highlighted text goes to POST /dictate/v1/edit_selection and unchanged replies show "The AI made no changes."
@@ -654,5 +655,59 @@ class TriggerPhrasesTest {
         assertTrue(repository.importQrPayload(qrJson))
         assertEquals(ProviderPreset.SELF_HOSTED, repository.providerPreset)
         assertEquals(TranscriptionTarget.PC.id, repository.transcriptionTarget)
+    }
+
+    @Test
+    fun testF74IdleHighlightPillShowsPencilAndLiveWordCountAndHidesWithoutPcAi() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+
+        val a11yService = Robolectric.buildService(DictationAccessibilityService::class.java).create().get()
+        val instanceField = DictationAccessibilityService::class.java.getDeclaredField("instance").apply { isAccessible = true }
+        instanceField.set(null, a11yService)
+
+        val floatService = Robolectric.buildService(FloatingButtonService::class.java).create().get()
+        repository.providerPreset = ProviderPreset.SELF_HOSTED
+        repository.transcriptionTarget = TranscriptionTarget.PC.id
+
+        val box = FakeSelectionNode(
+            textValue = "alpha beta gamma delta",
+            selStart = 0,
+            selEnd = 5, // "alpha" -> 1 word
+            focusedState = true,
+            rawEditableFlag = true,
+            pkg = "com.example.notes"
+        )
+        a11yService.activeWindowPackage = "com.example.notes"
+        a11yService.focusedNode = box
+        a11yService.findFocusOverrideForTesting = { box }
+
+        floatService.onTextFieldFocused()
+        ShadowLooper.idleMainLooper()
+
+        // 1 word highlighted -> "✎ 1 word", TalkBack "Edit 1 highlighted word by typing"
+        floatService.updateTypePillVisibility()
+        assertEquals(android.view.View.VISIBLE, floatService.typePillView?.visibility)
+        assertEquals("✎ 1 word", floatService.typePillView?.text?.toString())
+        assertEquals("Edit 1 highlighted word by typing", floatService.typePillView?.contentDescription?.toString())
+
+        // Expand selection to 3 words -> "✎ 3 words", TalkBack "Edit 3 highlighted words by typing"
+        box.selStart = 0
+        box.selEnd = 16 // "alpha beta gamma"
+        floatService.updateTypePillVisibility()
+        assertEquals(android.view.View.VISIBLE, floatService.typePillView?.visibility)
+        assertEquals("✎ 3 words", floatService.typePillView?.text?.toString())
+        assertEquals("Edit 3 highlighted words by typing", floatService.typePillView?.contentDescription?.toString())
+
+        // Switch to On-Device mode -> idle pill hides (no PC AI to rewrite with)
+        repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
+        floatService.updateTypePillVisibility()
+        assertEquals(android.view.View.GONE, floatService.typePillView?.visibility)
+
+        // Switch to Cloud preset -> idle pill stays hidden
+        repository.transcriptionTarget = TranscriptionTarget.PC.id
+        repository.providerPreset = ProviderPreset.GROQ
+        floatService.updateTypePillVisibility()
+        assertEquals(android.view.View.GONE, floatService.typePillView?.visibility)
     }
 }

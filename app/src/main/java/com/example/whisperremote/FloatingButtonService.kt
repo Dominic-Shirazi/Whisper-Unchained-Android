@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Rename idle highlight pill from "Type" to "✎ N words" with live word count, matching recording chip geometry for zero-flicker transition, TalkBack label, and PC-AI visibility guard per F-74.
 // Reason for edit: Remember highlighted text when the Type pill appears and capture it on ACTION_DOWN / startRecording, use scaledTouchSlop for tap vs drag, and show a high-contrast blinking cursor in the Type instruction box per F-73.
 // Reason for edit: Handle onConfigurationChanged for rotation, fold/unfold, and multi-window resizing so the floating button and its open sheets stay on screen per F-71 Tier 3.
 // Reason for edit: Add highlight recording chip ("✎ 113 words" / struck-through "113 words") and highlight sheet ("Your N highlighted words": Rewrite them vs Type over them) per F-66 and F-66b.
@@ -779,12 +780,12 @@ class FloatingButtonService : Service() {
         prefs.edit().putInt(KEY_BUTTON_X, x).putInt(KEY_BUTTON_Y, y).apply()
     }
 
-    // Reason for edit: Setup Typed instruction pill under floating button (idle only, self-hosted only) per contract 01 §12 and F-54
-    private var typePillView: View? = null
+    // Reason for edit: Setup idle highlight pill ("✎ N words", tapping opens typed instruction box; idle only, self-hosted PC only) matching highlightChipView geometry for zero-jump transition per contract 01 §12, F-54, and F-74
+    internal var typePillView: TextView? = null
 
     private fun setupTypePill() {
         val pill = TextView(this).apply {
-            text = "Type"
+            text = PromptPanelLogic.highlightChipText(1, isRewrite = true)
             setTextColor(Color.parseColor("#E7E9EC"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setTypeface(typeface, Typeface.BOLD)
@@ -792,7 +793,7 @@ class FloatingButtonService : Service() {
             setPadding(dpToPx(12), dpToPx(5), dpToPx(12), dpToPx(5))
             val bg = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dpToPx(12).toFloat()
+                cornerRadius = dpToPx(14).toFloat()
                 setColor(Color.parseColor("#EE1B1E25"))
                 setStroke(dpToPx(1), Color.parseColor("#2B313C"))
             }
@@ -3111,12 +3112,13 @@ class FloatingButtonService : Service() {
     }
 
     fun updateTypePillVisibility() {
-        val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+        val isSelfHostedPc = settingsRepository.transcriptionTarget == TranscriptionTarget.PC.id &&
+            settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
         val currentSelection = try {
             DictationAccessibilityService.getInstance()?.getSelectedText()?.takeIf { it.isNotBlank() }
         } catch (_: Exception) { null }
 
-        // Reason for edit: Remember highlighted text when deciding to show the Type pill, and clear it when the Type pill goes away in IDLE per F-73 §A
+        // Reason for edit: Remember highlighted text when deciding to show the idle pill, update its "✎ N words" label and TalkBack description live, and clear when highlight clears in IDLE per F-73 §A & F-74
         if (!currentSelection.isNullOrBlank()) {
             rememberedSelectionFromTypePill = currentSelection
         } else if (state == ButtonState.IDLE) {
@@ -3131,13 +3133,27 @@ class FloatingButtonService : Service() {
             }
         }
 
-        val hasSelection = !rememberedSelectionFromTypePill.isNullOrBlank()
-        val shouldShow = state == ButtonState.IDLE && isSelfHosted && hasSelection
-        if (!shouldShow && state == ButtonState.IDLE) {
+        val wordCount = PromptPanelLogic.highlightWordCount(rememberedSelectionFromTypePill)
+        if (wordCount == 0 && state == ButtonState.IDLE) {
             rememberedSelectionFromTypePill = null
             DictationAccessibilityService.getInstance()?.clearRememberedHighlight()
         }
-        typePillView?.visibility = if (shouldShow) View.VISIBLE else View.GONE
+
+        val shouldShow = state == ButtonState.IDLE && isSelfHostedPc && wordCount > 0
+        typePillView?.let { tv ->
+            if (shouldShow) {
+                val newText = PromptPanelLogic.highlightChipText(wordCount, isRewrite = true)
+                val needsBoundsCheck = tv.visibility != View.VISIBLE || tv.text?.toString() != newText
+                tv.text = newText
+                tv.contentDescription = PromptPanelLogic.idleHighlightPillContentDescription(wordCount)
+                tv.visibility = View.VISIBLE
+                if (needsBoundsCheck) {
+                    ensureOverlayInBounds()
+                }
+            } else {
+                tv.visibility = View.GONE
+            }
+        }
     }
 
     fun onPasteComplete(hasFocus: Boolean) {

@@ -19,6 +19,12 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## What's New in v1.3 (Build 35)
+
+- **Idle Highlight Pill Renamed to Pencil + Word Count (F-74)**:
+  - The idle pill that appears under the floating button when text is highlighted (in self-hosted PC mode) now displays `✎ 1 word` / `✎ N words` instead of `Type`, updating live as the selection changes, matching the recording highlight chip geometry for a zero-jump transition, and announcing `"Edit N highlighted words by typing"` to TalkBack.
+  - Tapping the idle pill continues to open the typed instruction box with `"Include the highlighted text (N words)"`; tapping the recording chip continues to open the `"Your N highlighted words"` Rewrite / Type-over sheet.
+
 ## What's New in v1.3 (Build 34)
 
 - **Remembered Highlight Across Type Pill & Mic Tap + Blinking Cursor in Type Box (F-73)**:
