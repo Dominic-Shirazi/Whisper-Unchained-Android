@@ -19,6 +19,11 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## What's New in v1.3 (Build 38)
+
+- **Non-Moving Edge-Docked Floating Button**:
+  - Anchored the floating overlay to its docked screen edge (`Gravity.TOP | Gravity.END` + `Gravity.END` when docked on the right; `Gravity.TOP | Gravity.START` + `Gravity.START` when docked on the left) and reserved the `"Mic"` top-label slot with `View.INVISIBLE` when idle, so appearing/disappearing pills (`"✎ N words"`, recording style pill, `"Mic"` label) expand inward from the docked edge while the mic button itself stays completely fixed (0 px horizontal or vertical jump, never sticking away from the edge after recording).
+
 ## What's New in v1.3 (Build 37)
 
 - **Pre-Collapsed Skill Library List with Search & Dynamic Category Filters (F-76)**:

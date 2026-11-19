@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Dock floating button to its active screen edge (TOP|END + Gravity.END on right edge, TOP|START + Gravity.START on left edge) and reserve topLabel height with View.INVISIBLE so appearing/disappearing pills never shift the mic button horizontally or vertically (Build 38).
 // Reason for edit: Replace Service-context AlertDialog skill picker with inline expandable rows (fixing BadTokenException crash), use real IME WindowInsets + Accessibility IME window height fallback for the Edit box on foldables, and eliminate main-thread IPC on ACTION_DOWN / during drag per F-75.
 // Reason for edit: Rename idle highlight pill from "Type" to "✎ N words" with live word count, matching recording chip geometry for zero-flicker transition, TalkBack label, and PC-AI visibility guard per F-74.
 // Reason for edit: Remember highlighted text when the Type pill appears and capture it on ACTION_DOWN / startRecording, use scaledTouchSlop for tap vs drag, and show a high-contrast blinking cursor in the Type instruction box per F-73.
@@ -225,6 +226,8 @@ class FloatingButtonService : Service() {
     private val PREFS_NAME = "WhisperRemotePrefs"
     private val KEY_BUTTON_X = "floating_button_x"
     private val KEY_BUTTON_Y = "floating_button_y"
+    private val KEY_DOCKED_RIGHT = "floating_button_docked_right"
+    internal var isDockedRight: Boolean = true
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val CHANNEL_ID = "FloatingButtonServiceChannel"
@@ -299,6 +302,17 @@ class FloatingButtonService : Service() {
         mainHandler.postDelayed(runnable, 5000L)
     }
 
+    // Reason for edit: Force WindowManager to re-anchor WRAP_CONTENT Gravity.END overlays immediately when child pill/hint visibility changes (prevents right-edge drift on Android WindowManager)
+    private fun syncOverlayLayout() {
+        val view = container ?: return
+        val params = windowParams ?: return
+        if (view.isAttachedToWindow) {
+            try {
+                windowManager.updateViewLayout(view, params)
+            } catch (_: Exception) {}
+        }
+    }
+
     // Reason for edit: Exposed for clipboard fallback notifications per contract F-12
     fun showTemporaryHint(textToShow: String) {
         mainHandler.post {
@@ -306,8 +320,11 @@ class FloatingButtonService : Service() {
             bottomHintLabel?.let { label ->
                 label.animate().cancel()
                 label.text = textToShow
+                label.gravity = if (isDockedRight) Gravity.END else Gravity.START
+                label.maxWidth = dpToPx(180)
                 label.alpha = 1.0f
                 label.visibility = View.VISIBLE
+                syncOverlayLayout()
 
                 val runnable = Runnable {
                     label.animate()
@@ -315,6 +332,7 @@ class FloatingButtonService : Service() {
                         .setDuration(500)
                         .withEndAction {
                             label.visibility = View.GONE
+                            syncOverlayLayout()
                         }
                         .start()
                 }
@@ -572,7 +590,8 @@ class FloatingButtonService : Service() {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             gravity = Gravity.CENTER
             setShadowLayer(6f, 0f, 2f, Color.BLACK)
-            visibility = View.GONE
+            // Reason for edit: Reserve topLabel height with View.INVISIBLE so showing "Mic" on record start never shifts the mic button downward (Build 38)
+            visibility = View.INVISIBLE
         }
 
         floatingButton = ImageView(this).apply {
@@ -594,12 +613,30 @@ class FloatingButtonService : Service() {
             visibility = View.GONE
         }
 
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        lastScreenWidth = screenWidth
+        lastScreenHeight = screenHeight
+        val defaultMargin = dpToPx(8)
+        val defaultX = screenWidth - buttonPx - defaultMargin
+        val defaultY = dpToPx(120)
+
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val savedX = prefs.getInt(KEY_BUTTON_X, defaultX)
+        val savedY = prefs.getInt(KEY_BUTTON_Y, defaultY)
+        isDockedRight = if (prefs.contains(KEY_DOCKED_RIGHT)) {
+            prefs.getBoolean(KEY_DOCKED_RIGHT, true)
+        } else {
+            (savedX + buttonPx / 2) >= (screenWidth / 2)
+        }
+
         container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
+            // Reason for edit: Align container children to the docked screen edge so wider pills grow inward while the mic button stays rock-solid (Build 38)
+            gravity = if (isDockedRight) Gravity.END else Gravity.START
             setBackgroundColor(Color.TRANSPARENT)
             addView(topLabel, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+                buttonPx,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).also { it.bottomMargin = dpToPx(4) })
             addView(floatingButton, LinearLayout.LayoutParams(buttonPx, buttonPx))
@@ -622,18 +659,6 @@ class FloatingButtonService : Service() {
             visibility = View.GONE
         }
 
-        val screenWidth = resources.displayMetrics.widthPixels
-        val screenHeight = resources.displayMetrics.heightPixels
-        lastScreenWidth = screenWidth
-        lastScreenHeight = screenHeight
-        val defaultMargin = dpToPx(8)
-        val defaultX = screenWidth - buttonPx - defaultMargin
-        val defaultY = dpToPx(120)
-
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val savedX = prefs.getInt(KEY_BUTTON_X, defaultX)
-        val savedY = prefs.getInt(KEY_BUTTON_Y, defaultY)
-
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -645,8 +670,9 @@ class FloatingButtonService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = savedX.coerceIn(defaultMargin, (screenWidth - buttonPx - defaultMargin).coerceAtLeast(defaultMargin))
+            // Reason for edit: Use explicit Gravity.RIGHT / Gravity.LEFT in WindowManager.LayoutParams so Android WindowManager always pins the docked edge on WRAP_CONTENT width changes (Build 38)
+            gravity = Gravity.TOP or (if (isDockedRight) Gravity.RIGHT else Gravity.LEFT)
+            x = defaultMargin
             y = savedY.coerceIn(dpToPx(24), (screenHeight - buttonPx - dpToPx(48)).coerceAtLeast(dpToPx(24)))
         }
         windowParams = params
@@ -703,7 +729,11 @@ class FloatingButtonService : Service() {
                                 longPressRunnable?.let { mainHandler.removeCallbacks(it) }
                                 expandPill()
                             }
-                            params.x = initialX + dx
+                            params.x = if (isDockedRight) {
+                                (initialX - dx).coerceAtLeast(0)
+                            } else {
+                                (initialX + dx).coerceAtLeast(0)
+                            }
                             val screenHeight = resources.displayMetrics.heightPixels
                             val viewHeight = if (container?.height ?: 0 > 0) container!!.height else dpToPx(60)
                             val minY = dpToPx(24)
@@ -755,14 +785,35 @@ class FloatingButtonService : Service() {
         val screenWidth = resources.displayMetrics.widthPixels
         val viewWidth = if (containerView.width > 0) containerView.width else dpToPx(60)
         val margin = dpToPx(8)
-        val currentCenterX = params.x + (viewWidth / 2)
-        val targetX = if (currentCenterX < screenWidth / 2) {
-            margin
+        val leftEdgePx = if (isDockedRight) {
+            screenWidth - params.x - viewWidth
         } else {
-            screenWidth - viewWidth - margin
+            params.x
+        }
+        val currentCenterX = leftEdgePx + (viewWidth / 2)
+        val targetDockedRight = currentCenterX >= screenWidth / 2
+
+        val animStartX = if (targetDockedRight != isDockedRight) {
+            isDockedRight = targetDockedRight
+            containerView.gravity = if (isDockedRight) Gravity.END else Gravity.START
+            params.gravity = Gravity.TOP or (if (isDockedRight) Gravity.RIGHT else Gravity.LEFT)
+            val converted = if (isDockedRight) {
+                (screenWidth - leftEdgePx - viewWidth).coerceAtLeast(0)
+            } else {
+                leftEdgePx.coerceAtLeast(0)
+            }
+            params.x = converted
+            if (containerView.isAttachedToWindow) {
+                try {
+                    windowManager.updateViewLayout(containerView, params)
+                } catch (_: Exception) {}
+            }
+            converted
+        } else {
+            params.x
         }
 
-        snapAnimator = ValueAnimator.ofInt(params.x, targetX).apply {
+        snapAnimator = ValueAnimator.ofInt(animStartX, margin).apply {
             duration = 250
             interpolator = DecelerateInterpolator()
             addUpdateListener { animation ->
@@ -786,7 +837,11 @@ class FloatingButtonService : Service() {
 
     private fun savePosition(x: Int, y: Int) {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putInt(KEY_BUTTON_X, x).putInt(KEY_BUTTON_Y, y).apply()
+        prefs.edit()
+            .putInt(KEY_BUTTON_X, x)
+            .putInt(KEY_BUTTON_Y, y)
+            .putBoolean(KEY_DOCKED_RIGHT, isDockedRight)
+            .apply()
     }
 
     // Reason for edit: Setup idle highlight pill ("✎ N words", tapping opens typed instruction box; idle only, self-hosted PC only) matching highlightChipView geometry for zero-jump transition per contract 01 §12, F-54, and F-74
@@ -1618,15 +1673,11 @@ class FloatingButtonService : Service() {
             val measuredH = maxOf(containerView.measuredHeight, dpToPx(64))
             val margin = dpToPx(8)
 
-            val prevW = if (lastScreenWidth > 0) lastScreenWidth else newWidth
             val prevH = if (lastScreenHeight > 0) lastScreenHeight else newHeight
-            val wasOnRightHalf = (params.x + measuredW / 2) >= (prevW / 2)
 
-            params.x = if (wasOnRightHalf) {
-                (newWidth - measuredW - margin).coerceAtLeast(margin)
-            } else {
-                margin
-            }
+            containerView.gravity = if (isDockedRight) Gravity.END else Gravity.START
+            params.gravity = Gravity.TOP or (if (isDockedRight) Gravity.RIGHT else Gravity.LEFT)
+            params.x = margin
             if (prevH > 0 && prevH != newHeight) {
                 val ratioY = (params.y.toFloat() / prevH.toFloat()).coerceIn(0f, 1f)
                 params.y = (ratioY * newHeight).toInt()
@@ -3343,7 +3394,7 @@ class FloatingButtonService : Service() {
                 closeHighlightSheet()
                 closeButtonOptionsMenu()
                 closeTypedInstructionPanel()
-                topLabel?.visibility = View.GONE
+                topLabel?.visibility = View.INVISIBLE
                 highlightChipView?.visibility = View.GONE
                 stylePillView?.visibility = View.GONE
                 typePillView?.visibility = View.GONE
@@ -3355,7 +3406,7 @@ class FloatingButtonService : Service() {
                 closeStyleSheet()
                 closeHighlightSheet()
                 closeButtonOptionsMenu()
-                topLabel?.visibility = View.GONE
+                topLabel?.visibility = View.INVISIBLE
                 highlightChipView?.visibility = View.GONE
                 stylePillView?.visibility = View.GONE
                 updateTypePillVisibility()
@@ -3393,7 +3444,7 @@ class FloatingButtonService : Service() {
                 closeHighlightSheet()
                 closeButtonOptionsMenu()
                 closeTypedInstructionPanel()
-                topLabel?.visibility = View.GONE
+                topLabel?.visibility = View.INVISIBLE
                 highlightChipView?.visibility = View.GONE
                 stylePillView?.visibility = View.GONE
                 typePillView?.visibility = View.GONE
@@ -3402,6 +3453,7 @@ class FloatingButtonService : Service() {
                 floatingButton?.setImageResource(R.drawable.whisper_remote_thinking)
             }
         }
+        syncOverlayLayout()
     }
 
     @SuppressLint("MissingPermission")

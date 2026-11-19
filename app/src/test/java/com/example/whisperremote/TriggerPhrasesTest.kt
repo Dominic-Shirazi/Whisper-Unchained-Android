@@ -498,21 +498,26 @@ class TriggerPhrasesTest {
         val unfoldedWidth = floatService.resources.displayMetrics.widthPixels
         assertEquals(2592, unfoldedWidth)
 
-        // Verify initial x is on the right edge of the 2592px unfolded screen (> 2000px)
+        // Verify initial dock is pinned to the right edge (Gravity.TOP | Gravity.END, 8dp inset)
         val windowParamsField = FloatingButtonService::class.java.getDeclaredField("windowParams").apply { isAccessible = true }
         val params = windowParamsField.get(floatService) as android.view.WindowManager.LayoutParams
-        assertTrue("Initial button x (${params.x}) should be on right edge of unfolded screen", params.x > 2000)
+        assertTrue("Floating button should start docked to the right edge", floatService.isDockedRight)
+        assertEquals(
+            "Right-docked overlay must anchor with TOP|RIGHT so wider pills expand leftward without moving the mic button",
+            android.view.Gravity.TOP or android.view.Gravity.RIGHT,
+            params.gravity
+        )
+        val initialX = params.x
+        assertTrue("Initial right-edge margin (${params.x}) should be small (~8dp)", params.x in 0..100)
 
         // Simulate folding to 10:16 outer screen (1080x1728 px)
         floatService.resources.displayMetrics.widthPixels = 1080
         floatService.resources.displayMetrics.heightPixels = 1728
         floatService.onConfigurationChanged(floatService.resources.configuration)
 
-        // Verify floating button x position was clamped / re-snapped inside the new 1080px outer screen
-        assertTrue(
-            "Floating button x (${params.x}) must remain inside 1080px folded screen width",
-            params.x in 0..1000
-        )
+        // Verify floating button stays docked cleanly on the right edge inside the new 1080px outer screen
+        assertTrue("Floating button should remain docked right after fold", floatService.isDockedRight)
+        assertEquals(initialX, params.x)
         assertTrue(
             "Floating button y (${params.y}) must remain inside 1728px folded screen height",
             params.y in 0..1650
