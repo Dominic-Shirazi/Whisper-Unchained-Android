@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Remember highlighted text, range, and node when selection is detected or read for the Type pill, guard by package/window/node, and use isEditableNode in validateCachedNode so tapping the mic button always captures the same highlight as the Type pill per F-73.
 // Reason for edit: Clear cached focusedNode/lastSelectionNode on window change or focus loss, and refresh+verify isFocused && isEditable before using cached nodes on paste per F-68.
 // Reason for edit: Refresh node before reading selection, track selection source node for WebView/Gmail editors, prefer ACTION_PASTE when replacing active selection, and add hasRichFormattingInSelection() per F-65.
 // Reason for edit: Add getSelectedText() and replaceOrInsertText() for F-54 typed instructions.
@@ -74,20 +75,32 @@ class DictationAccessibilityService : AccessibilityService() {
         }
     }
 
+    // Reason for edit: Remembered highlight snapshot (text, package, windowId, selection range, node) guarded per F-73
+    internal data class RememberedHighlight(
+        val text: String,
+        val packageName: String?,
+        val windowId: Int,
+        val selStart: Int,
+        val selEnd: Int,
+        val node: AccessibilityNodeInfo?,
+        val capturedAtMs: Long = System.currentTimeMillis()
+    )
+
     internal var focusedNode: AccessibilityNodeInfo? = null
     internal var lastSelectionNode: AccessibilityNodeInfo? = null
+    internal var rememberedHighlight: RememberedHighlight? = null
     internal var activeWindowPackage: String? = null
     internal var activeWindowId: Int = -1
     internal var findFocusOverrideForTesting: ((Int) -> AccessibilityNodeInfo?)? = null
     private var hasFocusedEditable = false
 
-    // Reason for edit: Refresh cached node and verify it is still isFocused && isEditable before using it per F-68
+    // Reason for edit: Refresh cached node and verify it is still isFocused && isEditableNode before using it per F-68 & F-73
     internal fun validateCachedNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
         try {
             node.refresh()
         } catch (_: Exception) {}
-        return if (node.isFocused && node.isEditable) node else null
+        return if (node.isFocused && isEditableNode(node)) node else null
     }
 
     // Reason for edit: Resolve target node for paste using fresh focus first, then honest validated cached node per F-68
@@ -178,7 +191,7 @@ class DictationAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        // Reason for edit: Clear cached nodes on window/package change per F-68
+        // Reason for edit: Clear cached nodes on window/package change per F-68; keep rememberedHighlight across same-app floating Action Mode toolbar popups per F-73
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val newPkg = event.packageName?.toString()
             val newWinId = event.windowId
@@ -187,12 +200,15 @@ class DictationAccessibilityService : AccessibilityService() {
             if (pkgChanged || winChanged) {
                 focusedNode = null
                 lastSelectionNode = null
+                if (pkgChanged) {
+                    rememberedHighlight = null
+                }
             }
             if (newPkg != null) activeWindowPackage = newPkg
             if (newWinId != -1) activeWindowId = newWinId
         }
 
-        // Reason for edit: Minimal focus/window events per F-12, plus selection tracking per F-59
+        // Reason for edit: Minimal focus/window events per F-12, plus selection tracking and remembered highlight per F-59 & F-73
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_FOCUSED,
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
@@ -202,10 +218,32 @@ class DictationAccessibilityService : AccessibilityService() {
             }
             AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED -> {
                 event.source?.let { src ->
-                    if (!isSensitiveNode(src) && src.isFocused && src.isEditable) {
+                    val editableTarget = if (isEditableNode(src)) src else findEditableInTree(src)
+                    if (editableTarget != null && !isSensitiveNode(editableTarget) && (editableTarget.isFocused || src.isFocused)) {
                         @Suppress("DEPRECATION")
-                        lastSelectionNode = AccessibilityNodeInfo.obtain(src)
-                    } else if (!src.isFocused || !src.isEditable) {
+                        lastSelectionNode = AccessibilityNodeInfo.obtain(editableTarget)
+                        val isHint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) editableTarget.isShowingHintText else false
+                        val fullText = if (isHint) "" else (editableTarget.text?.toString() ?: src.text?.toString() ?: "")
+                        val selStart = if (editableTarget.textSelectionStart >= 0) editableTarget.textSelectionStart else event.fromIndex
+                        val selEnd = if (editableTarget.textSelectionEnd >= 0) editableTarget.textSelectionEnd else event.toIndex
+                        if (selStart >= 0 && selEnd > selStart && selEnd <= fullText.length) {
+                            val selected = fullText.substring(selStart, selEnd)
+                            if (selected.isNotBlank()) {
+                                @Suppress("DEPRECATION")
+                                rememberedHighlight = RememberedHighlight(
+                                    text = selected,
+                                    packageName = editableTarget.packageName?.toString() ?: activeWindowPackage,
+                                    windowId = editableTarget.windowId,
+                                    selStart = selStart,
+                                    selEnd = selEnd,
+                                    node = AccessibilityNodeInfo.obtain(editableTarget)
+                                )
+                            }
+                        } else if (selStart >= 0 && selEnd == selStart) {
+                            // Selection collapsed to a cursor in the active text field
+                            rememberedHighlight = null
+                        }
+                    } else if (!src.isFocused || !isEditableNode(src)) {
                         lastSelectionNode = null
                     }
                 }
@@ -238,7 +276,7 @@ class DictationAccessibilityService : AccessibilityService() {
                 Log.d("DictationService", "Editable field focused: ${activeInput.className}")
             }
         } else {
-            // Reason for edit: Clear cached nodes when focus leaves or node is no longer focused/editable per F-68
+            // Reason for edit: Clear cached nodes when focus leaves or node is no longer focused/editable per F-68 & F-73
             if (validateCachedNode(focusedNode) == null) {
                 focusedNode = null
             }
@@ -247,6 +285,7 @@ class DictationAccessibilityService : AccessibilityService() {
             }
             if (hasFocusedEditable) {
                 hasFocusedEditable = false
+                rememberedHighlight = null
                 FloatingButtonService.getInstance()?.onTextFieldFocusLost()
                 Log.d("DictationService", "Focus left editable field")
             }
@@ -395,8 +434,12 @@ class DictationAccessibilityService : AccessibilityService() {
         FloatingButtonService.getInstance()?.onPasteComplete(hasFocusedEditable)
     }
 
-    private fun extractSelectionFromNode(node: AccessibilityNodeInfo?): String? {
+    private fun extractSelectionFromNode(node: AccessibilityNodeInfo?, updateRemembered: Boolean = false): String? {
         if (node == null) return null
+        // Reason for edit: Snapshot pre-refresh selection in case node.refresh() on a WebView/Compose virtual node clears transient selection indices per F-73
+        val preText = node.text?.toString()
+        val preStart = node.textSelectionStart
+        val preEnd = node.textSelectionEnd
         try {
             node.refresh()
         } catch (_: Exception) {}
@@ -405,11 +448,27 @@ class DictationAccessibilityService : AccessibilityService() {
             node.isShowingHintText
         } else false
         if (isShowingHint) return null
-        val fullText = node.text?.toString() ?: return null
-        val selStart = node.textSelectionStart
-        val selEnd = node.textSelectionEnd
+        val fullText = node.text?.toString() ?: preText ?: return null
+        var selStart = node.textSelectionStart
+        var selEnd = node.textSelectionEnd
+        if ((selStart < 0 || selEnd <= selStart) && preStart >= 0 && preEnd > preStart && preEnd <= fullText.length) {
+            selStart = preStart
+            selEnd = preEnd
+        }
         if (selStart >= 0 && selEnd > selStart && selEnd <= fullText.length) {
-            return fullText.substring(selStart, selEnd)
+            val selected = fullText.substring(selStart, selEnd)
+            if (updateRemembered && selected.isNotBlank()) {
+                @Suppress("DEPRECATION")
+                rememberedHighlight = RememberedHighlight(
+                    text = selected,
+                    packageName = node.packageName?.toString() ?: activeWindowPackage,
+                    windowId = node.windowId,
+                    selStart = selStart,
+                    selEnd = selEnd,
+                    node = AccessibilityNodeInfo.obtain(node)
+                )
+            }
+            return selected
         }
         return null
     }
@@ -432,7 +491,7 @@ class DictationAccessibilityService : AccessibilityService() {
         return null
     }
 
-    // Reason for edit: Add getSelectedText() to read highlighted text for F-54 typed instruction panel and F-65 voice selection edit
+    // Reason for edit: Add getSelectedText() to read highlighted text and update rememberedHighlight for F-54, F-65, and F-73
     fun getSelectedText(): String? {
         val candidates = listOf(
             findFocusOverrideForTesting?.invoke(AccessibilityNodeInfo.FOCUS_INPUT) ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT),
@@ -443,10 +502,49 @@ class DictationAccessibilityService : AccessibilityService() {
             findEditableInTree(rootInActiveWindow)
         )
         for (candidate in candidates) {
-            val selected = extractSelectionFromNode(candidate)
+            val selected = extractSelectionFromNode(candidate, updateRemembered = true)
             if (!selected.isNullOrEmpty()) return selected
         }
         return null
+    }
+
+    // Reason for edit: Return live selection or guarded remembered highlight (same package/window/node) when touch or popup clears live selection per F-73
+    fun getSelectedTextOrRemembered(): String? {
+        val live = getSelectedText()
+        if (!live.isNullOrBlank()) return live
+
+        val rem = rememberedHighlight ?: return null
+        if (rem.text.isBlank()) return null
+
+        // Guard 1: Must still be in the same app package
+        if (rem.packageName != null && activeWindowPackage != null && rem.packageName != activeWindowPackage) {
+            rememberedHighlight = null
+            return null
+        }
+
+        // Guard 2: Verify the target node (or current active editable in the same window) is still editable and still contains the highlighted text
+        val checkNode = validateCachedNode(rem.node)
+            ?: resolveTargetNodeForPaste(preferSelectionNode = true)
+            ?: rem.node
+        if (checkNode != null) {
+            try {
+                checkNode.refresh()
+            } catch (_: Exception) {}
+            if (isSensitiveNode(checkNode) || !isEditableNode(checkNode)) {
+                rememberedHighlight = null
+                return null
+            }
+            val currentText = checkNode.text?.toString()
+            if (currentText != null && !currentText.contains(rem.text)) {
+                rememberedHighlight = null
+                return null
+            }
+        }
+        return rem.text
+    }
+
+    fun clearRememberedHighlight() {
+        rememberedHighlight = null
     }
 
     /**
@@ -497,9 +595,12 @@ class DictationAccessibilityService : AccessibilityService() {
             Log.e("DictationService", "Clipboard copy failed", e)
         }
 
+        val rem = rememberedHighlight
         val targetNode = resolveTargetNodeForPaste(preferSelectionNode = true)
+            ?: (if (rem != null && (rem.packageName == null || activeWindowPackage == null || rem.packageName == activeWindowPackage)) validateCachedNode(rem.node) else null)
 
         if (targetNode != null && isSensitiveNode(targetNode)) {
+            rememberedHighlight = null
             FloatingButtonService.getInstance()?.showTemporaryHint("Password field protected: copied to clipboard")
             return
         }
@@ -516,12 +617,21 @@ class DictationAccessibilityService : AccessibilityService() {
             var selStart = targetNode.textSelectionStart
             var selEnd = targetNode.textSelectionEnd
 
-            // If selection collapsed while waiting for the server, restore selection range if expectedSelection is uniquely found
+            // Reason for edit: If selection collapsed when touching the button or waiting for the server, restore from rememberedHighlight exact range first, then indexOf(expectedSelection) per F-73
             if (replaceSelection && (selStart < 0 || selEnd <= selStart) && !expectedSelection.isNullOrEmpty()) {
-                val idx = existingText.indexOf(expectedSelection)
-                if (idx >= 0) {
-                    selStart = idx
-                    selEnd = idx + expectedSelection.length
+                if (rem != null && rem.selStart >= 0 && rem.selEnd > rem.selStart && rem.selEnd <= existingText.length &&
+                    existingText.substring(rem.selStart, rem.selEnd) == expectedSelection
+                ) {
+                    selStart = rem.selStart
+                    selEnd = rem.selEnd
+                } else {
+                    val idx = existingText.indexOf(expectedSelection)
+                    if (idx >= 0) {
+                        selStart = idx
+                        selEnd = idx + expectedSelection.length
+                    }
+                }
+                if (selStart >= 0 && selEnd > selStart) {
                     val restoreArgs = Bundle().apply {
                         putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, selStart)
                         putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, selEnd)
@@ -529,6 +639,7 @@ class DictationAccessibilityService : AccessibilityService() {
                     targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, restoreArgs)
                 }
             }
+            rememberedHighlight = null
 
             if (replaceSelection && selStart >= 0 && selEnd > selStart && selEnd <= existingText.length) {
                 // Prefer ACTION_PASTE while selection is active so rich-text editors (e.g. Gmail) keep formatting outside the highlight

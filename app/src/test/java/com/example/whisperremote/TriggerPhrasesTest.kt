@@ -2,6 +2,7 @@
 // It is called by `./gradlew test` (Robolectric test runner).
 // Inputs: JSON payloads representing GET/POST /v1/trigger_phrases, SettingsRepository state.
 // Outputs: Verifies TriggerPhrase data class, API payloads, guard conditions, and Home subtitles per F-60 and F-61.
+// Reason for edit: Add F-73 unit tests verifying remembered highlight across Type pill and mic tap (when live selection collapses on touch or popup windowId changes, or in custom Compose/WebView nodes) and applyQrPayload target reset.
 // Reason for edit: Add F-68 unit tests for honest cached text box lifecycle on paste (tapped out -> clipboard notice, switched app -> new box, null findFocus with still-focused cached node -> pasted).
 // Reason for edit: Add unit tests for F-65 verifying that a recording started with highlighted text goes to POST /dictate/v1/edit_selection and unchanged replies show "The AI made no changes."
 // Reason for edit: Update Home screen Skills subtitle test to verify F-62 wording ("N skills") and no hardcoded "hey Whisper".
@@ -22,6 +23,7 @@ import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
 import com.example.whisperremote.data.TranscriptionTarget
 import com.example.whisperremote.data.TriggerPhrase
+import com.example.whisperremote.util.PromptPanelLogic
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.json.JSONArray
@@ -513,5 +515,144 @@ class TriggerPhrasesTest {
             "Floating button y (${params.y}) must remain inside 1728px folded screen height",
             params.y in 0..1650
         )
+    }
+
+    private class FakeSelectionNode(
+        var textValue: String = "Keep note with a broken phrase inside",
+        var selStart: Int = 17,
+        var selEnd: Int = 30,
+        var focusedState: Boolean = true,
+        var rawEditableFlag: Boolean = false, // Simulates Compose / WebView node where raw isEditable=false but className/actions are editable
+        var pkg: String = "com.anthropic.claude"
+    ) : AccessibilityNodeInfo() {
+        val performedActions = mutableListOf<Int>()
+
+        override fun refresh(): Boolean = true
+        override fun isFocused(): Boolean = focusedState
+        override fun isEditable(): Boolean = rawEditableFlag
+        override fun getPackageName(): CharSequence = pkg
+        override fun getClassName(): CharSequence = "android.widget.EditText"
+        override fun isPassword(): Boolean = false
+        override fun getInputType(): Int = android.text.InputType.TYPE_CLASS_TEXT
+        override fun getText(): CharSequence = textValue
+        override fun getTextSelectionStart(): Int = selStart
+        override fun getTextSelectionEnd(): Int = selEnd
+
+        override fun performAction(action: Int): Boolean {
+            performedActions.add(action)
+            if (action == ACTION_PASTE) {
+                return false // Force splice via ACTION_SET_TEXT so we can assert the exact replaced range
+            }
+            return true
+        }
+
+        override fun performAction(action: Int, arguments: Bundle?): Boolean {
+            performedActions.add(action)
+            if (action == ACTION_SET_SELECTION && arguments != null) {
+                selStart = arguments.getInt(ACTION_ARGUMENT_SELECTION_START_INT, selStart)
+                selEnd = arguments.getInt(ACTION_ARGUMENT_SELECTION_END_INT, selEnd)
+                return true
+            }
+            if (action == ACTION_SET_TEXT && arguments != null) {
+                val cs = arguments.getCharSequence(ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE)
+                if (cs != null) {
+                    textValue = cs.toString()
+                    return true
+                }
+            }
+            return true
+        }
+    }
+
+    @Test
+    fun testF73TapUsesRememberedHighlightWhenLiveSelectionDropsOnTouchOrPopup() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+
+        val a11yController = Robolectric.buildService(DictationAccessibilityService::class.java).create()
+        val a11yService = a11yController.get()
+        val instanceField = DictationAccessibilityService.Companion::class.java.superclass
+            ?.let { DictationAccessibilityService::class.java.getDeclaredField("instance") }
+            ?: DictationAccessibilityService::class.java.getDeclaredField("instance")
+        instanceField.isAccessible = true
+        instanceField.set(null, a11yService)
+
+        val floatService = Robolectric.buildService(FloatingButtonService::class.java).create().get()
+        repository.providerPreset = ProviderPreset.SELF_HOSTED
+        repository.transcriptionTarget = TranscriptionTarget.PC.id
+
+        // 1. User highlights "broken phrase" (indices 17..30) in a Compose/Keep box where raw isEditable=false
+        val box = FakeSelectionNode(
+            textValue = "Keep note with a broken phrase inside",
+            selStart = 17,
+            selEnd = 30,
+            focusedState = true,
+            rawEditableFlag = false,
+            pkg = "com.anthropic.claude"
+        )
+        a11yService.activeWindowPackage = "com.anthropic.claude"
+        a11yService.activeWindowId = 10
+        a11yService.focusedNode = box
+        a11yService.findFocusOverrideForTesting = { box }
+
+        floatService.onTextFieldFocused()
+        ShadowLooper.idleMainLooper()
+
+        // Type pill must see "broken phrase" and remember it
+        floatService.updateTypePillVisibility()
+        assertEquals("broken phrase", floatService.rememberedSelectionFromTypePill)
+        assertEquals("broken phrase", a11yService.getSelectedTextOrRemembered())
+
+        // 2. Floating Action Mode Copy/Paste toolbar pops up (TYPE_WINDOW_STATE_CHANGED with same package, popup windowId=99)
+        // AND touching the floating mic button causes the underlying app to collapse its live selection to a cursor (17..17)
+        @Suppress("DEPRECATION")
+        val popupEvent = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED).apply {
+            packageName = "com.anthropic.claude"
+            // windowId change from floating Action Mode toolbar
+        }
+        a11yService.onAccessibilityEvent(popupEvent)
+        box.selStart = 17
+        box.selEnd = 17
+
+        // Live getSelectedText() is now null because the app dropped its selection on touch
+        assertNull("Live selection collapsed on touch", a11yService.getSelectedText())
+        // But getSelectedTextOrRemembered() still returns the guarded remembered highlight!
+        assertEquals("broken phrase", a11yService.getSelectedTextOrRemembered())
+
+        // 3. Tapping the mic button captures the remembered highlight, shows "✎ 2 words", and replaces the exact range
+        val captured = a11yService.getSelectedTextOrRemembered() ?: floatService.rememberedSelectionFromTypePill
+        assertEquals("broken phrase", captured)
+        assertEquals("✎ 2 words", PromptPanelLogic.highlightChipText(PromptPanelLogic.highlightWordCount(captured), isRewrite = true))
+
+        a11yService.replaceOrInsertText("polished phrase", replaceSelection = true, expectedSelection = captured)
+        assertEquals("Keep note with a polished phrase inside", box.textValue)
+
+        // 4. Guard check: switching to a different app clears any remembered highlight
+        a11yService.rememberedHighlight = DictationAccessibilityService.RememberedHighlight(
+            text = "stale highlight",
+            packageName = "com.anthropic.claude",
+            windowId = 10,
+            selStart = 0,
+            selEnd = 5,
+            node = box
+        )
+        @Suppress("DEPRECATION")
+        val appSwitchEvent = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED).apply {
+            packageName = "com.google.android.keep"
+        }
+        a11yService.onAccessibilityEvent(appSwitchEvent)
+        assertNull("Remembered highlight must be cleared when switching to a different package", a11yService.getSelectedTextOrRemembered())
+    }
+
+    @Test
+    fun testF73ApplyQrPayloadResetsTranscriptionTargetToPc() {
+        repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
+        repository.providerPreset = ProviderPreset.GROQ
+
+        val pin = "a".repeat(64)
+        val qrJson = """{"v":2,"base_url":"https://100.64.0.1:5000/v1","cert_sha256":"$pin","model":"large-v3-turbo","name":"Dom PC"}"""
+        assertTrue(repository.importQrPayload(qrJson))
+        assertEquals(ProviderPreset.SELF_HOSTED, repository.providerPreset)
+        assertEquals(TranscriptionTarget.PC.id, repository.transcriptionTarget)
     }
 }

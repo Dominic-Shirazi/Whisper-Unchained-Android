@@ -19,6 +19,13 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## What's New in v1.3 (Build 34)
+
+- **Remembered Highlight Across Type Pill & Mic Tap + Blinking Cursor in Type Box (F-73)**:
+  - `DictationAccessibilityService` and `FloatingButtonService` now remember the highlighted text, selection indices, package, window ID, and node at the moment the `"Type"` pill is shown (`RememberedHighlight`), capture it on `ACTION_DOWN` and `startRecording()`, and validate cached nodes via `isEditableNode()` (covering Jetpack Compose and WebView editors where raw `node.isEditable` is `false`), so tapping the floating mic button always captures the exact same highlight as the `"Type"` pill even if touching the overlay or a floating Copy/Paste toolbar popup collapses the live selection.
+  - `SettingsRepository.applyQrPayload` now resets `transcriptionTarget` to `TranscriptionTarget.PC.id` when pairing a PC via QR code.
+  - Configured the typed instruction box (`EditText` in `FloatingButtonService.openTypedInstructionPanel`) with an explicit high-contrast blinking cursor drawable (`#2FB79A`) and upper-screen placement so the soft keyboard never clips the `"Include the highlighted text"` checkbox.
+
 ## What's New in v1.3 (Build 33)
 
 - **Foldable & Large-Screen Adaptive Tier 3 Readiness (F-71 & F-72)**:

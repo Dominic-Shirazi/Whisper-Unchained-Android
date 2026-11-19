@@ -44,11 +44,12 @@ android {
 
     defaultConfig {
         applicationId = "com.cyrus_studio.whisperunchained"
+        // Reason for edit: Bump versionCode to 34 for remembered highlight across Type pill & mic tap and blinking cursor in typed instruction box per F-73
         // Reason for edit: Bump versionCode to 33 for Adaptive Tier 3 foldable state preservation and split-screen fixes per F-71 & F-72
         // Reason for edit: Lower minSdk from 34 to 31 (Android 12+) and bump versionCode to 32 per F-70
         minSdk = 31
         targetSdk = 36
-        versionCode = 33
+        versionCode = 34
         versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

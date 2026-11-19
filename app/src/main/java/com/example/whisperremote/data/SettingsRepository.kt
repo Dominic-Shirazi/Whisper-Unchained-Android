@@ -3,6 +3,7 @@
 // Inputs: User inputs from Settings UI or QR code scan, with sensitive credentials (API keys) protected by hardware-backed KeyStore AES-256-GCM.
 // Outputs: Provider settings (base URL, API key, model, prompt hints), behavioral flags (auto-trim, boot start, Tailscale auto-restart), and injection mode.
 // It resolves endpoints according to the OpenAI standard (/v1/audio/transcriptions, /health, /v1/models) and migrates legacy URLs cleanly.
+// Reason for edit: Ensure applyQrPayload resets transcriptionTarget to TranscriptionTarget.PC.id so pairing a PC always activates PC mode for both Type pill and mic tap per F-73.
 // Reason for edit: Add on-device model and download preferences per contract 05 §2.3 & §2.6.
 // Reason for edit: Accurate provider info (corrected Together pricing, realistic speed claims, verified privacy summaries, pricing URLs) per F-27.
 // Reason for edit: Add NameCorrections URL, QueuedMutation queue and immediate local cache sync per F-43.
@@ -1147,6 +1148,8 @@ class SettingsRepository(context: Context) {
         payload.model?.let { modelName = it }
         serverCertSha256 = payload.certSha256
         providerPreset = ProviderPreset.SELF_HOSTED
+        // Reason for edit: Reset transcriptionTarget to PC when pairing via QR so mic tap and Type pill agree on self-hosted PC mode per F-73
+        transcriptionTarget = TranscriptionTarget.PC.id
         isServerVerified = true
     }
 

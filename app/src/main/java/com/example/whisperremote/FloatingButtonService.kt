@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Remember highlighted text when the Type pill appears and capture it on ACTION_DOWN / startRecording, use scaledTouchSlop for tap vs drag, and show a high-contrast blinking cursor in the Type instruction box per F-73.
 // Reason for edit: Handle onConfigurationChanged for rotation, fold/unfold, and multi-window resizing so the floating button and its open sheets stay on screen per F-71 Tier 3.
 // Reason for edit: Add highlight recording chip ("✎ 113 words" / struck-through "113 words") and highlight sheet ("Your N highlighted words": Rewrite them vs Type over them) per F-66 and F-66b.
 // Reason for edit: Route voice recordings started with highlighted text to POST /dictate/v1/edit_selection and show "The AI made no changes." on unchanged/edited=false replies per contract 01 §14 and F-65.
@@ -224,10 +225,11 @@ class FloatingButtonService : Service() {
     private val CHANNEL_ID = "FloatingButtonServiceChannel"
     private var fadeHintRunnable: Runnable? = null
 
-    // Reason for edit: Variables and helpers for soft pause recovery per contract K-4 and voice selection edit per F-65, F-66, F-66b
+    // Reason for edit: Variables and helpers for soft pause recovery per contract K-4 and voice selection edit per F-65, F-66, F-66b, F-73
     private var pendingRetryAudioFile: File? = null
     private var pendingRetrySelection: String? = null
     internal var pendingSelectionForRecording: String? = null
+    internal var rememberedSelectionFromTypePill: String? = null
     internal var sessionHighlightWordCount: Int = 0
     internal var sessionHighlightHasAi: Boolean = false
     internal var sessionHighlightRewriteMode: Boolean = true
@@ -663,6 +665,15 @@ class FloatingButtonService : Service() {
                         initialTouchY = event.rawY
                         isMoved = false
                         isLongPressFired = false
+                        // Reason for edit: Snapshot any active or Type-pill-remembered highlight on ACTION_DOWN before touching our overlay can dismiss the underlying app's selection per F-73
+                        if (state == ButtonState.IDLE) {
+                            val downSel = try {
+                                DictationAccessibilityService.getInstance()?.getSelectedTextOrRemembered()?.takeIf { it.isNotBlank() }
+                            } catch (_: Exception) { null } ?: rememberedSelectionFromTypePill?.takeIf { it.isNotBlank() }
+                            if (!downSel.isNullOrBlank()) {
+                                pendingSelectionForRecording = downSel
+                            }
+                        }
                         expandPill()
 
                         // Reason for edit: Detect long press for button options menu per F-59
@@ -680,7 +691,8 @@ class FloatingButtonService : Service() {
                     MotionEvent.ACTION_MOVE -> {
                         val dx = (event.rawX - initialTouchX).toInt()
                         val dy = (event.rawY - initialTouchY).toInt()
-                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                        val touchSlop = android.view.ViewConfiguration.get(this@FloatingButtonService).scaledTouchSlop.coerceAtLeast(10)
+                        if (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop) {
                             longPressRunnable?.let { mainHandler.removeCallbacks(it) }
                             expandPill()
                             params.x = initialX + dx
@@ -1906,11 +1918,19 @@ class FloatingButtonService : Service() {
         val cardLp = FrameLayout.LayoutParams(
             cardWidth,
             FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.CENTER
-        )
+            Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        ).apply {
+            // Reason for edit: Position typed instruction card in upper screen region so the soft keyboard never clips the "Include the highlighted text" checkbox per F-73
+            topMargin = dpToPx(140)
+        }
         overlay.addView(card, cardLp)
 
-        val selectedText = if (forceNoSelection) null else DictationAccessibilityService.getInstance()?.getSelectedText()
+        val selectedText = if (forceNoSelection) {
+            null
+        } else {
+            DictationAccessibilityService.getInstance()?.getSelectedTextOrRemembered()?.takeIf { it.isNotBlank() }
+                ?: rememberedSelectionFromTypePill?.takeIf { it.isNotBlank() }
+        }
         val wordCount = selectedText?.trim()?.split("\\s+".toRegex())?.filter { it.isNotEmpty() }?.size ?: 0
 
         // 1. Suggestion container
@@ -2003,6 +2023,17 @@ class FloatingButtonService : Service() {
             setBackgroundColor(Color.TRANSPARENT)
             maxLines = 8
             minLines = 1
+            // Reason for edit: Explicitly enable focus and set a bright high-contrast blinking cursor drawable for Service-context EditText per F-73 §B
+            isFocusable = true
+            isFocusableInTouchMode = true
+            isCursorVisible = true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                textCursorDrawable = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    setColor(Color.parseColor("#2FB79A"))
+                    setSize(dpToPx(2), dpToPx(20))
+                }
+            }
             if (typedInstructionDraft.isNotEmpty()) {
                 setText(typedInstructionDraft)
                 setSelection(typedInstructionDraft.length)
@@ -2205,6 +2236,13 @@ class FloatingButtonService : Service() {
         try {
             windowManager.addView(overlay, panelParams)
             editText.requestFocus()
+            editText.post {
+                editText.requestFocus()
+                editText.isCursorVisible = true
+                editText.setSelection(editText.text?.length ?: 0)
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+                imm?.showSoftInput(editText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }
         } catch (e: Exception) {
             Log.e("FloatingButtonService", "Error showing typed instruction panel", e)
         }
@@ -3074,12 +3112,31 @@ class FloatingButtonService : Service() {
 
     fun updateTypePillVisibility() {
         val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
-        val hasSelection = try {
-            val sel = DictationAccessibilityService.getInstance()?.getSelectedText()
-            !sel.isNullOrBlank()
-        } catch (_: Exception) { false }
+        val currentSelection = try {
+            DictationAccessibilityService.getInstance()?.getSelectedText()?.takeIf { it.isNotBlank() }
+        } catch (_: Exception) { null }
 
+        // Reason for edit: Remember highlighted text when deciding to show the Type pill, and clear it when the Type pill goes away in IDLE per F-73 §A
+        if (!currentSelection.isNullOrBlank()) {
+            rememberedSelectionFromTypePill = currentSelection
+        } else if (state == ButtonState.IDLE) {
+            val guardedRemembered = try {
+                DictationAccessibilityService.getInstance()?.getSelectedTextOrRemembered()?.takeIf { it.isNotBlank() }
+            } catch (_: Exception) { null }
+            if (guardedRemembered != null) {
+                rememberedSelectionFromTypePill = guardedRemembered
+            } else {
+                rememberedSelectionFromTypePill = null
+                pendingSelectionForRecording = null
+            }
+        }
+
+        val hasSelection = !rememberedSelectionFromTypePill.isNullOrBlank()
         val shouldShow = state == ButtonState.IDLE && isSelfHosted && hasSelection
+        if (!shouldShow && state == ButtonState.IDLE) {
+            rememberedSelectionFromTypePill = null
+            DictationAccessibilityService.getInstance()?.clearRememberedHighlight()
+        }
         typePillView?.visibility = if (shouldShow) View.VISIBLE else View.GONE
     }
 
@@ -3114,6 +3171,9 @@ class FloatingButtonService : Service() {
         state = newState
         when (state) {
             ButtonState.HIDDEN -> {
+                rememberedSelectionFromTypePill = null
+                pendingSelectionForRecording = null
+                DictationAccessibilityService.getInstance()?.clearRememberedHighlight()
                 cancelTemporaryHint()
                 closeStyleSheet()
                 closeHighlightSheet()
@@ -3188,12 +3248,15 @@ class FloatingButtonService : Service() {
         pendingRetrySelection = null
         selectedSessionTrigger = null
 
-        // Reason for edit: Capture highlighted text and initialize highlight chip mode when recording starts per contract 01 §14 and F-65, F-66, F-66b
+        // Reason for edit: Capture highlighted text (from live selection, ACTION_DOWN snapshot, or Type pill remembered highlight) and initialize highlight chip mode when recording starts per contract 01 §14 and F-65, F-66, F-66b, F-73
         val isSelfHostedPc = settingsRepository.transcriptionTarget == TranscriptionTarget.PC.id &&
             settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
-        pendingSelectionForRecording = try {
-            DictationAccessibilityService.getInstance()?.getSelectedText()?.takeIf { it.isNotBlank() }
+        val liveOrRemembered = try {
+            DictationAccessibilityService.getInstance()?.getSelectedTextOrRemembered()?.takeIf { it.isNotBlank() }
         } catch (_: Exception) { null }
+        pendingSelectionForRecording = liveOrRemembered
+            ?: pendingSelectionForRecording?.takeIf { it.isNotBlank() }
+            ?: rememberedSelectionFromTypePill?.takeIf { it.isNotBlank() }
         sessionHighlightWordCount = PromptPanelLogic.highlightWordCount(pendingSelectionForRecording)
         sessionHighlightHasAi = isSelfHostedPc
         sessionHighlightRewriteMode = isSelfHostedPc // Every new recording with a highlight starts on "Rewrite them" when PC AI is available
@@ -3500,9 +3563,11 @@ class FloatingButtonService : Service() {
 
         val isSelfHostedPc = settingsRepository.transcriptionTarget == TranscriptionTarget.PC.id &&
             settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
-        val capturedHighlight = pendingSelectionForRecording ?: try {
-            DictationAccessibilityService.getInstance()?.getSelectedText()?.takeIf { it.isNotBlank() }
-        } catch (_: Exception) { null }
+        val capturedHighlight = pendingSelectionForRecording
+            ?: try {
+                DictationAccessibilityService.getInstance()?.getSelectedTextOrRemembered()?.takeIf { it.isNotBlank() }
+            } catch (_: Exception) { null }
+            ?: rememberedSelectionFromTypePill?.takeIf { it.isNotBlank() }
 
         // If "Rewrite them" is selected and PC AI is available, send to edit_selection; otherwise send as ordinary dictation (pasting over highlight)
         val selectionToRewrite = if (!capturedHighlight.isNullOrBlank() && isSelfHostedPc && sessionHighlightRewriteMode) {
@@ -3516,6 +3581,7 @@ class FloatingButtonService : Service() {
             null
         }
         pendingSelectionForRecording = null
+        rememberedSelectionFromTypePill = null
         sessionHighlightWordCount = 0
 
         audioFile?.let { file ->
