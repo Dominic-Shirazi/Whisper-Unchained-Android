@@ -137,3 +137,36 @@ cleanups are possible but long ones are slow). Live text while speaking. Smart R
 - With the PC paired, turning Wi-Fi off mid-use still transcribes (fallback) and says so.
 - Dominic's corrections list applies to on-device text.
 - Release build on the Fold; Claude reviews the screenshots of the new screens (contract 04 §7) before Dominic.
+
+## 5. The phone transcribes, the PC's AI fixes (F-77, 2026-11-23)
+
+Dominic's ask: keep transcribing on the phone, and let a language model somewhere else do the fixing, behind a
+switch. The model is whatever the paired PC is set to use (its own, another PC's, or a cloud service), so the
+phone needs no key of its own. The call is contract 01 §15.
+
+1. **The switch.** Where the user chooses "On this phone", add one switch: **"Let your PC's AI fix the text"**,
+   help text "Your words are still turned into text on this phone. The text (not the recording) is then sent to
+   your PC for corrections, skills and cleanup." Off by default. Shown only when a PC is paired; with no PC the
+   row is hidden (not greyed out).
+2. **Dictation with the switch on.** Transcribe on the phone as today, then `POST /dictate/v1/process_text` with
+   the engine's text (before the phone's own corrections), the cleanup switch and style the user has chosen (same
+   fields as contract 01 §1), and the picked skill's id as `trigger` when one was picked on the style sheet. Type
+   the reply's `text`. The button shows the same "working" state it shows while a PC transcription is on its way.
+3. **When the PC can't be reached** (no network, timeout, `503`, any error): type the on-device text with the
+   phone's own corrections and rules, exactly as with the switch off, and show the same short notice the fallback
+   in §2 uses, worded "Your PC didn't answer, so the text wasn't fixed." Never lose or delay the words: give the PC
+   about 3 seconds to connect and about 30 seconds to answer, then fall back. `404`/`405` means an older PC app:
+   fall back and say "Update the PC app to fix text from this phone."
+4. **What else the switch turns on.** With it on and the PC reachable, the PC-AI features that today need "On
+   your PC" work here too, since none of them needs the PC's speech engine:
+   - the skill list on the style sheet (contract 01 §11) and the cleanup style controls;
+   - the typed-instruction pill over highlighted text (contract 01 §12), unchanged;
+   - speaking an instruction over highlighted text: transcribe the instruction on the phone, then send it with the
+     highlight to `POST /dictate/v1/edit_text` (contract 01 §12) instead of sending audio to §14.
+   If the last one is more than a small change, ship items 1 to 3 first and say so.
+5. **Not in this:** the phone calling a cloud AI by itself with no PC (would need the user's AI key on the phone
+   and the contract 02/03 prompts run there); a rule that skips the AI for short recordings.
+
+Done when: with "On this phone" and the switch on, a dictation on the S25 comes back with the PC's word list and
+cleanup applied; with the PC switched off, the same dictation still types, uncleaned, with the notice; with the
+switch off nothing is sent to the PC.

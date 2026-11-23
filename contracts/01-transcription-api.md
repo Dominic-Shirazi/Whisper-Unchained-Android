@@ -394,3 +394,33 @@ the instruction, not dictation.
 - Plain text only: formatting inside the highlight (bold, links) is not carried either way.
 - On-device and cloud-key modes have no editor: with a highlight there, dictate over it as today (or say so in a
   notice); do not call this endpoint.
+
+## 15. Text the phone transcribed itself · LIVE in server code (Whisper-Unchained-Server, 2026-11-23; app side NEW, F-77)
+
+The phone turned the speech into text on its own (contract 05) and wants the rest done by the PC: the PC's word
+list, spoken catchphrases and skills, and AI cleanup. No audio is sent, so the PC's speech engine is not involved
+and the call works even while that engine is busy or failed to load.
+
+`POST /dictate/v1/process_text` (JSON, same auth as everything else)
+```json
+{ "text": "um tell leslie the meeting moved to three thirty", "cleanup": "on", "cleanup_tone": "professional" }
+```
+→ `200 { "text": "Tell Lesley the meeting moved to 3:30.", "changed": true }`
+
+- `text` (required, 1 to 20,000 characters): what the phone's engine heard, **before** the phone's own corrections
+  and text rules. The PC applies its own word list, the same one §8 shares.
+- The other fields mean exactly what they mean in §1 and are all optional: `processing` (`full`, the default, or
+  `clean`; `raw` is refused, there is nothing to do), `cleanup` (`on` / `off`, the phone's own switch; left out,
+  the PC's default decides, see `/health` `cleanup_always`), `cleanup_punctuation`, `cleanup_rewrite`,
+  `cleanup_shorten`, `cleanup_tone`, `cleanup_emoji`, and `trigger` (a skill's id from §11's list).
+- What happens to the text is what happens to a dictation in §1 after the speech engine: filler sounds (if the PC
+  has that on), name corrections, "hey Whisper, make this formal" style catchphrases (§13), a skill's catchphrase
+  or the `trigger` id (§11), then cleanup when asked for and no catchphrase already handled it.
+- `changed: false` means `text` is what was sent. **The AI failing is not an error:** the reply is still `200` with
+  the text as far as it got (word list applied, not cleaned). Never an empty `text` for a non-empty request.
+- Which AI does the work is the PC's business (Settings > AI Editing): a model on that PC, on another PC, or a
+  cloud service. The phone needs no AI key.
+- Errors (§5 shape): `400 missing_text`, `413 text_too_long`, `400 invalid_processing`,
+  `400 invalid_cleanup_option`, `503 server_paused`. Older servers answer `404`/`405`.
+- Never logged as a dictation, never kept, nothing added to the audio corpus (there is no audio). The server log
+  gets the length only.
