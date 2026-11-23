@@ -170,3 +170,32 @@ phone needs no key of its own. The call is contract 01 §15.
 Done when: with "On this phone" and the switch on, a dictation on the S25 comes back with the PC's word list and
 cleanup applied; with the PC switched off, the same dictation still types, uncleaned, with the notice; with the
 switch off nothing is sent to the PC.
+
+## 6. The phone transcribes, an AI service fixes, no PC at all (F-78, 2026-11-23, after F-77)
+
+Dominic: "The phone calling a cloud AI by itself with no PC needs to be next." Someone with only a phone and one
+AI key gets fixed text without owning a PC.
+
+Most of this exists already: with a cloud speech service chosen, the app runs cleanup (contract 02) and spoken
+edit commands (contract 03) itself against the chat endpoint from the Edits tab. F-78 lets "On this phone" use
+that same path.
+
+1. **One choice instead of F-77's switch.** Under "On this phone": **"Fix the text with"** → **Nothing** (default)
+   · **Your PC** (F-77; shown only when a PC is paired) · **An AI service** (the chat endpoint from the Edits tab:
+   address, key, model). Picking "An AI service" with none set up opens that setup. Help text for it: "Your words
+   are turned into text on this phone. The text (not the recording) is sent to the AI service you chose."
+2. **With "An AI service":** after the on-device text and the phone's own corrections, do exactly what the app
+   does today for a cloud speech service: cleanup when the cleanup switch is on (contract 02, prompt file
+   bundled), and "hey Whisper, ..." edit commands (contract 03). Same prompts, same style controls, same checks
+   on the answer.
+3. **Any OpenAI-compatible address works**, so this is also how someone points the phone at a model they host
+   themselves that is not a Whisper Unchained PC.
+4. **If the service fails or takes over about 30 seconds:** type the uncleaned text with a short notice ("The AI
+   service didn't answer, so the text wasn't fixed."). Never lose the words. A wrong key says so once, plainly.
+5. **Skills with no PC.** The skill list lives on the PC (contract 01 §11), so with no PC there are no skills in
+   this mode. Hide the skill rows; do not show an empty list. Skills kept on the phone are a later job.
+6. **One key.** Where the user's cloud speech key and their AI key are for the same provider (Groq and OpenAI
+   both offer speech and chat), offer to reuse the key already entered instead of asking twice.
+
+Done when: on the S25 with no PC paired, "On this phone" + "An AI service" + cleanup on turns a rambling
+dictation into cleaned text; airplane mode still types the uncleaned text with the notice.
