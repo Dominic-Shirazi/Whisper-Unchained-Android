@@ -19,6 +19,39 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## What's New in v1.3 (Build 41)
+
+- **Skills with No PC (F-79)**:
+  - Added modular `LocalSkillEngine` and phone-local skill storage (`SettingsRepository.localSkillsJson`) so when no PC is paired, **Skills**, **+ New skill**, **Browse the library** (same `library.json`, Add / ✓ Added / Update), and the recording style sheet's skill picker all work directly against the phone's local list.
+  - Matches enabled skill catchphrases with whole-word, case-insensitive, acronym-aware regexes (e.g. `"AI"` matches `"a i"`, `"a.i."`, `"A. Eye"`), applies the server-identical cut-out/join rule, sends the exact `<text>` + `How to answer:` prompt with `temperature = skill.temperature ?: 0.3` to the user's AI service, handles empty bodies (`"Say what the skill should work on."`), and falls back to the catchphrase-removed text on AI failure.
+  - When a phone with local skills pairs with a PC for the first time, offers once: **"Copy your N skills to your PC?"** (POSTing via `§11 set` and reporting any skipped catchphrase conflicts).
+- **Transcription Screen Polish (R-F78)**:
+  - Made the **AI service** card retail-first: shows provider chips and **API key** by default, placing **Address** and **Model** behind a collapsible **Advanced** row (auto-opened for Ollama / LocalAI or custom addresses).
+  - Updated the On-device processing card heading to **"Speech stays on this phone"** whenever **Your PC** or **An AI service** is chosen (`"Private and offline"` only for **Nothing**), and unified **"Your PC"** wording across the screen.
+
+## What's New in v1.3 (Build 40)
+
+- **Phone Transcribes, Standalone AI Service Fixes — No PC Required (F-78)**:
+  - Replaced the single F-77 switch under **Transcription → On this phone** with a three-way **"Fix the text with"** choice: **Nothing** (default) · **Your PC** (F-77; hidden when no PC is paired) · **An AI service**.
+  - Choosing **An AI service** reveals the OpenAI-compatible chat setup (Groq, OpenAI, OpenRouter, Together AI, Ollama/self-hosted, or any custom `/v1` or `/v1/chat/completions` address) with 1-tap **"Reuse your Groq/OpenAI key"** when a matching cloud speech key is already entered.
+  - Runs the phone's local corrections first, then applies contract 03 voice edit commands (`"prompt AI"`, `"hey Whisper"`) and contract 02 AI cleanup with a 30 s timeout. On failure or offline, types the uncleaned text with `"The AI service didn't answer, so the text wasn't fixed."`; on `401`/`403`, surfaces a plain wrong-key notice once while keeping the words.
+  - Hides PC-only skill rows on the recording style sheet when no PC is active.
+
+## What's New in v1.3 (Build 39)
+
+- **Phone Transcribes, PC's AI Fixes (F-77)**:
+  - Added the **"Let your PC's AI fix the text"** switch under **Transcription → On this phone** (off by default, hidden when no PC is paired).
+  - When enabled, speech is still transcribed locally on the phone, and only the raw text (before phone corrections) is sent to `POST /dictate/v1/process_text` (3 s connect / 30 s read timeout) so the paired PC applies its word list, catchphrases, skills, and AI cleanup.
+  - Falls back seamlessly to the phone's local corrections and rules if the PC is unreachable (`"Your PC didn't answer, so the text wasn't fixed."`) or on older PC builds (`404`/`405`: `"Update the PC app to fix text from this phone."`).
+  - Also unlocks PC AI style-sheet skills/cleanup controls, the idle highlight pill, and spoken instructions over highlighted text (transcribed on-device and sent to `POST /dictate/v1/edit_text`) while in **On this phone** mode.
+- **Skills & Catchphrases Wording Catch-Up**:
+  - Updated all remaining user-visible `"trigger"` and skill/AI-edit `"phrase"` wording across `strings.xml`, `TriggersScreen`, `WordsTriggersScreen`, `PromptPanelLogic`, `SettingsRepository`, `ApiClient`, and `docs/PLAY_STORE.md` to `"skill"` and `"catchphrase"` (matching the Windows/Linux desktop apps).
+  - Extended `PromptPanelLogic.skillWording()` so server error messages containing `"trigger"` or whole-word `"phrase(s)"` rewrite cleanly to `"skill(s)"` / `"catchphrase(s)"` while leaving anything inside double quotes untouched.
+- **Floating Button Freeze & Crash Fix (Accessibility IPC Main-Thread Elimination)**:
+  - Bounded synchronous `AccessibilityNodeInfo` tree walks (`findEditableInTree`, `findEditableWithSelectionInTree`) with a strict node count (`120`), depth (`12`), and 1-frame wall-clock (`16 ms`) budget so large foldable/tablet view hierarchies can never freeze the floating button's main thread or trigger ANRs.
+  - Eliminated duplicate back-to-back `getSelectedText()` IPC calls inside `FloatingButtonService.updateTypePillVisibility()`, skipped Accessibility IPC completely when the button is not `IDLE` or not in self-hosted PC mode, and expanded `getSelectedText()`'s fast-path to return immediately when the focused editable node has no active selection (`start == -1` or collapsed cursor).
+  - Coalesced rapid `onTextSelectionChanged()` bursts into a single UI-thread pass, ignored own non-EditText overlay events across all Accessibility event types, skipped selection updates during active button drags, and guarded `ACTION_MOVE` vertical clamping (`maxY >= minY`) and `updateViewLayout()` window attachment against split-screen/fold crashes.
+
 ## What's New in v1.3 (Build 38)
 
 - **Non-Moving Edge-Docked Floating Button**:

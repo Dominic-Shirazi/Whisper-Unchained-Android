@@ -46,6 +46,17 @@ class EditCommandProcessor(promptJsonString: String) {
     }
 
     /**
+     * Returns the start index of the first AI-edit catchphrase in [transcript], or -1 if none.
+     * Reason for edit: Used by F-79 local skill matching to let an earlier AI-edit catchphrase win per contract 05 §7 item 3.
+     */
+    fun findFirstTriggerIndex(transcript: String): Int {
+        if (transcript.isBlank() || triggerPatterns.isEmpty()) return -1
+        val combinedPattern = "\\b(" + triggerPatterns.joinToString("|") + ")\\b"
+        val regex = Regex(combinedPattern, RegexOption.IGNORE_CASE)
+        return regex.find(transcript)?.range?.first ?: -1
+    }
+
+    /**
      * Splits a raw transcript into content and instruction based on trigger patterns.
      * Complies with contracts/03-edit-commands.md §1.
      */

@@ -3,6 +3,7 @@
 // Inputs: SettingsRepository, ApiClient for 2-way vocabulary, name corrections, and custom triggers synchronization.
 // Outputs: UI for editing helper words, corrections & shortcuts, and custom triggers with library browser.
 // Conforms to contracts/01-transcription-api.md §8, §11 and F-50, F-53.
+// Reason for edit: Update remaining "Words & Triggers", "Active voice trigger", and skill "phrase" strings to "Skills" / "catchphrase" per catchphrase wording catch-up.
 // Reason for edit: Redesign LibraryBrowserDialog with pre-collapsed one-line skill rows, collapsible category headings with counts, search, "Small local models only" and dynamic category filters, 640dp max-width column, TalkBack descriptions, and saveable state per F-76.
 // Reason for edit: Update "Triggers" / "Trigger Library" / "Custom triggers" user-visible wording to "Skills" / "Skill library" per F-62.
 // Reason for edit: Add TabRow for Words & shortcuts and Custom triggers, rename Name corrections to Corrections & shortcuts with 200-char wrapping and rotating placeholders per F-50 and F-53.
@@ -542,7 +543,7 @@ fun WordsTriggersScreen(
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("Words & Triggers") },
+                    title = { Text("Words & Skills") },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -1016,7 +1017,7 @@ fun WordsTriggersScreen(
                     ) {
                         Column {
                             Text(
-                                text = "Active voice trigger: \"prompt AI\"",
+                                text = "Active catchphrase for asking the AI: \"prompt AI\"",
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium
                             )
@@ -1591,7 +1592,7 @@ fun TriggerEditorDialog(
             ) {
                 if (isNew) {
                     Text(
-                        text = "A skill is your own phrase for an instruction you've saved. Say the phrase and the AI follows that instruction, so you never explain it twice.\n• The phrase can be anything you like: \"prompt intake\", \"skill intake\", or your own words.",
+                        text = "A skill is your own catchphrase for an instruction you've saved. Say the catchphrase and the AI follows that instruction, so you never explain it twice.\n• The catchphrase can be anything you like: \"prompt intake\", \"skill intake\", or your own words.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1646,12 +1647,12 @@ fun TriggerEditorDialog(
                     }
                     val lines = phrasesText.lines().map { it.trim() }.filter { it.isNotEmpty() }
                     if (lines.isEmpty() || lines.size > 6) {
-                        errorMessage = "Provide between 1 and 6 spoken phrases"
+                        errorMessage = "Provide between 1 and 6 catchphrases"
                         return@Button
                     }
                     for (p in lines) {
                         if (p.length < 2 || p.length > 60 || p.contains(",")) {
-                            errorMessage = "Phrase '$p' must be 2-60 characters and cannot contain commas"
+                            errorMessage = "Catchphrase '$p' must be 2-60 characters and cannot contain commas"
                             return@Button
                         }
                     }
@@ -1824,7 +1825,7 @@ fun LibraryBrowserDialog(
                             .padding(horizontal = 16.dp)
                     ) {
                         Text(
-                            text = "Skills other people have shared. Add one, then change its phrase or instruction to suit you.\nA skill is only instructions for your AI: read them before adding.",
+                            text = "Skills other people have shared. Add one, then change its catchphrase or instruction to suit you.\nA skill is only instructions for your AI: read them before adding.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 10.dp)

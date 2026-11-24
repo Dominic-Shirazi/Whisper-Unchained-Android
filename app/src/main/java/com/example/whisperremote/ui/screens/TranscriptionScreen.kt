@@ -37,6 +37,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
@@ -57,6 +59,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -89,6 +92,8 @@ import androidx.compose.ui.unit.dp
 import com.example.whisperremote.ApiClient
 import com.example.whisperremote.HealthResult
 import com.example.whisperremote.R
+import com.example.whisperremote.data.ChatProviderPreset
+import com.example.whisperremote.data.OnDeviceTextFixer
 import com.example.whisperremote.data.ProviderPreset
 import com.example.whisperremote.data.SettingsRepository
 import com.example.whisperremote.data.TranscriptionTarget
@@ -103,7 +108,7 @@ import com.example.whisperremote.util.ModelDownloadState
 import com.example.whisperremote.util.OnDeviceModelManager
 import java.util.concurrent.atomic.AtomicBoolean
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TranscriptionScreen(
     repository: SettingsRepository,
@@ -123,6 +128,11 @@ fun TranscriptionScreen(
     var fallbackToPhone by remember {
         mutableStateOf(repository.fallbackToOnDevice)
     }
+    // Reason for edit: F-78 3-way "Fix the text with" state under "On this phone" (Nothing / Your PC / An AI service) per contract 05 §6 item 1
+    var onDeviceTextFixer by remember {
+        mutableStateOf(OnDeviceTextFixer.fromId(repository.onDeviceTextFixer))
+    }
+    val hasPairedPc = repository.hasPairedPc()
 
     // On-device models state
     var selectedModelId by remember {
@@ -451,6 +461,173 @@ fun TranscriptionScreen(
             // 2. Target Details Card
             when (currentTarget) {
                 TranscriptionTarget.ON_DEVICE -> {
+                    // Reason for edit: F-78 three-way "Fix the text with" choice replacing F-77's switch per contract 05 §6 item 1
+                    item {
+                        SettingsGroup(
+                            header = "Fix the text with",
+                            modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
+                        ) {
+                            SettingsRadioRow(
+                                title = OnDeviceTextFixer.NONE.displayName,
+                                subtitle = "Just type what this phone heard (offline)",
+                                selected = onDeviceTextFixer == OnDeviceTextFixer.NONE,
+                                onClick = {
+                                    onDeviceTextFixer = OnDeviceTextFixer.NONE
+                                    repository.onDeviceTextFixer = OnDeviceTextFixer.NONE.id
+                                }
+                            )
+
+                            if (hasPairedPc) {
+                                SettingsDivider(insetStart = false)
+                                SettingsRadioRow(
+                                    title = OnDeviceTextFixer.PC.displayName,
+                                    subtitle = "Your words are still turned into text on this phone. The text (not the recording) is then sent to your PC for corrections, skills and cleanup.",
+                                    selected = onDeviceTextFixer == OnDeviceTextFixer.PC,
+                                    onClick = {
+                                        onDeviceTextFixer = OnDeviceTextFixer.PC
+                                        repository.onDeviceTextFixer = OnDeviceTextFixer.PC.id
+                                    }
+                                )
+                            }
+
+                            SettingsDivider(insetStart = false)
+                            SettingsRadioRow(
+                                title = OnDeviceTextFixer.AI_SERVICE.displayName,
+                                subtitle = "Your words are turned into text on this phone. The text (not the recording) is then sent to the AI service you chose.",
+                                selected = onDeviceTextFixer == OnDeviceTextFixer.AI_SERVICE,
+                                onClick = {
+                                    onDeviceTextFixer = OnDeviceTextFixer.AI_SERVICE
+                                    repository.onDeviceTextFixer = OnDeviceTextFixer.AI_SERVICE.id
+                                }
+                            )
+                        }
+                    }
+
+                    // Reason for edit: Retail-first AI service setup card (provider chips + key field; Address & Model behind collapsible "Advanced" row auto-opened for Ollama or custom URL) per contract 05 §6 & R-F78 item 2
+                    if (onDeviceTextFixer == OnDeviceTextFixer.AI_SERVICE) {
+                        item {
+                            val knownCloudPresetUrls = remember {
+                                listOf(
+                                    ChatProviderPreset.GROQ.defaultUrl,
+                                    ChatProviderPreset.TOGETHER.defaultUrl,
+                                    ChatProviderPreset.OPENAI.defaultUrl,
+                                    ChatProviderPreset.OPENROUTER.defaultUrl
+                                )
+                            }
+                            val isCustomOrOllama = chatUrl.trim().equals(ChatProviderPreset.OLLAMA.defaultUrl, ignoreCase = true) ||
+                                knownCloudPresetUrls.none { it.equals(chatUrl.trim(), ignoreCase = true) }
+                            var showAiServiceAdvanced by remember(onDeviceTextFixer) {
+                                mutableStateOf(isCustomOrOllama)
+                            }
+
+                            SettingsGroup(
+                                header = "AI service",
+                                footer = "Works with Groq, OpenAI, OpenRouter, Together AI, or any OpenAI-compatible address (including a model you host yourself).",
+                                modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
+                            ) {
+                                Column(modifier = Modifier.padding(20.dp)) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        ChatProviderPreset.entries.filter { it != ChatProviderPreset.CUSTOM }.forEach { preset ->
+                                            val isSelected = chatUrl.trim().equals(preset.defaultUrl, ignoreCase = true)
+                                            FilterChip(
+                                                selected = isSelected,
+                                                onClick = {
+                                                    repository.cleanupChatPreset = preset
+                                                    chatUrl = preset.defaultUrl
+                                                    repository.cleanupChatUrl = preset.defaultUrl
+                                                    chatModel = preset.defaultModel
+                                                    repository.cleanupChatModel = preset.defaultModel
+                                                    showAiServiceAdvanced = (preset == ChatProviderPreset.OLLAMA)
+                                                },
+                                                label = { Text(preset.displayName.substringBefore(" (")) }
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    OutlinedTextField(
+                                        value = chatKey,
+                                        onValueChange = {
+                                            chatKey = it
+                                            repository.cleanupChatKey = it
+                                        },
+                                        label = { Text("API key") },
+                                        placeholder = { Text("Optional for local/LAN servers") },
+                                        visualTransformation = PasswordVisualTransformation(),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+                                    val reusableProvider = repository.matchingSpeechKeyProviderName()
+                                    if (reusableProvider != null) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        TextButton(
+                                            onClick = {
+                                                chatKey = repository.apiKey
+                                                repository.cleanupChatKey = repository.apiKey
+                                            }
+                                        ) {
+                                            Text("Reuse your $reusableProvider key")
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { showAiServiceAdvanced = !showAiServiceAdvanced }
+                                            .padding(vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Advanced",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Icon(
+                                            imageVector = if (showAiServiceAdvanced) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                            contentDescription = if (showAiServiceAdvanced) "Hide advanced" else "Show advanced",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    if (showAiServiceAdvanced) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        OutlinedTextField(
+                                            value = chatUrl,
+                                            onValueChange = {
+                                                chatUrl = it
+                                                repository.cleanupChatUrl = it
+                                            },
+                                            label = { Text("Address") },
+                                            placeholder = { Text("https://api.groq.com/openai/v1/chat/completions") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        OutlinedTextField(
+                                            value = chatModel,
+                                            onValueChange = {
+                                                chatModel = it
+                                                repository.cleanupChatModel = it
+                                            },
+                                            label = { Text("Model") },
+                                            placeholder = { Text("llama-3.3-70b-versatile") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     item {
                         SettingsGroup(
                             header = "On-device processing",
@@ -469,17 +646,27 @@ fun TranscriptionScreen(
                                         modifier = Modifier.size(24.dp)
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
+                                    // Reason for edit: Heading reflects reality — "Private and offline" only for Nothing; "Speech stays on this phone" when text is sent to PC or AI service per R-F78 item 1
                                     Text(
-                                        text = "Private and offline",
+                                        text = if (onDeviceTextFixer == OnDeviceTextFixer.NONE) {
+                                            "Private and offline"
+                                        } else {
+                                            "Speech stays on this phone"
+                                        },
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(8.dp))
-                                val hasCloudAi = repository.cleanupChatUrl.isNotBlank() && repository.cleanupChatKey.isNotBlank()
                                 val privacyBody = "Speech is recognized on this phone; your audio never leaves it." +
-                                        if (hasCloudAi) " (If you turn on AI Editing with a cloud service, the text is sent there for cleanup.)" else ""
+                                        when {
+                                            onDeviceTextFixer == OnDeviceTextFixer.PC && hasPairedPc ->
+                                                " The text is sent to your paired PC for corrections, skills and cleanup."
+                                            onDeviceTextFixer == OnDeviceTextFixer.AI_SERVICE ->
+                                                " The text is sent to the AI service you chose for cleanup and voice edit commands."
+                                            else -> ""
+                                        }
                                 Text(
                                     text = privacyBody,
                                     style = MaterialTheme.typography.bodyMedium,
@@ -1199,6 +1386,18 @@ fun TranscriptionScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true
                                 )
+                                val cloudReusableProvider = repository.matchingSpeechKeyProviderName()
+                                if (cloudReusableProvider != null) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    TextButton(
+                                        onClick = {
+                                            chatKey = repository.apiKey
+                                            repository.cleanupChatKey = repository.apiKey
+                                        }
+                                    ) {
+                                        Text("Reuse your $cloudReusableProvider key")
+                                    }
+                                }
                                 Spacer(modifier = Modifier.height(12.dp))
 
                                 OutlinedTextField(

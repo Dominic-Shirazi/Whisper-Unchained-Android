@@ -782,4 +782,408 @@ class TriggerPhrasesTest {
         assertEquals("skill_1", floatService.selectedSessionTrigger)
         assertFalse("Skill picker must collapse after selecting a skill", floatService.isSkillPickerExpanded)
     }
+
+    // Reason for edit: Regression tests verifying bounded Accessibility tree walks, single-IPC updateTypePillVisibility(), and coalesced/drag-safe selection updates (Build 39)
+    @Test
+    fun testBuild39BoundedTreeWalkAndCoalescedSelectionUpdatesPreventMainThreadStalls() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+
+        val a11yService = Robolectric.buildService(DictationAccessibilityService::class.java).create().get()
+        val instanceField = DictationAccessibilityService::class.java.getDeclaredField("instance").apply { isAccessible = true }
+        instanceField.set(null, a11yService)
+        try {
+            val floatService = Robolectric.buildService(FloatingButtonService::class.java).create().get()
+            repository.providerPreset = ProviderPreset.SELF_HOSTED
+            repository.transcriptionTarget = TranscriptionTarget.PC.id
+
+            // 1. Verify updateTypePillVisibility() makes ZERO IPC calls when HIDDEN
+            var focusCalls = 0
+            val emptyBox = FakeSelectionNode(
+                textValue = "hello world",
+                selStart = -1,
+                selEnd = -1,
+                focusedState = true,
+                rawEditableFlag = true,
+                pkg = "com.example.chat"
+            )
+            a11yService.activeWindowPackage = "com.example.chat"
+            a11yService.focusedNode = emptyBox
+            a11yService.findFocusOverrideForTesting = {
+                focusCalls++
+                emptyBox
+            }
+
+            floatService.updateTypePillVisibility()
+            assertEquals("HIDDEN state must not run Accessibility IPC", 0, focusCalls)
+
+            // 2. Focus editable field -> IDLE. Even with selStart == -1, updateTypePillVisibility() must only query findFocus ONCE (no double getSelectedText call)
+            floatService.onTextFieldFocused()
+            ShadowLooper.idleMainLooper()
+            focusCalls = 0
+            floatService.updateTypePillVisibility()
+            assertEquals("IDLE with no highlight must call findFocus only once", 1, focusCalls)
+
+            // 3. Rapid burst of 20 selection events must coalesce into a single IPC pass
+            focusCalls = 0
+            repeat(20) {
+                floatService.onTextSelectionChanged()
+            }
+            ShadowLooper.idleMainLooper()
+            assertEquals("20 rapid selection events must coalesce into 1 findFocus call", 1, focusCalls)
+
+            // 4. Selection events during active drag must be skipped (0 IPC calls)
+            focusCalls = 0
+            FloatingButtonService.isDraggingOverlay = true
+            try {
+                repeat(5) { floatService.onTextSelectionChanged() }
+                ShadowLooper.idleMainLooper()
+                assertEquals("Selection updates must not run IPC while dragging", 0, focusCalls)
+            } finally {
+                FloatingButtonService.isDraggingOverlay = false
+            }
+
+            // 5. TreeWalkBudget caps traversal at MAX_TREE_NODES so huge hierarchies cannot stall main thread
+            val budget = DictationAccessibilityService.TreeWalkBudget(maxNodes = 5)
+            var visited = 0
+            while (budget.tryVisit()) {
+                visited++
+            }
+            assertEquals(5, visited)
+            assertEquals(5, budget.visitedNodes)
+        } finally {
+            a11yService.findFocusOverrideForTesting = null
+            instanceField.set(null, null)
+        }
+    }
+
+    // Reason for edit: Comprehensive F-77 tests for on-device speech + PC AI (POST /dictate/v1/process_text, 404/405 & 503 fallbacks, spoken highlight edit via edit_text, and switch/pill gating)
+    @Test
+    fun testF77OnDeviceSpeechWithPcAiProcessTextFallbackAndHighlightEdit() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+
+        // 1. Switch defaults to false and hides/disables when no PC is paired
+        repository.baseUrl = ""
+        repository.lastWorkingBaseUrl = ""
+        repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
+        assertFalse("onDeviceUsePcAi must default to false", repository.onDeviceUsePcAi)
+        assertFalse("hasPairedPc must be false with no PC URL", repository.hasPairedPc())
+        assertFalse("usesPcAi must be false when switch is off", repository.usesPcAi())
+        repository.onDeviceUsePcAi = true
+        assertFalse("usesPcAi must stay false when no PC is paired", repository.usesPcAi())
+
+        val server = MockWebServer()
+        server.start()
+        try {
+            val baseUrl = server.url("/v1").toString().trimEnd('/')
+            repository.providerPreset = ProviderPreset.SELF_HOSTED
+            repository.baseUrl = baseUrl
+            repository.lastWorkingBaseUrl = baseUrl
+            repository.injectionMode = com.example.whisperremote.data.InjectionMode.CLIPBOARD
+            repository.cleanupUserSet = true
+            repository.cleanupEnabled = true
+            repository.cleanupTone = "professional"
+            repository.removeFillerSounds = true
+            repository.cachedServerNameCorrectionsJson = """{"leslie":"Lesley"}"""
+
+            assertTrue("hasPairedPc must be true when self-hosted URL is configured", repository.hasPairedPc())
+            assertTrue("usesPcAi must be true in ON_DEVICE mode with switch on + PC paired", repository.usesPcAi())
+
+            val floatService = Robolectric.buildService(FloatingButtonService::class.java).create().get()
+            val clipboard = app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+            // 2. Happy path: POST /dictate/v1/process_text with raw text + style + trigger -> types PC reply
+            server.enqueue(
+                MockResponse().setResponseCode(200).setBody(
+                    """{"text":"Tell Lesley the meeting moved to 3:30.","changed":true}"""
+                )
+            )
+            floatService.sendOnDeviceTextToPcAi(
+                rawText = "um tell leslie the meeting moved to three thirty",
+                styleOverrides = StyleOverrides(punctuation = "full", rewrite = "light", shorten = "keep", tone = "professional"),
+                trigger = "skill_1"
+            )
+            val req1 = server.takeRequest(5, TimeUnit.SECONDS)
+            assertNotNull(req1)
+            assertEquals("/dictate/v1/process_text", req1!!.path)
+            val body1 = org.json.JSONObject(req1.body.readUtf8())
+            assertEquals("um tell leslie the meeting moved to three thirty", body1.getString("text"))
+            assertEquals("skill_1", body1.getString("trigger"))
+            assertEquals("professional", body1.getString("cleanup_tone"))
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            assertEquals("Tell Lesley the meeting moved to 3:30.", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+
+            // 3. 404 older PC app -> falls back to local corrections + filler removal and shows update notice
+            server.enqueue(MockResponse().setResponseCode(404).setBody("Not Found"))
+            floatService.sendOnDeviceTextToPcAi(rawText = "um tell leslie hello")
+            val req2 = server.takeRequest(5, TimeUnit.SECONDS)
+            assertEquals("/dictate/v1/process_text", req2?.path)
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            val fallback404 = clipboard.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
+            assertTrue("Local name correction must run on 404 fallback, got: $fallback404", fallback404.contains("Lesley"))
+            assertFalse("Local filler removal must run on 404 fallback, got: $fallback404", fallback404.lowercase().startsWith("um "))
+            assertEquals("Update the PC app to fix text from this phone.", org.robolectric.shadows.ShadowToast.getTextOfLatestToast())
+
+            // 4. 503 server paused -> falls back to local rules and shows PC didn't answer notice
+            server.enqueue(MockResponse().setResponseCode(503).setBody("""{"error":"server_paused"}"""))
+            floatService.sendOnDeviceTextToPcAi(rawText = "um tell leslie goodbye")
+            val req3 = server.takeRequest(5, TimeUnit.SECONDS)
+            assertEquals("/dictate/v1/process_text", req3?.path)
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            val fallback503 = clipboard.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
+            assertTrue("Local name correction must run on 503 fallback, got: $fallback503", fallback503.contains("Lesley"))
+            assertEquals("Your PC didn't answer, so the text wasn't fixed.", org.robolectric.shadows.ShadowToast.getTextOfLatestToast())
+
+            // 5. Spoken instruction over highlight routes to POST /dictate/v1/edit_text (§5 item 4 bullet 3)
+            server.enqueue(
+                MockResponse().setResponseCode(200).setBody(
+                    """{"text":"Please advise on the updated schedule.","edited":true}"""
+                )
+            )
+            floatService.sendOnDeviceSpokenHighlightEdit(
+                instruction = "make it more formal",
+                selection = "tell me the new time"
+            )
+            val req4 = server.takeRequest(5, TimeUnit.SECONDS)
+            assertEquals("/dictate/v1/edit_text", req4?.path)
+            val body4 = org.json.JSONObject(req4!!.body.readUtf8())
+            assertEquals("make it more formal", body4.getString("instruction"))
+            assertEquals("tell me the new time", body4.getString("selection"))
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            assertEquals("Please advise on the updated schedule.", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    // Reason for edit: Comprehensive F-78 tests for on-device speech + standalone AI service (no PC), 3-way choice, key reuse, cleanup, edit command, one-time 401 notice, and failure fallback
+    @Test
+    fun testF78OnDeviceWithAiServiceCleanupEditCommandAuthOnceAndFallback() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+
+        // 1. No PC paired at all
+        repository.baseUrl = ""
+        repository.lastWorkingBaseUrl = ""
+        repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
+        repository.onDeviceTextFixer = com.example.whisperremote.data.OnDeviceTextFixer.NONE.id
+        assertFalse(repository.hasPairedPc())
+        assertFalse(repository.usesPcAi())
+        assertFalse(repository.usesCloudAiService())
+
+        // URL normalization & one-key reuse detection
+        assertEquals(
+            "https://api.groq.com/openai/v1/chat/completions",
+            repository.normalizeChatCompletionsUrl("https://api.groq.com/openai/v1")
+        )
+        repository.providerPreset = ProviderPreset.GROQ
+        repository.apiKey = "gsk_shared_key"
+        repository.cleanupChatUrl = "https://api.groq.com/openai/v1/chat/completions"
+        repository.cleanupChatKey = ""
+        assertEquals("Groq", repository.matchingSpeechKeyProviderName())
+
+        val server = MockWebServer()
+        server.start()
+        try {
+            val chatBaseUrl = server.url("/v1").toString().trimEnd('/')
+            repository.providerPreset = ProviderPreset.SELF_HOSTED
+            repository.baseUrl = ""
+            repository.lastWorkingBaseUrl = ""
+            repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
+            repository.onDeviceTextFixer = com.example.whisperremote.data.OnDeviceTextFixer.AI_SERVICE.id
+            repository.cleanupChatUrl = chatBaseUrl
+            repository.cleanupChatKey = "sk_test_key"
+            repository.cleanupChatModel = "llama-3.3-70b-versatile"
+            repository.cleanupEnabled = true
+            repository.injectionMode = com.example.whisperremote.data.InjectionMode.CLIPBOARD
+
+            assertFalse("PC AI must stay off with no PC paired (hides PC skills)", repository.usesPcAi())
+            assertTrue("usesCloudAiService must be true when AI_SERVICE is selected and configured", repository.usesCloudAiService())
+
+            val floatService = Robolectric.buildService(FloatingButtonService::class.java).create().get()
+            val clipboard = app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+            // 2. Cleanup happy path (contract 02)
+            server.enqueue(
+                MockResponse().setResponseCode(200).setBody(
+                    """{"choices":[{"message":{"content":"The meeting moved to 3:30."}}]}"""
+                )
+            )
+            floatService.sendOnDeviceTextToCloudAi("um the meeting moved to three thirty")
+            val req1 = server.takeRequest(5, TimeUnit.SECONDS)
+            assertEquals("/v1/chat/completions", req1?.path)
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            assertEquals("The meeting moved to 3:30.", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+
+            // 3. Spoken edit command (contract 03)
+            server.enqueue(
+                MockResponse().setResponseCode(200).setBody(
+                    """{"choices":[{"message":{"content":"Please let me know when you arrive."}}]}"""
+                )
+            )
+            floatService.sendOnDeviceTextToCloudAi("tell me when you get here prompt AI make this formal")
+            val req2 = server.takeRequest(5, TimeUnit.SECONDS)
+            assertEquals("/v1/chat/completions", req2?.path)
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            assertEquals("Please let me know when you arrive.", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+
+            // 4. 401 wrong key -> delivers uncleaned text and shows plain wrong-key notice ONCE per key
+            org.robolectric.shadows.ShadowToast.reset()
+            server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":{"message":"Invalid API key"}}"""))
+            floatService.sendOnDeviceTextToCloudAi("keep my raw words")
+            server.takeRequest(5, TimeUnit.SECONDS)
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            assertEquals("keep my raw words", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+            assertEquals(
+                "Your AI service key was rejected. Check it in Transcription settings.",
+                org.robolectric.shadows.ShadowToast.getTextOfLatestToast()
+            )
+            val toastCountAfterFirst401 = org.robolectric.shadows.ShadowToast.shownToastCount()
+
+            server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":{"message":"Invalid API key"}}"""))
+            floatService.sendOnDeviceTextToCloudAi("second dictation same bad key")
+            server.takeRequest(5, TimeUnit.SECONDS)
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            assertEquals("second dictation same bad key", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+            assertEquals("Wrong-key toast must only show once for the same key", toastCountAfterFirst401, org.robolectric.shadows.ShadowToast.shownToastCount())
+
+            // 5. Server failure -> delivers uncleaned text with F-78 notice
+            server.enqueue(MockResponse().setResponseCode(500).setBody("Internal Server Error"))
+            floatService.sendOnDeviceTextToCloudAi("offline words preserved")
+            server.takeRequest(5, TimeUnit.SECONDS)
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            assertEquals("offline words preserved", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+            assertEquals(
+                "The AI service didn't answer, so the text wasn't fixed.",
+                org.robolectric.shadows.ShadowToast.getTextOfLatestToast()
+            )
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    // Reason for edit: Comprehensive F-79 unit tests for LocalSkillEngine (acronym matching, cut-out/join, prompt format, validation), local skill execution, empty-body notice, catchphrase-removed fallback, and PC-copy migration flag
+    @Test
+    fun testF79LocalSkillsNoPcMatchingExecutionFallbackAndMigration() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+
+        // 1. Acronym catchphrase matching ("skill AI" matches "skill a i" and "skill a. eye")
+        val acronymRegex = com.example.whisperremote.util.LocalSkillEngine.compileCatchphraseRegex("skill AI")!!
+        assertTrue(acronymRegex.containsMatchIn("please run skill a i on this"))
+        assertTrue(acronymRegex.containsMatchIn("run skill A. Eye now"))
+
+        // 2. Cut-out & join rules (§7 item 3)
+        assertEquals(
+            "the pay button does nothing",
+            com.example.whisperremote.util.LocalSkillEngine.cutOutAndJoin("the pay button does nothing, prompt ticket", 29, 42)
+        )
+        assertEquals(
+            "First part. Second sentence",
+            com.example.whisperremote.util.LocalSkillEngine.cutOutAndJoin("First part, prompt ticket, Second sentence", 12, 25)
+        )
+
+        // 3. Tie-breaking (longer catchphrase at same start wins; earlier edit command beats later skill)
+        val shortSkill = com.example.whisperremote.data.CustomTrigger(
+            id = "short", name = "Short", phrases = listOf("skill"), prompt = "Turn into a short summary.", enabled = true
+        )
+        val longSkill = com.example.whisperremote.data.CustomTrigger(
+            id = "ticket", name = "Bug ticket", phrases = listOf("skill ticket", "prompt ticket"), prompt = "Turn this into a bug ticket.", enabled = true, temperature = 0.25
+        )
+        val match1 = com.example.whisperremote.util.LocalSkillEngine.findFirstMatch("skill ticket the button broke", listOf(shortSkill, longSkill))
+        assertEquals("ticket", match1?.skill?.id)
+        val beatenByEarlierEdit = com.example.whisperremote.util.LocalSkillEngine.findFirstMatch("prompt AI fix this skill ticket", listOf(longSkill), earlierEditCommandStart = 0)
+        assertNull("Earlier edit-command catchphrase must beat a later skill", beatenByEarlierEdit)
+
+        // 4. Validation rejects duplicate & built-in catchphrases
+        val dupErr = com.example.whisperremote.util.LocalSkillEngine.validateSkill(
+            name = "Another", phrases = listOf("prompt ticket"), prompt = "Do something useful here.", existingSkills = listOf(longSkill)
+        )
+        assertNotNull(dupErr)
+        assertTrue(dupErr!!.contains("Bug ticket"))
+        val builtinErr = com.example.whisperremote.util.LocalSkillEngine.validateSkill(
+            name = "BuiltInClash", phrases = listOf("prompt AI"), prompt = "Do something useful here.", existingSkills = emptyList()
+        )
+        assertNotNull(builtinErr)
+        assertTrue(builtinErr!!.contains("catchphrases for asking the AI"))
+
+        // 5. End-to-end execution with no PC paired
+        val server = MockWebServer()
+        server.start()
+        try {
+            val chatBaseUrl = server.url("/v1").toString().trimEnd('/')
+            repository.providerPreset = ProviderPreset.SELF_HOSTED
+            repository.baseUrl = ""
+            repository.lastWorkingBaseUrl = ""
+            repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
+            repository.onDeviceTextFixer = com.example.whisperremote.data.OnDeviceTextFixer.AI_SERVICE.id
+            repository.cleanupChatUrl = chatBaseUrl
+            repository.cleanupChatKey = "sk_local_skills"
+            repository.cleanupChatModel = "llama-3.3-70b-versatile"
+            repository.promptHints = "Lesley, Kubernetes"
+            repository.injectionMode = com.example.whisperremote.data.InjectionMode.CLIPBOARD
+            repository.saveLocalSkills(listOf(longSkill))
+
+            assertTrue(repository.usesLocalSkills())
+            assertEquals("prompt AI · 1 skill", repository.getTriggersSubtitle())
+
+            val floatService = Robolectric.buildService(FloatingButtonService::class.java).create().get()
+            val clipboard = app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+            // 5a. Skill runs -> exact system prompt + <text> tags + temperature = 0.25
+            server.enqueue(
+                MockResponse().setResponseCode(200).setBody(
+                    """{"choices":[{"message":{"content":"Title: Pay button unresponsive\nSteps: Tap pay button."}}]}"""
+                )
+            )
+            floatService.sendOnDeviceTextToCloudAi("the pay button does nothing prompt ticket")
+            val req1 = server.takeRequest(5, TimeUnit.SECONDS)
+            val body1 = org.json.JSONObject(req1!!.body.readUtf8())
+            assertEquals(0.25, body1.getDouble("temperature"), 0.001)
+            val messages1 = body1.getJSONArray("messages")
+            val sys1 = messages1.getJSONObject(0).getString("content")
+            val usr1 = messages1.getJSONObject(1).getString("content")
+            assertTrue(sys1.contains("Spell these names and terms exactly this way when they come up: Lesley, Kubernetes."))
+            assertTrue(sys1.contains("How to answer:"))
+            assertEquals("<text>\nthe pay button does nothing\n</text>", usr1)
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            assertEquals("Title: Pay button unresponsive\nSteps: Tap pay button.", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+
+            // 5b. Empty body after cutting catchphrase -> types nothing new and shows notice
+            val clipBeforeEmpty = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+            floatService.sendOnDeviceTextToCloudAi("prompt ticket")
+            Thread.sleep(100)
+            ShadowLooper.idleMainLooper()
+            assertEquals(clipBeforeEmpty, clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+            assertEquals("Say what the skill should work on.", org.robolectric.shadows.ShadowToast.getTextOfLatestToast())
+
+            // 5c. Failed AI service -> delivers catchphrase-removed text + §6 notice
+            server.enqueue(MockResponse().setResponseCode(500).setBody("error"))
+            floatService.sendOnDeviceTextToCloudAi("checkout crashes on tap prompt ticket")
+            server.takeRequest(5, TimeUnit.SECONDS)
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            assertEquals("checkout crashes on tap", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+            assertEquals("The AI service didn't answer, so the text wasn't fixed.", org.robolectric.shadows.ShadowToast.getTextOfLatestToast())
+
+            // 6. Pairing a PC afterwards triggers pending migration offer once
+            repository.localSkillsMigrationOffered = false
+            repository.baseUrl = "http://100.64.0.1:5000/v1"
+            repository.lastWorkingBaseUrl = "http://100.64.0.1:5000/v1"
+            assertTrue("Pairing PC with existing local skills must trigger one-time migration offer", repository.hasPendingLocalSkillsMigration())
+        } finally {
+            server.shutdown()
+        }
+    }
 }

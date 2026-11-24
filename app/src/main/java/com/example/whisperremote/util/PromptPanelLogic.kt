@@ -6,6 +6,7 @@
 
 package com.example.whisperremote.util
 
+// Reason for edit: Update user-visible "phrase" wording to "catchphrase" and extend skillWording() to rewrite trigger/phrase server errors into skill/catchphrase (outside double quotes) per catchphrase wording catch-up.
 // Reason for edit: Add idleHighlightPillContentDescription helper for the idle pencil-and-word-count pill per F-74.
 // Reason for edit: Add F-66 / F-66b highlight chip text, content description, and sheet wording helpers.
 // Reason for edit: Update PLACEHOLDER to "Type an instruction, or / for your skills" and add askAiLines, skillSummary, and skillWording helpers per F-62.
@@ -23,27 +24,39 @@ object PromptPanelLogic {
     const val HINT_TEXT = "Ticked: the AI changes the highlighted text. Not ticked: its answer goes in after it."
 
     const val ASK_CARD_TITLE = "Ask the AI to change your text"
-    const val ASK_CARD_BUTTON = "Choose your own phrase"
-    const val ASK_CARD_NO_PHRASE = "You have no phrase for asking the AI yet. Add one to ask by voice."
+    const val ASK_CARD_BUTTON = "Choose your own catchphrase"
+    const val ASK_CARD_NO_PHRASE = "You have no catchphrase for asking the AI yet. Add one to ask by voice."
 
     private val SPACE_REGEX = Regex("\\s+")
     private val WORD_REGEX = Pattern.compile("[^\\W_]+")
+    private val PHRASE_WORD_REGEX = Regex("\\b([Pp])hrase(s?)\\b")
 
     private val SKILL_WORDS = listOf(
-        "a built-in trigger phrase" to "one of your phrases for asking the AI",
+        "a built-in trigger phrase" to "one of your catchphrases for asking the AI",
         "Custom triggers" to "Skills",
         "custom triggers" to "skills",
         "Custom trigger" to "Skill",
         "custom trigger" to "skill",
-        "Trigger phrases" to "Phrases",
-        "trigger phrases" to "phrases",
-        "Trigger phrase" to "Phrase",
-        "trigger phrase" to "phrase",
+        "Trigger phrases" to "Catchphrases",
+        "trigger phrases" to "catchphrases",
+        "Trigger phrase" to "Catchphrase",
+        "trigger phrase" to "catchphrase",
         "Triggers" to "Skills",
         "triggers" to "skills",
         "Trigger" to "Skill",
         "trigger" to "skill"
     )
+
+    private fun rewriteUnquotedSkillWords(segment: String): String {
+        var out = segment
+        for ((oldWord, newWord) in SKILL_WORDS) {
+            out = out.replace(oldWord, newWord)
+        }
+        return PHRASE_WORD_REGEX.replace(out) { match ->
+            val prefix = if (match.groupValues[1] == "P") "Catchphrase" else "catchphrase"
+            prefix + match.groupValues[2]
+        }
+    }
 
     fun askAiLines(phrase: String?): Pair<String, String> {
         val clean = (phrase ?: "").trim().replace(SPACE_REGEX, " ")
@@ -71,19 +84,11 @@ object PromptPanelLogic {
         val sb = StringBuilder()
         var lastEnd = 0
         for (match in quoteRegex.findAll(message)) {
-            var unquoted = message.substring(lastEnd, match.range.first)
-            for ((oldWord, newWord) in SKILL_WORDS) {
-                unquoted = unquoted.replace(oldWord, newWord)
-            }
-            sb.append(unquoted)
+            sb.append(rewriteUnquotedSkillWords(message.substring(lastEnd, match.range.first)))
             sb.append(match.value)
             lastEnd = match.range.last + 1
         }
-        var tail = message.substring(lastEnd)
-        for ((oldWord, newWord) in SKILL_WORDS) {
-            tail = tail.replace(oldWord, newWord)
-        }
-        sb.append(tail)
+        sb.append(rewriteUnquotedSkillWords(message.substring(lastEnd)))
         return sb.toString()
     }
 

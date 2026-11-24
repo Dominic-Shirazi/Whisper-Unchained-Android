@@ -6,6 +6,10 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Support F-79 local skills on phone when no PC is paired (style-sheet skill picker, spoken catchphrase execution, empty-body notice, and catchphrase-removed fallback) per contract 05 §7.
+// Reason for edit: Support F-78 (on-device transcription + standalone OpenAI-compatible AI service with 30s timeout, fallback notice, and one-time wrong-key notice, hiding PC-only skills) per contract 05 §6.
+// Reason for edit: Support F-77 (on-device transcription + PC AI via POST /dictate/v1/process_text and spoken highlight edits via POST /dictate/v1/edit_text, with local-rules fallback and notices) per contract 05 §5 & contract 01 §15.
+// Reason for edit: Coalesce onTextSelectionChanged(), eliminate duplicate/unnecessary Accessibility IPC calls in updateTypePillVisibility(), and guard ACTION_MOVE bounds/window attachment to prevent main-thread freezes and crashes on foldables (Build 39).
 // Reason for edit: Dock floating button to its active screen edge (TOP|END + Gravity.END on right edge, TOP|START + Gravity.START on left edge) and reserve topLabel height with View.INVISIBLE so appearing/disappearing pills never shift the mic button horizontally or vertically (Build 38).
 // Reason for edit: Replace Service-context AlertDialog skill picker with inline expandable rows (fixing BadTokenException crash), use real IME WindowInsets + Accessibility IME window height fallback for the Edit box on foldables, and eliminate main-thread IPC on ACTION_DOWN / during drag per F-75.
 // Reason for edit: Rename idle highlight pill from "Type" to "✎ N words" with live word count, matching recording chip geometry for zero-flicker transition, TalkBack label, and PC-AI visibility guard per F-74.
@@ -729,7 +733,7 @@ class FloatingButtonService : Service() {
                                 longPressRunnable?.let { mainHandler.removeCallbacks(it) }
                                 expandPill()
                             }
-                            params.x = if (isDockedRight) {
+                            val newX = if (isDockedRight) {
                                 (initialX - dx).coerceAtLeast(0)
                             } else {
                                 (initialX + dx).coerceAtLeast(0)
@@ -737,10 +741,22 @@ class FloatingButtonService : Service() {
                             val screenHeight = resources.displayMetrics.heightPixels
                             val viewHeight = if (container?.height ?: 0 > 0) container!!.height else dpToPx(60)
                             val minY = dpToPx(24)
-                            val maxY = screenHeight - viewHeight - dpToPx(48)
-                            params.y = (initialY + dy).coerceIn(minY, maxY)
+                            // Reason for edit: Guard maxY >= minY so split-screen / fold resize never throws IllegalArgumentException in coerceIn(), and guard updateViewLayout against detached window crashes (Build 39)
+                            val maxY = (screenHeight - viewHeight - dpToPx(48)).coerceAtLeast(minY)
+                            val newY = (initialY + dy).coerceIn(minY, maxY)
 
-                            windowManager.updateViewLayout(container, params)
+                            if (params.x != newX || params.y != newY) {
+                                params.x = newX
+                                params.y = newY
+                                val containerView = container
+                                if (containerView != null && containerView.isAttachedToWindow) {
+                                    try {
+                                        windowManager.updateViewLayout(containerView, params)
+                                    } catch (e: Exception) {
+                                        Log.e("FloatingButtonService", "Error updating view layout during drag", e)
+                                    }
+                                }
+                            }
                             isMoved = true
                         }
                         return true
@@ -2455,7 +2471,10 @@ class FloatingButtonService : Service() {
         overlay.cardView = card
 
         // Populate card contents
-        if (cachedCustomTriggers.isEmpty() && settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED) {
+        // Reason for edit: Enable PC skill fetching when PC AI is active, or load phone-local skills when in no-PC AI service mode per F-77 & F-79
+        if (settingsRepository.usesLocalSkills() && settingsRepository.usesCloudAiService()) {
+            cachedCustomTriggers = settingsRepository.getLocalSkills().filter { it.enabled }
+        } else if (cachedCustomTriggers.isEmpty() && settingsRepository.usesPcAi()) {
             apiClient.fetchCustomTriggers { res ->
                 if (res is CustomTriggersResult.Success) {
                     cachedCustomTriggers = res.triggers.filter { it.enabled }
@@ -2678,7 +2697,9 @@ class FloatingButtonService : Service() {
         ))
 
         // Reason for edit: Add Skill picker row for dictation style sheet per contract 01 §1, F-54 §5 & F-62
-        val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+        // Reason for edit: Show skill picker on style sheet for PC AI mode OR no-PC AI service mode with phone-local skills per F-77 & F-79
+        val isSelfHosted = settingsRepository.usesPcAi() ||
+            (settingsRepository.usesLocalSkills() && settingsRepository.usesCloudAiService())
         val hasTriggers = isSelfHosted && cachedCustomTriggers.isNotEmpty()
         if (hasTriggers) {
             val currentTriggerVal = selectedSessionTrigger
@@ -3054,18 +3075,20 @@ class FloatingButtonService : Service() {
         }
     }
 
-    // Reason for edit: Verify prerequisites before recording and surface actionable prompt per contract F-16
+    // Reason for edit: Verify prerequisites before recording and surface actionable prompt per contract F-16; ON_DEVICE does not require server/API key (F-77)
     private fun checkMissingSetup(): MissingSetupStep? {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             return MissingSetupStep.MICROPHONE
         }
-        val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
-        val isCustom = settingsRepository.providerPreset == ProviderPreset.CUSTOM
-        if ((isSelfHosted || isCustom) && (settingsRepository.baseUrl.isBlank() || settingsRepository.baseUrl.contains("example.com"))) {
-            return MissingSetupStep.SERVER
-        }
-        if (!isSelfHosted && !isCustom && settingsRepository.apiKey.isBlank()) {
-            return MissingSetupStep.SERVER
+        if (settingsRepository.transcriptionTarget != TranscriptionTarget.ON_DEVICE.id) {
+            val isSelfHosted = settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+            val isCustom = settingsRepository.providerPreset == ProviderPreset.CUSTOM
+            if ((isSelfHosted || isCustom) && (settingsRepository.baseUrl.isBlank() || settingsRepository.baseUrl.contains("example.com"))) {
+                return MissingSetupStep.SERVER
+            }
+            if (!isSelfHosted && !isCustom && settingsRepository.apiKey.isBlank()) {
+                return MissingSetupStep.SERVER
+            }
         }
         if (settingsRepository.injectionMode == InjectionMode.ACCESSIBILITY && !DictationAccessibilityService.isEnabled(this)) {
             return MissingSetupStep.ACCESSIBILITY
@@ -3303,27 +3326,53 @@ class FloatingButtonService : Service() {
         }
     }
 
-    // Reason for edit: Follow text selection changes for Type pill visibility per F-59
+    // Reason for edit: Coalesce bursts of selection/focus accessibility events into a single UI-thread check and skip during active drag to prevent main-thread IPC backlogs (Build 39)
+    private var pendingSelectionUpdateRunnable: Runnable? = null
+
+    // Reason for edit: Follow text selection changes for Type pill visibility per F-59 & Build 39
     fun onTextSelectionChanged() {
-        mainHandler.post {
-            updateTypePillVisibility()
+        if (isDraggingOverlay) return
+        pendingSelectionUpdateRunnable?.let { mainHandler.removeCallbacks(it) }
+        val runnable = Runnable {
+            pendingSelectionUpdateRunnable = null
+            if (!isDraggingOverlay) {
+                updateTypePillVisibility()
+            }
         }
+        pendingSelectionUpdateRunnable = runnable
+        mainHandler.post(runnable)
     }
 
     fun updateTypePillVisibility() {
-        val isSelfHostedPc = settingsRepository.transcriptionTarget == TranscriptionTarget.PC.id &&
-            settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+        val isSelfHostedPc = settingsRepository.usesPcAi()
+        // Reason for edit: Skip all Accessibility IPC when the idle highlight pill cannot be shown (non-IDLE state or non-self-hosted PC mode) (Build 39)
+        if (state != ButtonState.IDLE || !isSelfHostedPc) {
+            if (state == ButtonState.IDLE) {
+                rememberedSelectionFromTypePill = null
+                pendingSelectionForRecording = null
+                DictationAccessibilityService.getInstance()?.clearRememberedHighlight()
+            }
+            typePillView?.visibility = View.GONE
+            return
+        }
+
+        val a11y = DictationAccessibilityService.getInstance()
         val currentSelection = try {
-            DictationAccessibilityService.getInstance()?.getSelectedText()?.takeIf { it.isNotBlank() }
+            a11y?.getSelectedText()?.takeIf { it.isNotBlank() }
         } catch (_: Exception) { null }
 
-        // Reason for edit: Remember highlighted text when deciding to show the idle pill, update its "✎ N words" label and TalkBack description live, and clear when highlight clears in IDLE per F-73 §A & F-74
+        // Reason for edit: Remember highlighted text when deciding to show the idle pill, update its "✎ N words" label and TalkBack description live, and avoid calling getSelectedText() twice when nothing is remembered per F-73 §A, F-74, and Build 39
         if (!currentSelection.isNullOrBlank()) {
             rememberedSelectionFromTypePill = currentSelection
-        } else if (state == ButtonState.IDLE) {
-            val guardedRemembered = try {
-                DictationAccessibilityService.getInstance()?.getSelectedTextOrRemembered()?.takeIf { it.isNotBlank() }
-            } catch (_: Exception) { null }
+        } else {
+            val hasRememberedInMemory = a11y?.peekRememberedHighlightText() != null
+            val guardedRemembered = if (hasRememberedInMemory) {
+                try {
+                    a11y?.getSelectedTextOrRemembered(skipLiveQuery = true)?.takeIf { it.isNotBlank() }
+                } catch (_: Exception) { null }
+            } else {
+                null
+            }
             if (guardedRemembered != null) {
                 rememberedSelectionFromTypePill = guardedRemembered
             } else {
@@ -3333,12 +3382,12 @@ class FloatingButtonService : Service() {
         }
 
         val wordCount = PromptPanelLogic.highlightWordCount(rememberedSelectionFromTypePill)
-        if (wordCount == 0 && state == ButtonState.IDLE) {
+        if (wordCount == 0) {
             rememberedSelectionFromTypePill = null
-            DictationAccessibilityService.getInstance()?.clearRememberedHighlight()
+            a11y?.clearRememberedHighlight()
         }
 
-        val shouldShow = state == ButtonState.IDLE && isSelfHostedPc && wordCount > 0
+        val shouldShow = wordCount > 0
         typePillView?.let { tv ->
             if (shouldShow) {
                 val newText = PromptPanelLogic.highlightChipText(wordCount, isRewrite = true)
@@ -3464,9 +3513,8 @@ class FloatingButtonService : Service() {
         pendingRetrySelection = null
         selectedSessionTrigger = null
 
-        // Reason for edit: Capture highlighted text (from live selection, ACTION_DOWN snapshot, or Type pill remembered highlight) and initialize highlight chip mode when recording starts per contract 01 §14 and F-65, F-66, F-66b, F-73
-        val isSelfHostedPc = settingsRepository.transcriptionTarget == TranscriptionTarget.PC.id &&
-            settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+        // Reason for edit: Capture highlighted text (from live selection, ACTION_DOWN snapshot, or Type pill remembered highlight) and initialize highlight chip mode when recording starts per contract 01 §14, F-65, F-66, F-66b, F-73, and F-77
+        val isSelfHostedPc = settingsRepository.usesPcAi()
         val liveOrRemembered = try {
             DictationAccessibilityService.getInstance()?.getSelectedTextOrRemembered()?.takeIf { it.isNotBlank() }
         } catch (_: Exception) { null }
@@ -3777,8 +3825,7 @@ class FloatingButtonService : Service() {
             null
         }
 
-        val isSelfHostedPc = settingsRepository.transcriptionTarget == TranscriptionTarget.PC.id &&
-            settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
+        val isSelfHostedPc = settingsRepository.usesPcAi()
         val capturedHighlight = pendingSelectionForRecording
             ?: try {
                 DictationAccessibilityService.getInstance()?.getSelectedTextOrRemembered()?.takeIf { it.isNotBlank() }
@@ -3821,17 +3868,27 @@ class FloatingButtonService : Service() {
 
         setState(ButtonState.PROCESSING)
 
+        // Reason for edit: Direct on-device transcription when Target is ON_DEVICE per contract 05 §2.3 & §5 (F-77: route raw text to PC AI or spoken highlight edit to edit_text when switch is on)
+        if (settingsRepository.transcriptionTarget == TranscriptionTarget.ON_DEVICE.id) {
+            val triggerToSend = selectedSessionTrigger
+            selectedSessionTrigger = null
+            val highlightToEdit = if (settingsRepository.usesPcAi()) selection else null
+            processOnDeviceTranscription(
+                file,
+                fallbackNotice = false,
+                styleOverrides = styleOverrides,
+                trigger = triggerToSend,
+                selectionToEdit = highlightToEdit,
+                typeOverSelection = typeOverSelection
+            )
+            return
+        }
+
         // Reason for edit: When recording starts with text highlighted in self-hosted PC mode, route to POST /dictate/v1/edit_selection per contract 01 §14 & F-65
         val isSelfHostedPc = settingsRepository.transcriptionTarget == TranscriptionTarget.PC.id &&
             settingsRepository.providerPreset == ProviderPreset.SELF_HOSTED
         if (isSelfHostedPc && !selection.isNullOrBlank()) {
             processVoiceSelectionEdit(file, selection)
-            return
-        }
-
-        // Reason for edit: Direct on-device transcription when Target is ON_DEVICE per contract 05 §2.3
-        if (settingsRepository.transcriptionTarget == TranscriptionTarget.ON_DEVICE.id) {
-            processOnDeviceTranscription(file, fallbackNotice = false, styleOverrides = styleOverrides, typeOverSelection = typeOverSelection)
             return
         }
 
@@ -4049,14 +4106,18 @@ class FloatingButtonService : Service() {
         }
     }
 
-    // Reason for edit: Helper for executing on-device transcription off main thread with fallback retry preservation and target-specific notices per F-31
+    // Reason for edit: Helper for executing on-device transcription off main thread with F-77 PC AI text processing (POST /dictate/v1/process_text and POST /dictate/v1/edit_text) + local-rules fallback per contract 05 §2.4 & §5
     private fun processOnDeviceTranscription(
         file: File,
         fallbackNotice: Boolean,
         customNotice: String? = null,
         styleOverrides: StyleOverrides? = null,
+        trigger: String? = null,
+        selectionToEdit: String? = null,
         typeOverSelection: String? = null
     ) {
+        val sendToPcAi = !fallbackNotice && settingsRepository.usesPcAi()
+        val sendToCloudAi = !fallbackNotice && !sendToPcAi && settingsRepository.usesCloudAiService()
         Thread {
             try {
                 var modelId = settingsRepository.selectedOnDeviceModelId
@@ -4071,7 +4132,12 @@ class FloatingButtonService : Service() {
                     }
                 }
 
-                val text = onDeviceEngine.transcribe(file, removeFillers = settingsRepository.removeFillerSounds)
+                // Reason for edit: Per contract 05 §5 item 2, send raw engine text (before phone's own corrections) when PC AI is enabled; per §6 item 2, apply phone's own corrections first when sending to a standalone AI service
+                val text = if (sendToPcAi) {
+                    onDeviceEngine.transcribe(file, removeFillers = false, applyLocalRules = false)
+                } else {
+                    onDeviceEngine.transcribe(file, removeFillers = settingsRepository.removeFillerSounds, applyLocalRules = true)
+                }
                 mainHandler.post {
                     if (fallbackNotice) {
                         val notice = customNotice ?: if (settingsRepository.transcriptionTarget == TranscriptionTarget.CLOUD.id) {
@@ -4086,6 +4152,25 @@ class FloatingButtonService : Service() {
                         cleanupActiveAudioFile(keepIfPendingRetry = false)
                         showTemporaryHint("No speech detected")
                         returnToRest()
+                    } else if (sendToPcAi && !selectionToEdit.isNullOrBlank()) {
+                        cleanupActiveAudioFile(keepIfPendingRetry = false)
+                        sendOnDeviceSpokenHighlightEdit(text, selectionToEdit)
+                    } else if (sendToPcAi) {
+                        cleanupActiveAudioFile(keepIfPendingRetry = false)
+                        sendOnDeviceTextToPcAi(
+                            rawText = text,
+                            styleOverrides = styleOverrides,
+                            trigger = trigger,
+                            typeOverSelection = typeOverSelection
+                        )
+                    } else if (sendToCloudAi) {
+                        cleanupActiveAudioFile(keepIfPendingRetry = false)
+                        sendOnDeviceTextToCloudAi(
+                            localText = text,
+                            styleOverrides = styleOverrides,
+                            trigger = trigger,
+                            typeOverSelection = typeOverSelection
+                        )
                     } else {
                         deliverTranscribedText(text, typeOverSelection = typeOverSelection)
                     }
@@ -4095,6 +4180,127 @@ class FloatingButtonService : Service() {
                 handleOnDeviceFailure(file, isFallback = fallbackNotice, styleOverrides = styleOverrides, failureReason = "Transcription failed")
             }
         }.start()
+    }
+
+    // Reason for edit: Track rejected AI service key so a wrong key surfaces a plain notice once rather than spamming on every dictation per contract 05 §6 item 4 (F-78)
+    internal var lastAuthErrorKeyNotified: String? = null
+
+    // Reason for edit: Send locally-corrected on-device text to standalone OpenAI-compatible AI service (F-79 local skills, contract 03 edit commands, contract 02 cleanup) with fallback notice per contract 05 §6 & §7
+    internal fun sendOnDeviceTextToCloudAi(
+        localText: String,
+        styleOverrides: StyleOverrides? = null,
+        trigger: String? = null,
+        typeOverSelection: String? = null
+    ) {
+        apiClient.processTextWithCloudAi(
+            text = localText,
+            styleOverrides = styleOverrides,
+            triggerId = trigger
+        ) { result ->
+            when (result) {
+                is CloudAiFixResult.Success -> {
+                    deliverTranscribedText(result.text, typeOverSelection = typeOverSelection)
+                }
+                is CloudAiFixResult.EmptySkillBody -> {
+                    Toast.makeText(applicationContext, result.notice, Toast.LENGTH_LONG).show()
+                    showTemporaryHint(result.notice)
+                    returnToRest()
+                }
+                is CloudAiFixResult.AuthError -> {
+                    val keySnapshot = settingsRepository.cleanupChatKey
+                    if (lastAuthErrorKeyNotified != keySnapshot) {
+                        lastAuthErrorKeyNotified = keySnapshot
+                        val notice = "Your AI service key was rejected. Check it in Transcription settings."
+                        Toast.makeText(applicationContext, notice, Toast.LENGTH_LONG).show()
+                        showTemporaryHint(notice)
+                    }
+                    deliverTranscribedText(result.fallbackText ?: localText, typeOverSelection = typeOverSelection)
+                }
+                is CloudAiFixResult.Failed -> {
+                    val notice = "The AI service didn't answer, so the text wasn't fixed."
+                    Toast.makeText(applicationContext, notice, Toast.LENGTH_LONG).show()
+                    showTemporaryHint(notice)
+                    deliverTranscribedText(result.fallbackText ?: localText, typeOverSelection = typeOverSelection)
+                }
+            }
+        }
+    }
+
+    // Reason for edit: Send raw on-device text to POST /dictate/v1/process_text with fallback to local corrections/rules + contract 05 §5 item 3 notices (F-77)
+    internal fun sendOnDeviceTextToPcAi(
+        rawText: String,
+        styleOverrides: StyleOverrides? = null,
+        trigger: String? = null,
+        typeOverSelection: String? = null
+    ) {
+        apiClient.processText(rawText, styleOverrides = styleOverrides, trigger = trigger) { result ->
+            when (result) {
+                is ProcessTextResult.Success -> {
+                    deliverTranscribedText(result.text, typeOverSelection = typeOverSelection)
+                }
+                is ProcessTextResult.Unsupported -> {
+                    val fallbackText = onDeviceEngine.applyLocalRules(rawText, removeFillers = settingsRepository.removeFillerSounds)
+                    val notice = "Update the PC app to fix text from this phone."
+                    Toast.makeText(applicationContext, notice, Toast.LENGTH_LONG).show()
+                    showTemporaryHint(notice)
+                    deliverTranscribedText(fallbackText, typeOverSelection = typeOverSelection)
+                }
+                is ProcessTextResult.ServerPaused,
+                is ProcessTextResult.NetworkError,
+                is ProcessTextResult.Error -> {
+                    val fallbackText = onDeviceEngine.applyLocalRules(rawText, removeFillers = settingsRepository.removeFillerSounds)
+                    val notice = "Your PC didn't answer, so the text wasn't fixed."
+                    Toast.makeText(applicationContext, notice, Toast.LENGTH_LONG).show()
+                    showTemporaryHint(notice)
+                    deliverTranscribedText(fallbackText, typeOverSelection = typeOverSelection)
+                }
+            }
+        }
+    }
+
+    // Reason for edit: Send on-device spoken instruction over highlighted text to POST /dictate/v1/edit_text per contract 05 §5 item 4 bullet 3 (F-77)
+    internal fun sendOnDeviceSpokenHighlightEdit(
+        instruction: String,
+        selection: String
+    ) {
+        apiClient.editText(instruction = instruction, selection = selection) { result ->
+            when (result) {
+                is EditTextResult.Success -> {
+                    if (!result.edited || result.text.isBlank() || result.text == selection) {
+                        showTemporaryHint("The AI made no changes.")
+                        returnToRest()
+                    } else {
+                        val a11y = DictationAccessibilityService.getInstance()
+                        if (settingsRepository.injectionMode == InjectionMode.ACCESSIBILITY && a11y != null) {
+                            a11y.replaceOrInsertText(result.text, replaceSelection = true, expectedSelection = selection)
+                            returnToRest()
+                        } else {
+                            try {
+                                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val clip = ClipData.newPlainText("Whisper Unchained", result.text)
+                                clipboard.setPrimaryClip(clip)
+                                showTemporaryHint("Copied! Tap paste to replace")
+                            } catch (_: Exception) {}
+                            returnToRest()
+                        }
+                    }
+                }
+                is EditTextResult.Unsupported -> {
+                    val notice = "Update the PC app to fix text from this phone."
+                    Toast.makeText(applicationContext, notice, Toast.LENGTH_LONG).show()
+                    showTemporaryHint(notice)
+                    returnToRest()
+                }
+                is EditTextResult.ServerPaused,
+                is EditTextResult.NetworkError,
+                is EditTextResult.Error -> {
+                    val notice = "Your PC didn't answer, so the text wasn't fixed."
+                    Toast.makeText(applicationContext, notice, Toast.LENGTH_LONG).show()
+                    showTemporaryHint(notice)
+                    returnToRest()
+                }
+            }
+        }
     }
 
     // Reason for edit: Never lose recordings when phone fallback fails; preserve file as pendingRetryAudioFile per F-31 item 1
@@ -4241,6 +4447,8 @@ class FloatingButtonService : Service() {
         }
         pendingRetryAudioFile = null
         pendingRetryStyleOverrides = null
+        pendingSelectionUpdateRunnable?.let { mainHandler.removeCallbacks(it) }
+        pendingSelectionUpdateRunnable = null
         snapAnimator?.cancel()
         snapAnimator = null
 

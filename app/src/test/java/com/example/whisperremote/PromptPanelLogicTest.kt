@@ -117,9 +117,15 @@ class PromptPanelLogicTest {
         assertEquals("say \"skill email\" (+2 more)", PromptPanelLogic.skillSummary(listOf("skill email", "prompt email", "write email")))
         assertEquals("", PromptPanelLogic.skillSummary(emptyList()))
 
+        // Reason for edit: Expect "catchphrase(s)" wording in skillWording() and verify quoted user text is preserved verbatim per catchphrase wording catch-up
+        assertEquals("Choose your own catchphrase", PromptPanelLogic.ASK_CARD_BUTTON)
         assertEquals(
-            "Skills: \"prompt ticket\" is already one of your phrases for asking the AI.",
+            "Skills: \"prompt ticket\" is already one of your catchphrases for asking the AI.",
             PromptPanelLogic.skillWording("Custom triggers: \"prompt ticket\" is already a built-in trigger phrase.")
+        )
+        assertEquals(
+            "Catchphrase \"my trigger phrase\" duplicates another skill's catchphrases.",
+            PromptPanelLogic.skillWording("Trigger phrase \"my trigger phrase\" duplicates another trigger's phrases.")
         )
     }
 

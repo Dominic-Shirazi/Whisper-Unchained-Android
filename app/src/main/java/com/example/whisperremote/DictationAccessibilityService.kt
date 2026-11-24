@@ -6,6 +6,7 @@
 
 package com.example.whisperremote
 
+// Reason for edit: Bound AccessibilityNodeInfo tree walks (node/depth/time budget), skip redundant full-tree IPC walks on main thread, ignore own non-EditText overlay events, and avoid double getSelectedText() IPC calls so the floating button never freezes or ANRs (Build 39).
 // Reason for edit: Coalesce TYPE_WINDOW_CONTENT_CHANGED (250ms), ignore own-overlay content-changed events and skip during button drag, fast-path getSelectedText() to avoid redundant IPC tree walks, and add peekRememberedHighlightText() + getImeWindowHeightPx() per F-75.
 // Reason for edit: Remember highlighted text, range, and node when selection is detected or read for the Type pill, guard by package/window/node, and use isEditableNode in validateCachedNode so tapping the mic button always captures the same highlight as the Type pill per F-73.
 // Reason for edit: Clear cached focusedNode/lastSelectionNode on window change or focus loss, and refresh+verify isFocused && isEditable before using cached nodes on paste per F-68.
@@ -39,6 +40,9 @@ class DictationAccessibilityService : AccessibilityService() {
 
     companion object {
         private var instance: DictationAccessibilityService? = null
+        internal const val MAX_TREE_NODES = 120
+        internal const val MAX_TREE_DEPTH = 12
+        internal const val MAX_TREE_WALK_MS = 16L
 
         fun getInstance(): DictationAccessibilityService? {
             if (BuildConfig.DEBUG) {
@@ -96,6 +100,29 @@ class DictationAccessibilityService : AccessibilityService() {
     internal var activeWindowId: Int = -1
     internal var findFocusOverrideForTesting: ((Int) -> AccessibilityNodeInfo?)? = null
     private var hasFocusedEditable = false
+    // Reason for edit: Hard budget for synchronous AccessibilityNodeInfo tree walks so main-thread IPC can never freeze the floating button on large/foldable hierarchies (Build 39)
+    internal class TreeWalkBudget(
+        private val maxNodes: Int = MAX_TREE_NODES,
+        private val deadlineUptimeMs: Long = android.os.SystemClock.uptimeMillis() + MAX_TREE_WALK_MS
+    ) {
+        var visitedNodes: Int = 0
+            private set
+
+        fun tryVisit(): Boolean {
+            if (visitedNodes >= maxNodes) return false
+            if (visitedNodes > 0 && (visitedNodes and 0x0F) == 0 && android.os.SystemClock.uptimeMillis() >= deadlineUptimeMs) {
+                return false
+            }
+            visitedNodes++
+            return true
+        }
+    }
+
+    private fun isOwnNonEditOverlayEvent(event: AccessibilityEvent): Boolean {
+        val evtPkg = event.packageName?.toString()
+        return evtPkg == packageName && event.className?.toString()?.contains("EditText", ignoreCase = true) != true
+    }
+
     // Reason for edit: Coalesce TYPE_WINDOW_CONTENT_CHANGED work to at most once per 250ms to prevent main-thread IPC storms during button drag per F-75 §2
     private val contentChangedHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var pendingContentChangedRunnable: Runnable? = null
@@ -218,13 +245,14 @@ class DictationAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        // Reason for edit: Ignore own-overlay TYPE_WINDOW_CONTENT_CHANGED events and skip content-changed work during active button drags to keep drag smooth per F-75 §2
+        // Reason for edit: Ignore own non-EditText overlay events across all event types (prevents bringToFront()/pill updates from clobbering activeWindowPackage or triggering IPC storms) (Build 39)
+        if (isOwnNonEditOverlayEvent(event)) {
+            return
+        }
+
+        // Reason for edit: Ignore TYPE_WINDOW_CONTENT_CHANGED during active button drags and coalesce to at most once per 250ms per F-75 §2 & Build 39
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             if (FloatingButtonService.isDraggingOverlay) {
-                return
-            }
-            val evtPkg = event.packageName?.toString()
-            if (evtPkg == packageName && event.className?.toString()?.contains("EditText", ignoreCase = true) != true) {
                 return
             }
             val now = android.os.SystemClock.uptimeMillis()
@@ -235,7 +263,7 @@ class DictationAccessibilityService : AccessibilityService() {
                         pendingContentChangedRunnable = null
                         if (!FloatingButtonService.isDraggingOverlay) {
                             lastContentCheckMs = android.os.SystemClock.uptimeMillis()
-                            checkFocusState(null)
+                            checkFocusState(null, allowRootTreeWalk = hasFocusedEditable)
                         }
                     }
                     pendingContentChangedRunnable = runnable
@@ -244,7 +272,7 @@ class DictationAccessibilityService : AccessibilityService() {
                 return
             }
             lastContentCheckMs = now
-            checkFocusState(event)
+            checkFocusState(event, allowRootTreeWalk = hasFocusedEditable)
             return
         }
 
@@ -265,14 +293,19 @@ class DictationAccessibilityService : AccessibilityService() {
             if (newWinId != -1) activeWindowId = newWinId
         }
 
-        // Reason for edit: Minimal focus/window events per F-12, plus selection tracking and remembered highlight per F-59, F-73, and F-75 §2
+        // Reason for edit: Minimal focus/window events per F-12, plus selection tracking and remembered highlight per F-59, F-73, F-75 §2, and Build 39
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_FOCUSED,
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                checkFocusState(event)
-                FloatingButtonService.getInstance()?.onTextSelectionChanged()
+                val focusNotifiedButton = checkFocusState(event, allowRootTreeWalk = true)
+                if (!focusNotifiedButton && !FloatingButtonService.isDraggingOverlay && hasFocusedEditable) {
+                    FloatingButtonService.getInstance()?.onTextSelectionChanged()
+                }
             }
             AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED -> {
+                if (FloatingButtonService.isDraggingOverlay) {
+                    return
+                }
                 event.source?.let { src ->
                     val editableTarget = if (isEditableNode(src)) src else findEditableInTree(src)
                     if (editableTarget != null && !isSensitiveNode(editableTarget) && (editableTarget.isFocused || src.isFocused)) {
@@ -308,7 +341,7 @@ class DictationAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun checkFocusState(event: AccessibilityEvent?) {
+    private fun checkFocusState(event: AccessibilityEvent?, allowRootTreeWalk: Boolean = true): Boolean {
         val inputFocus = findFocusOverrideForTesting?.invoke(AccessibilityNodeInfo.FOCUS_INPUT)
             ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
         val source = event?.source
@@ -318,7 +351,7 @@ class DictationAccessibilityService : AccessibilityService() {
             source != null && source.isFocused && isEditableNode(source) -> source
             else -> findEditableInTree(inputFocus)
                 ?: findEditableInTree(source)
-                ?: findEditableInTree(rootInActiveWindow)
+                ?: if (allowRootTreeWalk) findEditableInTree(rootInActiveWindow) else null
         }
 
         if (activeInput != null && isEditableNode(activeInput)) {
@@ -330,6 +363,7 @@ class DictationAccessibilityService : AccessibilityService() {
                 hasFocusedEditable = true
                 FloatingButtonService.getInstance()?.onTextFieldFocused()
                 Log.d("DictationService", "Editable field focused: ${activeInput.className}")
+                return true
             }
         } else {
             // Reason for edit: Clear cached nodes when focus leaves or node is no longer focused/editable per F-68 & F-73
@@ -344,8 +378,10 @@ class DictationAccessibilityService : AccessibilityService() {
                 rememberedHighlight = null
                 FloatingButtonService.getInstance()?.onTextFieldFocusLost()
                 Log.d("DictationService", "Focus left editable field")
+                return true
             }
         }
+        return false
     }
 
     private fun isSensitiveNode(node: AccessibilityNodeInfo?): Boolean {
@@ -389,13 +425,19 @@ class DictationAccessibilityService : AccessibilityService() {
         return false
     }
 
-    private fun findEditableInTree(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-        if (node == null) return null
+    // Reason for edit: Bound tree traversal by node count, depth, and wall-clock budget to prevent main-thread IPC freezes on large foldable/tablet hierarchies (Build 39)
+    internal fun findEditableInTree(
+        node: AccessibilityNodeInfo?,
+        depth: Int = 0,
+        budget: TreeWalkBudget = TreeWalkBudget()
+    ): AccessibilityNodeInfo? {
+        if (node == null || depth > MAX_TREE_DEPTH || !budget.tryVisit()) return null
         if (node.isFocused && isEditableNode(node)) return node
 
-        for (i in 0 until node.childCount) {
+        val count = node.childCount
+        for (i in 0 until count) {
             val child = node.getChild(i) ?: continue
-            val result = findEditableInTree(child)
+            val result = findEditableInTree(child, depth + 1, budget)
             if (result != null) return result
         }
         return null
@@ -529,8 +571,13 @@ class DictationAccessibilityService : AccessibilityService() {
         return null
     }
 
-    private fun findEditableWithSelectionInTree(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-        if (node == null) return null
+    // Reason for edit: Bound selection tree traversal by node count, depth, and wall-clock budget (Build 39)
+    private fun findEditableWithSelectionInTree(
+        node: AccessibilityNodeInfo?,
+        depth: Int = 0,
+        budget: TreeWalkBudget = TreeWalkBudget()
+    ): AccessibilityNodeInfo? {
+        if (node == null || depth > MAX_TREE_DEPTH || !budget.tryVisit()) return null
         if (!isSensitiveNode(node) && node.isFocused && isEditableNode(node)) {
             val fullText = node.text?.toString() ?: ""
             val selStart = node.textSelectionStart
@@ -539,15 +586,16 @@ class DictationAccessibilityService : AccessibilityService() {
                 return node
             }
         }
-        for (i in 0 until node.childCount) {
+        val count = node.childCount
+        for (i in 0 until count) {
             val child = node.getChild(i) ?: continue
-            val found = findEditableWithSelectionInTree(child)
+            val found = findEditableWithSelectionInTree(child, depth + 1, budget)
             if (found != null) return found
         }
         return null
     }
 
-    // Reason for edit: Add getSelectedText() with fast-path return when focused editable node clearly has a collapsed cursor, avoiding full-tree IPC walks per F-54, F-65, F-73, and F-75 §2
+    // Reason for edit: Fast-path getSelectedText() whenever focused editable node has no active selection (including start==-1 on empty/unselected editors) and avoid double full-tree IPC walks per F-54, F-65, F-73, F-75 §2, and Build 39
     fun getSelectedText(): String? {
         val liveFocus = findFocusOverrideForTesting?.invoke(AccessibilityNodeInfo.FOCUS_INPUT)
             ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
@@ -557,8 +605,8 @@ class DictationAccessibilityService : AccessibilityService() {
             if (isEditableNode(liveFocus) && liveFocus.isFocused) {
                 val start = liveFocus.textSelectionStart
                 val end = liveFocus.textSelectionEnd
-                if (start >= 0 && end == start) {
-                    // Focused editable node has a collapsed cursor, not a selection; skip full-tree IPC walks
+                if ((start >= 0 && end == start) || (liveFocus.text != null && (start < 0 || end <= start))) {
+                    // Focused editable node has no active selection; skip cached and full-tree IPC walks
                     return null
                 }
             }
@@ -574,16 +622,18 @@ class DictationAccessibilityService : AccessibilityService() {
             if (!selected.isNullOrEmpty()) return selected
         }
 
-        // Only walk the full window tree if no focused editable node was found above
+        // Only walk the window tree (bounded) if no focused editable node was resolved above
         val root = rootInActiveWindow ?: return null
-        val treeNode = findEditableWithSelectionInTree(root) ?: findEditableInTree(root)
+        val treeNode = findEditableWithSelectionInTree(root)
         return extractSelectionFromNode(treeNode, updateRemembered = true)
     }
 
-    // Reason for edit: Return live selection or guarded remembered highlight (same package/window/node) when touch or popup clears live selection per F-73
-    fun getSelectedTextOrRemembered(): String? {
-        val live = getSelectedText()
-        if (!live.isNullOrBlank()) return live
+    // Reason for edit: Support skipLiveQuery so callers that already ran getSelectedText() never run duplicate IPC walks, and avoid redundant refresh() calls (Build 39)
+    fun getSelectedTextOrRemembered(skipLiveQuery: Boolean = false): String? {
+        if (!skipLiveQuery) {
+            val live = getSelectedText()
+            if (!live.isNullOrBlank()) return live
+        }
 
         val rem = rememberedHighlight ?: return null
         if (rem.text.isBlank()) return null
@@ -595,13 +645,16 @@ class DictationAccessibilityService : AccessibilityService() {
         }
 
         // Guard 2: Verify the target node (or current active editable in the same window) is still editable and still contains the highlighted text
-        val checkNode = validateCachedNode(rem.node)
+        val validRemNode = validateCachedNode(rem.node)
+        val checkNode = validRemNode
             ?: resolveTargetNodeForPaste(preferSelectionNode = true)
             ?: rem.node
         if (checkNode != null) {
-            try {
-                checkNode.refresh()
-            } catch (_: Exception) {}
+            if (checkNode !== validRemNode && checkNode === rem.node) {
+                try {
+                    checkNode.refresh()
+                } catch (_: Exception) {}
+            }
             if (isSensitiveNode(checkNode) || !isEditableNode(checkNode)) {
                 rememberedHighlight = null
                 return null

@@ -96,7 +96,7 @@ ads: no, government/financial/health/news: no.
 >
 > Optional AI cleanup removes "um"s, applies "no wait, I mean…" corrections and fixes punctuation, using your own
 > computer or your own AI service. Say "prompt AI, make this formal" to rewrite what you just said, or highlight text
-> and say what to change. Skills save a long instruction under a short phrase: say "skill grocery list" and your
+> and say what to change. Skills save a long instruction under a short catchphrase: say "skill grocery list" and your
 > shopping is grouped by aisle.
 >
 > **Accessibility service:** Whisper Unchained uses Android's Accessibility service only to type your dictated text into

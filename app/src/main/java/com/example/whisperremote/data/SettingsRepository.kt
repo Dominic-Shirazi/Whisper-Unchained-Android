@@ -3,6 +3,9 @@
 // Inputs: User inputs from Settings UI or QR code scan, with sensitive credentials (API keys) protected by hardware-backed KeyStore AES-256-GCM.
 // Outputs: Provider settings (base URL, API key, model, prompt hints), behavioral flags (auto-trim, boot start, Tailscale auto-restart), and injection mode.
 // It resolves endpoints according to the OpenAI standard (/v1/audio/transcriptions, /health, /v1/models) and migrates legacy URLs cleanly.
+// Reason for edit: Add phone-local skills storage (localSkillsJson, getLocalSkills/saveLocalSkills), usesLocalSkills(), and one-time PC-copy migration flag per contract 05 §7 (F-79).
+// Reason for edit: Add OnDeviceTextFixer 3-way choice (Nothing / Your PC / An AI service), usesCloudAiService(), hasAiServiceConfigured(), and normalizeChatCompletionsUrl() per contract 05 §6 (F-78).
+// Reason for edit: Add onDeviceUsePcAi toggle, hasPairedPc()/usesPcAi() helpers, and getProcessTextUrl() for F-77 (phone transcribes, PC's AI fixes text).
 // Reason for edit: Ensure applyQrPayload resets transcriptionTarget to TranscriptionTarget.PC.id so pairing a PC always activates PC mode for both Type pill and mic tap per F-73.
 // Reason for edit: Add on-device model and download preferences per contract 05 §2.3 & §2.6.
 // Reason for edit: Accurate provider info (corrected Together pricing, realistic speed claims, verified privacy summaries, pricing URLs) per F-27.
@@ -59,7 +62,8 @@ data class QueuedMutation(
                         "remove '${removeNameCorrections.joinToString()}'"
                 }
             }
-            "phrases" -> "save ${triggerPhrases.size} phrases"
+            // Reason for edit: Use "catchphrases" wording in user-visible sync description per catchphrase wording catch-up
+            "phrases" -> "save ${triggerPhrases.size} catchphrases"
             else -> "item $id"
         }
     }
@@ -139,15 +143,28 @@ enum class InjectionMode {
     CLIPBOARD
 }
 
-// Reason for edit: Add TranscriptionTarget enum for On this phone / My PC / Cloud service per contract 05 §2.3
+// Reason for edit: Use "Your PC" consistently across TranscriptionTarget and OnDeviceTextFixer per R-F78 review item 3
 enum class TranscriptionTarget(val id: String, val displayName: String) {
     ON_DEVICE("phone", "On this phone"),
-    PC("pc", "My PC"),
+    PC("pc", "Your PC"),
     CLOUD("cloud", "Cloud service");
 
     companion object {
         fun fromId(id: String): TranscriptionTarget {
             return entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: PC
+        }
+    }
+}
+
+// Reason for edit: F-78 3-way choice under "On this phone" -> "Fix the text with" per contract 05 §6 item 1
+enum class OnDeviceTextFixer(val id: String, val displayName: String) {
+    NONE("none", "Nothing"),
+    PC("pc", "Your PC"),
+    AI_SERVICE("ai_service", "An AI service");
+
+    companion object {
+        fun fromId(id: String): OnDeviceTextFixer {
+            return entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: NONE
         }
     }
 }
@@ -883,6 +900,20 @@ class SettingsRepository(context: Context) {
         return "$root/dictate/v1/edit_selection"
     }
 
+    // Reason for edit: Added ProcessText endpoint resolver for on-device speech + PC AI fixing per contract 01 §15 & F-77
+    fun getProcessTextUrl(): String = getProcessTextUrl(lastWorkingBaseUrl)
+
+    fun getProcessTextUrl(base: String): String {
+        val effective = if (base.isNotBlank()) base else baseUrl
+        if (effective.isBlank()) return ""
+        val root = if (effective.endsWith("/v1")) {
+            effective.substring(0, effective.length - 3).trimEnd('/')
+        } else {
+            effective.trimEnd('/')
+        }
+        return "$root/dictate/v1/process_text"
+    }
+
     // Reason for edit: Added pending mutations queue and immediate cache sync per F-43
     var pendingMutationsJson: String
         get() = getPlainString("pending_word_mutations_json", "[]")
@@ -1082,18 +1113,27 @@ class SettingsRepository(context: Context) {
     }
 
     fun getTriggersSubtitle(): String {
-        if (transcriptionTarget != TranscriptionTarget.PC.id) {
-            return "Set up on your PC"
+        if (usesPcAi()) {
+            val phrases = parseCachedTriggerPhrases()
+            val firstEdit = phrases.firstOrNull { it.isEdit() }?.phrase ?: "prompt AI"
+            val customCount = cachedCustomTriggersCount
+            return if (customCount > 0) {
+                val skillLabel = if (customCount == 1) "1 skill" else "$customCount skills"
+                "$firstEdit · $skillLabel"
+            } else {
+                firstEdit
+            }
         }
-        val phrases = parseCachedTriggerPhrases()
-        val firstEdit = phrases.firstOrNull { it.isEdit() }?.phrase ?: "prompt AI"
-        val customCount = cachedCustomTriggersCount
-        return if (customCount > 0) {
-            val skillLabel = if (customCount == 1) "1 skill" else "$customCount skills"
-            "$firstEdit · $skillLabel"
-        } else {
-            firstEdit
+        if (usesLocalSkills() && usesCloudAiService()) {
+            val localCount = getLocalSkills().size
+            return if (localCount > 0) {
+                val skillLabel = if (localCount == 1) "1 skill" else "$localCount skills"
+                "prompt AI · $skillLabel"
+            } else {
+                "prompt AI"
+            }
         }
+        return "Set up on your PC"
     }
 
     var removeFillerSounds: Boolean
@@ -1107,6 +1147,136 @@ class SettingsRepository(context: Context) {
     var fallbackToOnDevice: Boolean
         get() = prefs.getBoolean("fallback_to_on_device", true)
         set(value) = prefs.edit().putBoolean("fallback_to_on_device", value).apply()
+
+    // Reason for edit: F-77/F-78 compatibility — keep onDeviceUsePcAi in sync with the F-78 3-way onDeviceTextFixer choice per contract 05 §5 & §6
+    var onDeviceUsePcAi: Boolean
+        get() = onDeviceTextFixer == OnDeviceTextFixer.PC.id
+        set(value) {
+            prefs.edit().putBoolean("on_device_use_pc_ai", value).apply()
+            if (value) {
+                putPlainString("on_device_text_fixer", OnDeviceTextFixer.PC.id)
+            } else if (getPlainString("on_device_text_fixer", "") == OnDeviceTextFixer.PC.id) {
+                putPlainString("on_device_text_fixer", OnDeviceTextFixer.NONE.id)
+            }
+        }
+
+    // Reason for edit: F-78 3-way choice under "On this phone" ("Nothing" / "Your PC" / "An AI service"), defaulting to Nothing with migration from F-77 onDeviceUsePcAi
+    var onDeviceTextFixer: String
+        get() {
+            val saved = getPlainString("on_device_text_fixer", "")
+            if (saved.isNotBlank()) return saved
+            return if (prefs.getBoolean("on_device_use_pc_ai", false)) {
+                OnDeviceTextFixer.PC.id
+            } else {
+                OnDeviceTextFixer.NONE.id
+            }
+        }
+        set(value) {
+            val normalized = OnDeviceTextFixer.fromId(value).id
+            putPlainString("on_device_text_fixer", normalized)
+            prefs.edit().putBoolean("on_device_use_pc_ai", normalized == OnDeviceTextFixer.PC.id).apply()
+        }
+
+    // Reason for edit: True when a self-hosted PC server is paired (used to show/hide "Your PC" under "Fix the text with" per contract 05 §5 & §6)
+    fun hasPairedPc(): Boolean {
+        return providerPreset == ProviderPreset.SELF_HOSTED &&
+            getAllPcBaseUrls().any { it.startsWith("http") }
+    }
+
+    // Reason for edit: True when a chat completions AI service is configured (cloud with key, or local/LAN/Tailscale OpenAI-compatible server without key) per contract 05 §6
+    fun hasAiServiceConfigured(): Boolean {
+        val url = cleanupChatUrl.trim()
+        if (url.isBlank() || !url.startsWith("http") || url.contains("100.x.y.z")) return false
+        if (cleanupChatModel.trim().isBlank()) return false
+        return cleanupChatKey.isNotBlank() || isLocalOpenAiCompatibleUrl(url)
+    }
+
+    // Reason for edit: True when PC AI features (skills, cleanup style, highlight rewrite, typed instruction) are active in either PC mode or On-device + Your PC mode per contract 05 §5 & §6
+    fun usesPcAi(): Boolean {
+        return when (transcriptionTarget) {
+            TranscriptionTarget.PC.id -> providerPreset == ProviderPreset.SELF_HOSTED
+            TranscriptionTarget.ON_DEVICE.id -> onDeviceTextFixer == OnDeviceTextFixer.PC.id && hasPairedPc()
+            else -> false
+        }
+    }
+
+    // Reason for edit: Phone-local skills storage for no-PC mode per contract 05 §7 items 1-2 (F-79)
+    var localSkillsJson: String
+        get() = getPlainString("local_skills_json", "[]")
+        set(value) = putPlainString("local_skills_json", value)
+
+    var localSkillsMigrationOffered: Boolean
+        get() = prefs.getBoolean("local_skills_migration_offered", false)
+        set(value) = prefs.edit().putBoolean("local_skills_migration_offered", value).apply()
+
+    fun getLocalSkills(): List<CustomTrigger> {
+        val raw = localSkillsJson
+        if (raw.isBlank() || raw == "[]") return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { CustomTrigger.fromJson(arr.getJSONObject(it)) }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveLocalSkills(skills: List<CustomTrigger>) {
+        val arr = JSONArray()
+        skills.forEach { arr.put(it.toJson()) }
+        localSkillsJson = arr.toString()
+    }
+
+    // Reason for edit: Per contract 05 §7 item 2 — when a PC is paired, the PC's list is authoritative; when no PC is paired, the phone's list is used
+    fun usesLocalSkills(): Boolean = !hasPairedPc()
+
+    // Reason for edit: True once when a phone that has local skills is paired with a PC, to offer "Copy your N skills to your PC?" per contract 05 §7 item 2
+    fun hasPendingLocalSkillsMigration(): Boolean {
+        return hasPairedPc() && !localSkillsMigrationOffered && getLocalSkills().isNotEmpty()
+    }
+
+    // Reason for edit: True when "On this phone" is set to fix text with an external/custom AI service (no PC required) per contract 05 §6 (F-78)
+    fun usesCloudAiService(): Boolean {
+        return transcriptionTarget == TranscriptionTarget.ON_DEVICE.id &&
+            onDeviceTextFixer == OnDeviceTextFixer.AI_SERVICE.id &&
+            hasAiServiceConfigured()
+    }
+
+    // Reason for edit: Detect local/LAN/Tailscale OpenAI-compatible endpoints that do not require an API key (e.g. Ollama, llama.cpp, vLLM) per contract 05 §6 item 3
+    fun isLocalOpenAiCompatibleUrl(url: String): Boolean {
+        val lower = url.trim().lowercase()
+        return lower.startsWith("http://localhost") ||
+            lower.startsWith("http://127.0.0.1") ||
+            lower.startsWith("http://10.") ||
+            lower.startsWith("http://192.168.") ||
+            lower.startsWith("http://100.") ||
+            Regex("^http://172\\.(1[6-9]|2\\d|3[0-1])\\.").containsMatchIn(lower)
+    }
+
+    // Reason for edit: Normalize any OpenAI-compatible base URL (e.g. ".../v1") to ".../v1/chat/completions" per contract 05 §6 item 3
+    fun normalizeChatCompletionsUrl(rawUrl: String): String {
+        val trimmed = rawUrl.trim().trimEnd('/')
+        if (trimmed.isBlank()) return ""
+        return if (trimmed.endsWith("/chat/completions", ignoreCase = true)) {
+            trimmed
+        } else if (trimmed.endsWith("/v1", ignoreCase = true)) {
+            "$trimmed/chat/completions"
+        } else {
+            trimmed
+        }
+    }
+
+    // Reason for edit: Detect when the user's cloud speech API key matches the chosen AI chat provider (Groq or OpenAI) so we can offer 1-tap key reuse per contract 05 §6 item 6
+    fun matchingSpeechKeyProviderName(): String? {
+        if (apiKey.isBlank() || apiKey == cleanupChatKey) return null
+        val chatLower = cleanupChatUrl.trim().lowercase()
+        return when {
+            (providerPreset == ProviderPreset.GROQ || baseUrl.lowercase().contains("groq.com")) &&
+                chatLower.contains("groq.com") -> "Groq"
+            (providerPreset == ProviderPreset.OPENAI || baseUrl.lowercase().contains("openai.com")) &&
+                chatLower.contains("openai.com") -> "OpenAI"
+            else -> null
+        }
+    }
 
     var selectedOnDeviceModelId: String
         get() = getPlainString("selected_on_device_model_id", "parakeet-tdt-110m-en-int8")

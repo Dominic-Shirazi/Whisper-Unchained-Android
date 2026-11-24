@@ -127,6 +127,25 @@ sealed class EditTextResult {
 }
 
 // Reason for edit: Add EditSelectionResult for spoken instructions over highlighted text per contract 01 §14 and F-65, F-66
+// Reason for edit: Extended CloudAiFixResult and processTextWithCloudAi() for F-79 local skills (catchphrase matching, cut-out, empty-body notice, and catchphrase-removed fallback) per contract 05 §7.
+sealed class CloudAiFixResult {
+    data class Success(val text: String) : CloudAiFixResult()
+    data class EmptySkillBody(val notice: String = com.example.whisperremote.util.LocalSkillEngine.EMPTY_BODY_NOTICE) : CloudAiFixResult()
+    data class AuthError(val code: Int, val message: String, val fallbackText: String? = null) : CloudAiFixResult()
+    data class Failed(val message: String, val fallbackText: String? = null) : CloudAiFixResult()
+}
+
+// Reason for edit: Added ProcessTextResult and processText() for POST /dictate/v1/process_text (F-77, contract 01 §15 & contract 05 §5).
+sealed class ProcessTextResult {
+    data class Success(val text: String, val changed: Boolean) : ProcessTextResult()
+    data class Unsupported(val message: String = "Update the PC app to fix text from this phone.") : ProcessTextResult()
+    data class ServerPaused(val message: String) : ProcessTextResult()
+    data class Error(val code: Int, val message: String) : ProcessTextResult() {
+        val statusCode: Int get() = code
+    }
+    data class NetworkError(val error: Throwable) : ProcessTextResult()
+}
+
 sealed class EditSelectionResult {
     data class Success(val text: String, val instruction: String, val edited: Boolean) : EditSelectionResult()
     data class Unsupported(val message: String = "Update the PC app to rewrite highlighted words by voice") : EditSelectionResult()
@@ -1234,6 +1253,119 @@ class ApiClient(private val context: Context) {
     }
 
     /**
+     * Sends raw on-device transcribed text to POST /dictate/v1/process_text so the PC applies its word list,
+     * catchphrases, skills, and AI cleanup per contract 01 §15 & contract 05 §5 (F-77).
+     * Uses ~3s connect timeout and ~30s read/write timeout so fallback never delays the user's words.
+     */
+    fun processText(
+        text: String,
+        styleOverrides: StyleOverrides? = null,
+        trigger: String? = null,
+        rawCallback: (ProcessTextResult) -> Unit
+    ) {
+        val callback: (ProcessTextResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
+        val url = repository.getProcessTextUrl()
+        if (url.isBlank() || !url.startsWith("http")) {
+            callback(ProcessTextResult.Error(400, "Server URL is not configured"))
+            return
+        }
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) {
+            callback(ProcessTextResult.Error(400, "missing_text"))
+            return
+        }
+        if (trimmed.length > 20000) {
+            callback(ProcessTextResult.Error(413, "text_too_long"))
+            return
+        }
+
+        val json = JSONObject().apply {
+            put("text", trimmed)
+            if (!trigger.isNullOrBlank()) {
+                put("trigger", trigger)
+            }
+            if (styleOverrides != null) {
+                put("processing", "clean")
+                put("cleanup_punctuation", styleOverrides.punctuation)
+                put("cleanup_rewrite", styleOverrides.rewrite)
+                val tone = if (styleOverrides.rewrite == "keep") "neutral" else styleOverrides.tone
+                put("cleanup_tone", tone)
+                put("cleanup_shorten", styleOverrides.shorten)
+                put("cleanup_emoji", repository.cleanupEmoji)
+            } else {
+                if (repository.cleanupUserSet) {
+                    put("cleanup", if (repository.cleanupEnabled) "on" else "off")
+                }
+                if (repository.cleanupEnabled) {
+                    put("processing", "clean")
+                    put("cleanup_punctuation", repository.cleanupPunctuation)
+                    put("cleanup_rewrite", repository.cleanupRewrite)
+                    val tone = if (repository.cleanupRewrite == "keep") "neutral" else repository.cleanupTone
+                    put("cleanup_tone", tone)
+                    put("cleanup_shorten", repository.cleanupShorten)
+                    put("cleanup_emoji", repository.cleanupEmoji)
+                } else {
+                    put("processing", "full")
+                }
+            }
+        }
+
+        val requestBody = json.toString().toRequestBody("application/json".toMediaTypeOrNull())
+        val requestBuilder = Request.Builder().url(url).post(requestBody)
+        val token = repository.apiKey
+        if (token.isNotBlank()) {
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+
+        val processClient = clientFor(url).newBuilder()
+            .connectTimeout(3, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .build()
+
+        processClient.newCall(requestBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback(ProcessTextResult.NetworkError(mapError(e)))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    when (response.code) {
+                        200 -> {
+                            val body = response.body?.string().orEmpty()
+                            try {
+                                val resJson = JSONObject(body)
+                                val outText = resJson.optString("text", "")
+                                val changed = resJson.optBoolean("changed", false)
+                                if (outText.isBlank()) {
+                                    callback(ProcessTextResult.Error(500, "Server returned empty text"))
+                                } else {
+                                    callback(ProcessTextResult.Success(outText, changed))
+                                }
+                            } catch (e: Exception) {
+                                callback(ProcessTextResult.Error(500, "Failed to parse process_text response: ${e.message}"))
+                            }
+                        }
+                        503 -> {
+                            callback(ProcessTextResult.ServerPaused("Dictation is paused on your PC"))
+                        }
+                        404, 405 -> {
+                            callback(ProcessTextResult.Unsupported("Update the PC app to fix text from this phone."))
+                        }
+                        else -> {
+                            val errMsg = try {
+                                val errJson = JSONObject(response.body?.string().orEmpty())
+                                errJson.optString("message", null)
+                            } catch (_: Exception) { null }
+                            callback(ProcessTextResult.Error(response.code, errMsg ?: "Server returned HTTP ${response.code}"))
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    /**
      * Executes typed instruction edit via POST /dictate/v1/edit_text per contract 01 §12 & F-54.
      */
     fun editText(
@@ -1487,7 +1619,8 @@ class ApiClient(private val context: Context) {
                                 repository.updateCachedTriggerPhrases(phrases)
                                 callback(TriggerPhrasesResult.Success(phrases, limitsMap))
                             } catch (e: Exception) {
-                                callback(TriggerPhrasesResult.ParseError("Failed to parse phrases: ${e.message}"))
+                                // Reason for edit: Use "catchphrases" wording in user-visible error message per catchphrase wording catch-up
+                                callback(TriggerPhrasesResult.ParseError("Failed to parse catchphrases: ${e.message}"))
                             }
                         }
                         else -> {
@@ -1558,7 +1691,8 @@ class ApiClient(private val context: Context) {
                                 repository.updateCachedTriggerPhrases(newPhrases)
                                 callback(TriggerPhrasesResult.Success(newPhrases, limitsMap))
                             } catch (e: Exception) {
-                                callback(TriggerPhrasesResult.ParseError("Failed to parse phrases response: ${e.message}"))
+                                // Reason for edit: Use "catchphrases" wording in user-visible error message per catchphrase wording catch-up
+                                callback(TriggerPhrasesResult.ParseError("Failed to parse catchphrases response: ${e.message}"))
                             }
                         }
                         else -> {
@@ -1578,6 +1712,320 @@ class ApiClient(private val context: Context) {
                 }
             }
         })
+    }
+
+    /**
+     * Runs local skills (F-79, contract 05 §7), spoken edit commands (contract 03), or cleanup (contract 02)
+     * on already-transcribed on-device text using the user's configured OpenAI-compatible chat endpoint (no PC required).
+     * Uses ~5s connect / ~30s read timeout and reports auth (401/403), empty skill body, and failures explicitly.
+     */
+    fun processTextWithCloudAi(
+        text: String,
+        styleOverrides: StyleOverrides? = null,
+        triggerId: String? = null,
+        highlightedText: String? = null,
+        localSkills: List<CustomTrigger> = if (repository.usesLocalSkills()) repository.getLocalSkills() else emptyList(),
+        rawCallback: (CloudAiFixResult) -> Unit
+    ) {
+        val callback: (CloudAiFixResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
+        val chatUrl = repository.normalizeChatCompletionsUrl(repository.cleanupChatUrl)
+        if (chatUrl.isBlank() || !chatUrl.startsWith("http")) {
+            callback(CloudAiFixResult.Failed("AI service address is not configured"))
+            return
+        }
+
+        val aiClient = clientFor(chatUrl).newBuilder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .build()
+
+        // 0. Resolve edit command start index first so an earlier AI-edit catchphrase beats a later skill catchphrase (§7 item 3)
+        val editProcessor: EditCommandProcessor? = try {
+            val editPromptJson = context.assets.open("03-edit-prompt.json").bufferedReader().use { it.readText() }
+            EditCommandProcessor(editPromptJson)
+        } catch (e: Exception) {
+            Log.w("ApiClient", "Error loading 03-edit-prompt.json for F-78/F-79", e)
+            null
+        }
+        val editCommandStart = editProcessor?.findFirstTriggerIndex(text) ?: -1
+
+        // 0b. Check F-79 local skill (picked on style sheet OR earliest spoken catchphrase before any edit command)
+        val pickedSkill = if (!triggerId.isNullOrBlank()) {
+            localSkills.firstOrNull { it.id == triggerId }
+        } else {
+            null
+        }
+        val matchedSkillPair: Pair<CustomTrigger, String>? = when {
+            pickedSkill != null -> pickedSkill to text.trim()
+            localSkills.isNotEmpty() -> {
+                val skillMatch = com.example.whisperremote.util.LocalSkillEngine.findFirstMatch(
+                    text = text,
+                    skills = localSkills,
+                    earlierEditCommandStart = editCommandStart
+                )
+                skillMatch?.let { it.skill to it.body }
+            }
+            else -> null
+        }
+
+        if (matchedSkillPair != null) {
+            val (skill, skillBody) = matchedSkillPair
+            if (skillBody.isBlank() && highlightedText.isNullOrBlank()) {
+                callback(CloudAiFixResult.EmptySkillBody())
+                return
+            }
+            val fallbackBody = skillBody.ifBlank { highlightedText.orEmpty() }
+            try {
+                val localVocab = repository.promptHints.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                val systemPrompt = com.example.whisperremote.util.LocalSkillEngine.buildSystemPrompt(skill.prompt, localVocab)
+                val userMsg = com.example.whisperremote.util.LocalSkillEngine.buildUserMessage(
+                    bodyText = skillBody,
+                    highlightedText = highlightedText,
+                    extraWords = if (!highlightedText.isNullOrBlank()) skillBody else null
+                )
+                val assetPrompt = context.assets.open("02-cleanup-prompt.json").bufferedReader().use { it.readText() }
+                val cleaner = TranscriptCleaner(assetPrompt)
+
+                val messagesArray = JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("role", "system")
+                        put("content", systemPrompt)
+                    })
+                    put(JSONObject().apply {
+                        put("role", "user")
+                        put("content", userMsg)
+                    })
+                }
+                val payload = JSONObject().apply {
+                    put("model", repository.cleanupChatModel)
+                    put("temperature", skill.temperature ?: 0.3)
+                    put("stream", false)
+                    put("messages", messagesArray)
+                    if (repository.isLocalOpenAiCompatibleUrl(chatUrl)) {
+                        put("chat_template_kwargs", JSONObject().apply {
+                            put("enable_thinking", false)
+                        })
+                    }
+                }
+                val requestBuilder = Request.Builder()
+                    .url(chatUrl)
+                    .post(payload.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+                val key = repository.cleanupChatKey
+                if (key.isNotBlank()) {
+                    requestBuilder.header("Authorization", "Bearer $key")
+                }
+
+                aiClient.newCall(requestBuilder.build()).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        Log.w("ApiClient", "F-79 local skill AI call failed", e)
+                        callback(CloudAiFixResult.Failed(e.message ?: "Network error", fallbackText = fallbackBody))
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        response.use {
+                            if (response.code == 401 || response.code == 403) {
+                                callback(
+                                    CloudAiFixResult.AuthError(
+                                        response.code,
+                                        "Your AI service key was rejected. Check it in Transcription settings.",
+                                        fallbackText = fallbackBody
+                                    )
+                                )
+                                return
+                            }
+                            if (!response.isSuccessful) {
+                                callback(CloudAiFixResult.Failed("HTTP ${response.code}", fallbackText = fallbackBody))
+                                return
+                            }
+                            try {
+                                val resJson = JSONObject(response.body?.string().orEmpty())
+                                val choices = resJson.optJSONArray("choices")
+                                val replyContent = if (choices != null && choices.length() > 0) {
+                                    choices.getJSONObject(0).optJSONObject("message")?.optString("content", "").orEmpty()
+                                } else {
+                                    ""
+                                }
+                                if (replyContent.isBlank()) {
+                                    callback(CloudAiFixResult.Failed("Empty reply from AI service", fallbackText = fallbackBody))
+                                    return
+                                }
+                                val tidied = cleaner.tidyReply(replyContent, fallbackBody)
+                                callback(CloudAiFixResult.Success(tidied))
+                            } catch (e: Exception) {
+                                callback(CloudAiFixResult.Failed("Parse error: ${e.message}", fallbackText = fallbackBody))
+                            }
+                        }
+                    }
+                })
+                return
+            } catch (e: Exception) {
+                Log.e("ApiClient", "Failed to execute F-79 local skill", e)
+                callback(CloudAiFixResult.Failed(e.message ?: "Skill execution failed", fallbackText = fallbackBody))
+                return
+            }
+        }
+
+        // 1. Check contract 03 spoken edit commands ("prompt AI", "hey Whisper", etc.)
+        if (editProcessor != null && editCommandStart >= 0) {
+            try {
+                val split = editProcessor.split(text)
+                if (split.isCommand) {
+                if (split.content.isEmpty() && split.instruction.isEmpty()) {
+                    callback(CloudAiFixResult.Success(""))
+                    return
+                }
+                val userMsg = editProcessor.buildUserMessage(split)
+                val messagesArray = JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("role", "system")
+                        put("content", editProcessor.systemPrompt)
+                    })
+                    put(JSONObject().apply {
+                        put("role", "user")
+                        put("content", userMsg)
+                    })
+                }
+                val payload = JSONObject().apply {
+                    put("model", repository.cleanupChatModel)
+                    put("temperature", 0.2)
+                    put("stream", false)
+                    put("messages", messagesArray)
+                    // Only attach chat_template_kwargs on local/Ollama-style endpoints; strict cloud APIs may reject unknown fields
+                    if (repository.isLocalOpenAiCompatibleUrl(chatUrl)) {
+                        put("chat_template_kwargs", JSONObject().apply {
+                            put("enable_thinking", false)
+                        })
+                    }
+                }
+                val requestBuilder = Request.Builder()
+                    .url(chatUrl)
+                    .post(payload.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+                val key = repository.cleanupChatKey
+                if (key.isNotBlank()) {
+                    requestBuilder.header("Authorization", "Bearer $key")
+                }
+
+                aiClient.newCall(requestBuilder.build()).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        Log.w("ApiClient", "F-78 edit command AI call failed", e)
+                        callback(CloudAiFixResult.Failed(e.message ?: "Network error"))
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        response.use {
+                            if (response.code == 401 || response.code == 403) {
+                                callback(CloudAiFixResult.AuthError(response.code, "Your AI service key was rejected. Check it in Transcription settings."))
+                                return
+                            }
+                            if (!response.isSuccessful) {
+                                callback(CloudAiFixResult.Failed("HTTP ${response.code}"))
+                                return
+                            }
+                            val body = response.body?.string().orEmpty()
+                            try {
+                                val resJson = JSONObject(body)
+                                val choice = resJson.getJSONArray("choices").getJSONObject(0)
+                                val rawContent = choice.getJSONObject("message").optString("content", "")
+                                val tidied = editProcessor.tidyReply(rawContent, split)
+                                callback(CloudAiFixResult.Success(tidied))
+                            } catch (e: Exception) {
+                                callback(CloudAiFixResult.Failed("Parse error: ${e.message}"))
+                            }
+                        }
+                    }
+                })
+                return
+                }
+            } catch (e: Exception) {
+                Log.w("ApiClient", "Error checking edit command triggers for F-78", e)
+            }
+        }
+
+        // 2. Not an edit command: run contract 02 cleanup if cleanup switch is on or per-dictation style override is set
+        if (styleOverrides == null && !repository.cleanupEnabled) {
+            callback(CloudAiFixResult.Success(text))
+            return
+        }
+
+        try {
+            val assetPrompt = context.assets.open("02-cleanup-prompt.json").bufferedReader().use { it.readText() }
+            val cleaner = TranscriptCleaner(assetPrompt)
+            val punc = styleOverrides?.punctuation ?: repository.cleanupPunctuation
+            val rew = styleOverrides?.rewrite ?: repository.cleanupRewrite
+            val tone = if (rew == "keep") "neutral" else (styleOverrides?.tone ?: repository.cleanupTone)
+            val short = styleOverrides?.shorten ?: repository.cleanupShorten
+            val options = CleanupOptions(
+                punctuation = punc,
+                rewrite = rew,
+                tone = tone,
+                shorten = short,
+                emoji = repository.cleanupEmoji
+            )
+            val localVocab = repository.promptHints.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            val systemPrompt = cleaner.buildSystemPrompt(options, localVocab)
+            val userMsg = cleaner.buildUserMessage(text)
+
+            val messagesArray = JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "system")
+                    put("content", systemPrompt)
+                })
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", userMsg)
+                })
+            }
+            val payload = JSONObject().apply {
+                put("model", repository.cleanupChatModel)
+                put("temperature", 0.2)
+                put("stream", false)
+                put("messages", messagesArray)
+            }
+            val requestBuilder = Request.Builder()
+                .url(chatUrl)
+                .post(payload.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+            val key = repository.cleanupChatKey
+            if (key.isNotBlank()) {
+                requestBuilder.header("Authorization", "Bearer $key")
+            }
+
+            aiClient.newCall(requestBuilder.build()).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    Log.w("ApiClient", "F-78 cleanup AI call failed", e)
+                    callback(CloudAiFixResult.Failed(e.message ?: "Network error"))
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.use {
+                        if (response.code == 401 || response.code == 403) {
+                            callback(CloudAiFixResult.AuthError(response.code, "Your AI service key was rejected. Check it in Transcription settings."))
+                            return
+                        }
+                        if (!response.isSuccessful) {
+                            callback(CloudAiFixResult.Failed("HTTP ${response.code}"))
+                            return
+                        }
+                        try {
+                            val resJson = JSONObject(response.body?.string().orEmpty())
+                            val choices = resJson.optJSONArray("choices")
+                            if (choices != null && choices.length() > 0) {
+                                val replyContent = choices.getJSONObject(0).optJSONObject("message")?.optString("content", "").orEmpty()
+                                val tidied = cleaner.tidyReply(replyContent, text)
+                                callback(CloudAiFixResult.Success(tidied))
+                            } else {
+                                callback(CloudAiFixResult.Failed("Empty choices from AI service"))
+                            }
+                        } catch (e: Exception) {
+                            callback(CloudAiFixResult.Failed("Parse error: ${e.message}"))
+                        }
+                    }
+                }
+            })
+        } catch (e: Exception) {
+            Log.e("ApiClient", "Failed to initialize TranscriptCleaner for F-78", e)
+            callback(CloudAiFixResult.Failed(e.message ?: "Cleanup init failed"))
+        }
     }
 
     /**
@@ -1620,7 +2068,7 @@ class ApiClient(private val context: Context) {
         styleOverrides: StyleOverrides? = null,
         callback: (String) -> Unit
     ) {
-        val chatUrl = repository.cleanupChatUrl
+        val chatUrl = repository.normalizeChatCompletionsUrl(repository.cleanupChatUrl)
         if (chatUrl.isBlank()) {
             callback(text)
             return
@@ -1721,7 +2169,7 @@ class ApiClient(private val context: Context) {
             return
         }
 
-        val chatUrl = repository.cleanupChatUrl
+        val chatUrl = repository.normalizeChatCompletionsUrl(repository.cleanupChatUrl)
         if (chatUrl.isBlank()) {
             callback(split.content.ifEmpty { split.original })
             return

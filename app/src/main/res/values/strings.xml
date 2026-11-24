@@ -49,9 +49,9 @@
     <string name="enable_internal_audio_button">Transcribe audio playing on this phone</string>
     <string name="internal_audio_call_disclaimer">Note: Phone calls cannot be captured.</string>
 
-    <!-- Reason for edit: Renamed tabs to mirror desktop sections per contracts/04-look-and-feel.md (K-6) -->
+    <!-- Reason for edit: Renamed tab_words_triggers to "Words & Skills" and trigger_words_title to "Catchphrase for asking the AI" per catchphrase wording catch-up -->
     <string name="tab_transcription">Transcription</string>
-    <string name="tab_words_triggers">Words &amp; Triggers</string>
+    <string name="tab_words_triggers">Words &amp; Skills</string>
     <string name="tab_ai_editing">AI Editing</string>
     <string name="tab_phone">Phone</string>
 
@@ -61,7 +61,7 @@
     <string name="from_name_corrections_label">From Name Corrections (Server):</string>
     <string name="name_corrections_title">Heard as → Write as Corrections</string>
     <string name="name_corrections_self_hosted_note">Viewed from desktop server. Edit in desktop Settings.</string>
-    <string name="trigger_words_title">Voice Edit Trigger</string>
+    <string name="trigger_words_title">Catchphrase for asking the AI</string>
     <string name="trigger_words_phrase">Say \"prompt AI\" followed by an instruction</string>
     <string name="trigger_words_desc">Example: \"The meeting is at noon. Prompt AI, make this formal.\" Applies edits to your spoken text on the fly.</string>
     <string name="hint_echo_trim_label">Remove word list echo when Whisper reads it back</string>

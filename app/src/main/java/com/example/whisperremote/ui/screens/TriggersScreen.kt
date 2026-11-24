@@ -1,6 +1,7 @@
 // This file is called by MainActivity navigation.
 // Inputs: SettingsRepository and ApiClient for built-in AI-edit phrases and skills (custom triggers) synchronization.
-// Outputs: TriggersScreen Composable presenting the "Skills" screen, the "What you say to ask the AI" phrase editor screen, and the "New skill" / "Edit skill" screen.
+// Outputs: TriggersScreen Composable presenting the "Skills" screen, the "What you say to ask the AI" catchphrase editor screen, and the "New skill" / "Edit skill" screen.
+// Reason for edit: Update user-visible "phrase(s)" wording to "catchphrase(s)" across Skills, catchphrase editor, and dialogs per catchphrase wording catch-up.
 // Conforms to contracts/01-transcription-api.md §11, §13 and F-53, F-60, F-61, F-62, F-63.
 // Reason for edit: Constrain content width to 640.dp centered on foldable/tablet screens per F-71.
 // Reason for edit: Shorten Phrase Editor example first part to "send me the report by friday" without horizontal scroll per F-63.
@@ -113,6 +114,8 @@ fun TriggersScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     val isSelfHosted = repository.providerPreset == ProviderPreset.SELF_HOSTED
+    // Reason for edit: F-79 — when no PC is paired, Skills screen, New/Edit skill, and Library operate on the phone's local skills list per contract 05 §7 items 1-2
+    val isLocalSkillsMode = repository.usesLocalSkills()
 
     var currentSubView by remember { mutableStateOf(SkillsSubView.MAIN) }
 
@@ -164,6 +167,12 @@ fun TriggersScreen(
     }
 
     fun refreshCustomTriggers() {
+        if (isLocalSkillsMode) {
+            customTriggers = repository.getLocalSkills()
+            customTriggersSupported = true
+            isLoadingCustomTriggers = false
+            return
+        }
         if (isSelfHosted && repository.baseUrl.isNotBlank()) {
             isLoadingCustomTriggers = true
             apiClient.fetchCustomTriggers { res ->
@@ -232,7 +241,7 @@ fun TriggersScreen(
         val trimmed = phrase.trim()
         val exists = triggerPhrases.any { it.phrase.equals(trimmed, ignoreCase = true) }
         if (exists) {
-            Toast.makeText(context, "Phrase already exists", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Catchphrase already exists", Toast.LENGTH_SHORT).show()
             return
         }
         val newList = triggerPhrases + TriggerPhrase(trimmed, action)
@@ -245,12 +254,12 @@ fun TriggersScreen(
         val trimmed = newText.trim()
         val other = triggerPhrases.filter { it.phrase != oldPhrase.phrase }
         if (other.any { it.phrase.equals(trimmed, ignoreCase = true) }) {
-            Toast.makeText(context, "Phrase already exists", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Catchphrase already exists", Toast.LENGTH_SHORT).show()
             return
         }
         val willHaveEdit = (oldPhrase.action == "edit" && newAction == "edit") || other.any { it.isEdit() }
         if (!willHaveEdit) {
-            Toast.makeText(context, "Keep at least one phrase that starts an AI edit", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Keep at least one catchphrase that starts an AI edit", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -263,7 +272,7 @@ fun TriggersScreen(
 
     fun onRemovePhrase(phrase: TriggerPhrase) {
         if (phrase.isEdit() && triggerPhrases.count { it.isEdit() } <= 1) {
-            Toast.makeText(context, "Keep at least one phrase that starts an AI edit", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Keep at least one catchphrase that starts an AI edit", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -290,7 +299,7 @@ fun TriggersScreen(
         savePhrasesList(ORIGINAL_DEFAULT_PHRASES)
         coroutineScope.launch {
             val result = snackbarHostState.showSnackbar(
-                message = "Restored original phrases",
+                message = "Restored original catchphrases",
                 actionLabel = "Undo",
                 duration = SnackbarDuration.Short
             )
@@ -406,7 +415,7 @@ fun TriggersScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    if (!isSelfHosted) {
+                    if (!isSelfHosted && !isLocalSkillsMode) {
                         Card(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
@@ -501,12 +510,17 @@ fun TriggersScreen(
                                                 onCheckedChange = { isChecked ->
                                                     val updated = skill.copy(enabled = isChecked)
                                                     val prev = customTriggers
-                                                    customTriggers = customTriggers.map { if (it.id == skill.id) updated else it }
-                                                    apiClient.modifyCustomTriggers(set = listOf(updated)) { res ->
-                                                        if (res is CustomTriggersResult.Success) {
-                                                            customTriggers = res.triggers
-                                                        } else {
-                                                            customTriggers = prev
+                                                    val nextList = customTriggers.map { if (it.id == skill.id) updated else it }
+                                                    customTriggers = nextList
+                                                    if (isLocalSkillsMode) {
+                                                        repository.saveLocalSkills(nextList)
+                                                    } else {
+                                                        apiClient.modifyCustomTriggers(set = listOf(updated)) { res ->
+                                                            if (res is CustomTriggersResult.Success) {
+                                                                customTriggers = res.triggers
+                                                            } else {
+                                                                customTriggers = prev
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -541,10 +555,15 @@ fun TriggersScreen(
                                                 onClick = {
                                                     val removed = skill
                                                     val prev = customTriggers
-                                                    customTriggers = customTriggers.filter { it.id != skill.id }
-                                                    apiClient.modifyCustomTriggers(remove = listOf(skill.id)) { res ->
-                                                        if (res is CustomTriggersResult.Success) {
-                                                            customTriggers = res.triggers
+                                                    val nextList = customTriggers.filter { it.id != skill.id }
+                                                    customTriggers = nextList
+                                                    if (isLocalSkillsMode) {
+                                                        repository.saveLocalSkills(nextList)
+                                                    } else {
+                                                        apiClient.modifyCustomTriggers(remove = listOf(skill.id)) { res ->
+                                                            if (res is CustomTriggersResult.Success) {
+                                                                customTriggers = res.triggers
+                                                            }
                                                         }
                                                     }
                                                     coroutineScope.launch {
@@ -554,11 +573,16 @@ fun TriggersScreen(
                                                             duration = SnackbarDuration.Short
                                                         )
                                                         if (snack == SnackbarResult.ActionPerformed) {
-                                                            apiClient.modifyCustomTriggers(set = listOf(removed)) { res ->
-                                                                if (res is CustomTriggersResult.Success) {
-                                                                    customTriggers = res.triggers
-                                                                } else {
-                                                                    customTriggers = prev
+                                                            if (isLocalSkillsMode) {
+                                                                customTriggers = prev
+                                                                repository.saveLocalSkills(prev)
+                                                            } else {
+                                                                apiClient.modifyCustomTriggers(set = listOf(removed)) { res ->
+                                                                    if (res is CustomTriggersResult.Success) {
+                                                                        customTriggers = res.triggers
+                                                                    } else {
+                                                                        customTriggers = prev
+                                                                    }
                                                                 }
                                                             }
                                                         }
@@ -656,7 +680,7 @@ fun TriggersScreen(
                                         softWrap = false
                                     )
                                     Text(
-                                        text = "phrase",
+                                        text = "catchphrase",
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.Normal,
                                         color = normalColor,
@@ -713,20 +737,20 @@ fun TriggersScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "An \"End of instruction\" phrase is optional: say it when your directions are done. Capitals and commas don't matter.",
+                        text = "An \"End of instruction\" catchphrase is optional: say it when your directions are done. Capitals and commas don't matter.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    if (!isSelfHosted) {
+                    if (!isSelfHosted && !isLocalSkillsMode) {
                         Card(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
                         ) {
                             Text(
-                                text = "Phrases for asking the AI are edited on your PC.",
+                                text = "Catchphrases for asking the AI are edited on your PC.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(14.dp)
@@ -810,7 +834,7 @@ fun TriggersScreen(
                                 ) {
                                     Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Add a phrase")
+                                    Text("Add a catchphrase")
                                 }
                                 Spacer(modifier = Modifier.height(6.dp))
                                 OutlinedButton(
@@ -818,14 +842,14 @@ fun TriggersScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp)
                                 ) {
-                                    Text("Restore original phrases")
+                                    Text("Restore original catchphrases")
                                 }
                             }
                         }
                     }
 
                     Text(
-                        text = "Keeps mishearing it? Add what it hears as another phrase.",
+                        text = "Keeps mishearing it? Add what it hears as another catchphrase.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 24.dp)
@@ -858,13 +882,13 @@ fun TriggersScreen(
                 ) {
                     if (isNew) {
                         Text(
-                            text = "A skill is your own phrase for an instruction you've saved. Say the phrase and the AI follows that instruction, so you never explain it twice.",
+                            text = "A skill is your own catchphrase for an instruction you've saved. Say the catchphrase and the AI follows that instruction, so you never explain it twice.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "The phrase can be anything you like: \"prompt intake\", \"skill intake\", or your own words.",
+                            text = "The catchphrase can be anything you like: \"prompt intake\", \"skill intake\", or your own words.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -888,7 +912,7 @@ fun TriggersScreen(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "One phrase per line. Pick words you wouldn't say by accident, such as \"prompt ticket\" or \"skill ticket\".",
+                        text = "One catchphrase per line. Pick words you wouldn't say by accident, such as \"prompt ticket\" or \"skill ticket\".",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -950,12 +974,12 @@ fun TriggersScreen(
                                 }
                                 val lines = phrasesText.lines().map { it.trim() }.filter { it.isNotEmpty() }
                                 if (lines.isEmpty() || lines.size > 6) {
-                                    errorMessage = "Provide between 1 and 6 spoken phrases"
+                                    errorMessage = "Provide between 1 and 6 catchphrases"
                                     return@Button
                                 }
                                 for (p in lines) {
                                     if (p.length < 2 || p.length > 60 || p.contains(",")) {
-                                        errorMessage = "Phrase '$p' must be 2-60 characters and cannot contain commas"
+                                        errorMessage = "Catchphrase '$p' must be 2-60 characters and cannot contain commas"
                                         return@Button
                                     }
                                 }
@@ -981,6 +1005,30 @@ fun TriggersScreen(
                                     category = initialSkill?.category,
                                     model = initialSkill?.model
                                 )
+
+                                if (isLocalSkillsMode) {
+                                    val validationError = com.example.whisperremote.util.LocalSkillEngine.validateSkill(
+                                        name = trimmedName,
+                                        phrases = lines,
+                                        prompt = trimmedPrompt,
+                                        existingSkills = customTriggers,
+                                        editingId = initialSkill?.id
+                                    )
+                                    if (validationError != null) {
+                                        errorMessage = validationError
+                                        return@Button
+                                    }
+                                    val nextList = if (initialSkill != null) {
+                                        customTriggers.map { if (it.id == initialSkill.id) skillToSave else it }
+                                    } else {
+                                        customTriggers + skillToSave
+                                    }
+                                    customTriggers = nextList
+                                    repository.saveLocalSkills(nextList)
+                                    editingCustomTrigger = null
+                                    currentSubView = SkillsSubView.MAIN
+                                    return@Button
+                                }
 
                                 isSaving = true
                                 apiClient.modifyCustomTriggers(set = listOf(skillToSave)) { res ->
@@ -1086,13 +1134,13 @@ fun TriggersScreen(
                         Spacer(modifier = Modifier.height(4.dp))
                         Column(modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)) {
                             Text(
-                                text = "• Say a skill's phrase anywhere while dictating: everything else you said is what it works on",
+                                text = "• Say a skill's catchphrase anywhere while dictating: everything else you said is what it works on",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(vertical = 2.dp)
                             )
                             Text(
-                                text = "• Or highlight text first, then say just the phrase",
+                                text = "• Or highlight text first, then say just the catchphrase",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(vertical = 2.dp)
@@ -1135,7 +1183,7 @@ fun TriggersScreen(
 
         AlertDialog(
             onDismissRequest = { showAddPhraseDialog = false },
-            title = { Text("Add a phrase") },
+            title = { Text("Add a catchphrase") },
             text = {
                 Column {
                     OutlinedTextField(
@@ -1144,14 +1192,14 @@ fun TriggersScreen(
                             phraseText = it
                             errorMessage = null
                         },
-                        label = { Text("Phrase (2-60 characters)") },
+                        label = { Text("Catchphrase (2-60 characters)") },
                         placeholder = { Text("e.g. prompt AI") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "What does this phrase do?",
+                        text = "What does this catchphrase do?",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -1200,7 +1248,7 @@ fun TriggersScreen(
                     onClick = {
                         val trimmed = phraseText.trim()
                         if (trimmed.length < 2 || trimmed.length > 60 || trimmed.contains(",")) {
-                            errorMessage = "Phrase must be 2-60 characters and cannot contain commas"
+                            errorMessage = "Catchphrase must be 2-60 characters and cannot contain commas"
                             return@Button
                         }
                         onAddPhrase(trimmed, selectedAction)
@@ -1227,7 +1275,7 @@ fun TriggersScreen(
 
         AlertDialog(
             onDismissRequest = { editingPhraseTarget = null },
-            title = { Text("Edit phrase") },
+            title = { Text("Edit catchphrase") },
             text = {
                 Column {
                     OutlinedTextField(
@@ -1236,13 +1284,13 @@ fun TriggersScreen(
                             phraseText = it
                             errorMessage = null
                         },
-                        label = { Text("Phrase") },
+                        label = { Text("Catchphrase") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "What does this phrase do?",
+                        text = "What does this catchphrase do?",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -1291,7 +1339,7 @@ fun TriggersScreen(
                     onClick = {
                         val trimmed = phraseText.trim()
                         if (trimmed.length < 2 || trimmed.length > 60 || trimmed.contains(",")) {
-                            errorMessage = "Phrase must be 2-60 characters and cannot contain commas"
+                            errorMessage = "Catchphrase must be 2-60 characters and cannot contain commas"
                             return@Button
                         }
                         onEditPhrase(target, trimmed, selectedAction)
@@ -1334,9 +1382,31 @@ fun TriggersScreen(
                     category = item.category,
                     model = item.model
                 )
-                apiClient.modifyCustomTriggers(set = listOf(newTrigger)) { res ->
-                    if (res is CustomTriggersResult.Success) {
-                        customTriggers = res.triggers
+                if (isLocalSkillsMode) {
+                    val existingById = customTriggers.firstOrNull { it.id == newTrigger.id || it.libraryId == newTrigger.libraryId }
+                    val validationError = com.example.whisperremote.util.LocalSkillEngine.validateSkill(
+                        name = newTrigger.name,
+                        phrases = newTrigger.phrases,
+                        prompt = newTrigger.prompt,
+                        existingSkills = customTriggers,
+                        editingId = existingById?.id
+                    )
+                    if (validationError != null) {
+                        coroutineScope.launch { snackbarHostState.showSnackbar(validationError) }
+                        return@LibraryBrowserDialog
+                    }
+                    val nextList = if (existingById != null) {
+                        customTriggers.map { if (it.id == existingById.id) newTrigger.copy(id = existingById.id) else it }
+                    } else {
+                        customTriggers + newTrigger
+                    }
+                    customTriggers = nextList
+                    repository.saveLocalSkills(nextList)
+                } else {
+                    apiClient.modifyCustomTriggers(set = listOf(newTrigger)) { res ->
+                        if (res is CustomTriggersResult.Success) {
+                            customTriggers = res.triggers
+                        }
                     }
                 }
             }

@@ -149,18 +149,19 @@ class OnDeviceTranscriptionEngine(
 
     /**
      * Transcribes an on-disk WAV file.
+     * Reason for edit: Add applyLocalRules parameter so F-77 can send raw engine text (before phone corrections/fillers) to POST /dictate/v1/process_text and apply local rules only on fallback per contract 05 §5.
      */
     @Throws(IOException::class)
-    fun transcribe(audioFile: File, removeFillers: Boolean = false): String {
+    fun transcribe(audioFile: File, removeFillers: Boolean = false, applyLocalRules: Boolean = true): String {
         val samples = AudioUtils.readWavToFloatArray(audioFile)
-        return transcribe(samples, removeFillers)
+        return transcribe(samples, removeFillers, applyLocalRules)
     }
 
     /**
      * Transcribes normalized audio samples [-1.0f, 1.0f] using VAD chunking and sherpa-onnx decoding.
-     * Applies name corrections and optional filler removal in accordance with contract 05 §2.4.
+     * Applies name corrections and optional filler removal in accordance with contract 05 §2.4 when applyLocalRules is true.
      */
-    fun transcribe(samples: FloatArray, removeFillers: Boolean = false): String = synchronized(lock) {
+    fun transcribe(samples: FloatArray, removeFillers: Boolean = false, applyLocalRules: Boolean = true): String = synchronized(lock) {
         val rec = recognizer ?: throw IllegalStateException("Transcription engine not initialized. Call initialize() first.")
         val vadEngine = vad ?: throw IllegalStateException("VAD engine not initialized.")
 
@@ -243,22 +244,37 @@ class OnDeviceTranscriptionEngine(
             }
         }
 
-        var combinedText = textSegments.joinToString(" ").trim()
+        val combinedText = textSegments.joinToString(" ").trim()
         Log.i(TAG, "Decoded combined text: '$combinedText'")
         if (combinedText.isEmpty()) return ""
 
+        if (!applyLocalRules) {
+            return combinedText
+        }
+
         // 3. Post-transcription rules: Name corrections first, then filler sounds per contract 05 §2.4
+        return applyLocalRules(combinedText, removeFillers)
+    }
+
+    /**
+     * Applies the phone's local name corrections and optional filler-sound removal to raw engine text.
+     * Reason for edit: Exposed for F-77 fallback when POST /dictate/v1/process_text cannot reach the PC per contract 05 §5 item 3.
+     */
+    fun applyLocalRules(rawText: String, removeFillers: Boolean = false): String {
+        var result = rawText.trim()
+        if (result.isEmpty()) return ""
+
         val corrections = getEffectiveNameCorrections()
         if (corrections.isNotEmpty()) {
-            combinedText = TextRules.applyNameCorrections(combinedText, corrections)
+            result = TextRules.applyNameCorrections(result, corrections)
         }
 
         if (removeFillers) {
-            val (noFillers, _) = TextRules.removeFillers(combinedText)
-            combinedText = noFillers
+            val (noFillers, _) = TextRules.removeFillers(result)
+            result = noFillers
         }
 
-        return combinedText
+        return result
     }
 
     /**

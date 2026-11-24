@@ -231,6 +231,10 @@ class MainActivity : ComponentActivity() {
                 apiClient.checkHealth { _ -> }
                 updateStatusCardState()
                 Toast.makeText(this, "Connected to ${payload.hostDisplay}!", Toast.LENGTH_SHORT).show()
+                // Reason for edit: Offer once to copy phone-local skills to newly paired PC per contract 05 §7 item 2 (F-79)
+                if (repository.hasPendingLocalSkillsMigration()) {
+                    promptCopyLocalSkillsToPc()
+                }
                 true
             } else {
                 Toast.makeText(this, "Invalid pairing code: not a Whisper Unchained payload", Toast.LENGTH_LONG).show()
@@ -239,6 +243,50 @@ class MainActivity : ComponentActivity() {
         } catch (e: IllegalArgumentException) {
             Toast.makeText(this, e.message ?: "Invalid pairing code", Toast.LENGTH_LONG).show()
             false
+        }
+    }
+
+    // Reason for edit: One-time migration offer when a phone with local skills pairs with a PC (POST each skill via §11 set, skip & report refused catchphrases) per contract 05 §7 item 2 (F-79)
+    private fun promptCopyLocalSkillsToPc() {
+        val localSkills = repository.getLocalSkills()
+        if (localSkills.isEmpty()) return
+        repository.localSkillsMigrationOffered = true
+        val count = localSkills.size
+        val title = if (count == 1) "Copy your 1 skill to your PC?" else "Copy your $count skills to your PC?"
+        android.app.AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage("Your PC's skill list is now active. Copy the skills you saved on this phone to your PC?")
+            .setPositiveButton("Copy") { _, _ ->
+                copyLocalSkillsSequentially(localSkills, index = 0, copied = 0, skipped = mutableListOf())
+            }
+            .setNegativeButton("Not now", null)
+            .show()
+    }
+
+    private fun copyLocalSkillsSequentially(
+        skills: List<com.example.whisperremote.data.CustomTrigger>,
+        index: Int,
+        copied: Int,
+        skipped: MutableList<String>
+    ) {
+        if (index >= skills.size) {
+            val summary = if (skipped.isEmpty()) {
+                val label = if (copied == 1) "1 skill" else "$copied skills"
+                "Copied $label to your PC."
+            } else {
+                "Copied $copied to your PC. Skipped (catchphrase conflict): ${skipped.joinToString(", ")}."
+            }
+            Toast.makeText(this, summary, Toast.LENGTH_LONG).show()
+            return
+        }
+        val skill = skills[index]
+        apiClient.modifyCustomTriggers(set = listOf(skill)) { res ->
+            if (res is CustomTriggersResult.Success) {
+                copyLocalSkillsSequentially(skills, index + 1, copied + 1, skipped)
+            } else {
+                skipped.add(skill.name)
+                copyLocalSkillsSequentially(skills, index + 1, copied, skipped)
+            }
         }
     }
 
