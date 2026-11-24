@@ -214,6 +214,12 @@ with: An AI service" and no PC, skills work, kept on the phone.
 2. **Which list.** A PC paired: the PC's list is the list, as now, in every mode. No PC: the phone's list. Never
    merge them silently. When a phone with its own skills is first paired with a PC, offer once: "Copy your N
    skills to your PC?" (POST them as §11 `set`; skip any whose catchphrase the PC refuses and say which).
+   **Added 2026-11-24 (F-80), found by Dominic on the S25:** a PC paired AND "Fix the text with: An AI
+   service" ran no skills at all (the phone's own list is unused because a PC is paired, and the PC is not
+   asked in this mode). In that case the phone runs the PC's skills itself, exactly as item 3 and 4 below,
+   from its last copy of the PC's list (GET contract 01 §11; refresh the copy whenever the PC answers, and
+   keep it across restarts). PC not reachable: the last copy is used. Never had a copy: no skills, plain
+   cleanup. The Skills screen keeps showing and editing the PC's list, as now.
 3. **Running one.** After the on-device text and the phone's corrections:
    - Find the enabled skill whose catchphrase comes first in the text; if two start at the same place the longer
      catchphrase wins. Match whole words, ignoring capitals, with the same matching the app uses for "hey
