@@ -44,6 +44,7 @@ android {
 
     defaultConfig {
         applicationId = "com.cyrus_studio.whisperunchained"
+        // Reason for edit: Bump versionCode to 42 for F-80 (paired PC + An AI service runs cached PC skills on-device and persists PC skills across restarts)
         // Reason for edit: Bump versionCode to 41 for F-79 (phone-local skills with no PC, acronym catchphrase matching, first-pair PC copy prompt) and R-F78 UI polish (retail-first Advanced row, "Your PC", dynamic on-device heading)
         // Reason for edit: Bump versionCode to 40 for F-78 (3-way "Fix the text with" choice under On this phone: Nothing / Your PC / An AI service, standalone cloud/custom AI cleanup & edit commands, 1-tap key reuse)
         // Reason for edit: Bump versionCode to 39 for floating button freeze/ANR fix (bounded Accessibility tree walks, coalesced selection updates, single-IPC updateTypePillVisibility, and safe drag bounds)
@@ -56,7 +57,7 @@ android {
         // Reason for edit: Lower minSdk from 34 to 31 (Android 12+) and bump versionCode to 32 per F-70
         minSdk = 31
         targetSdk = 36
-        versionCode = 41
+        versionCode = 42
         versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

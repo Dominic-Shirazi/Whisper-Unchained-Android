@@ -58,6 +58,15 @@ class TriggerPhrasesTest {
         repository.providerPreset = ProviderPreset.SELF_HOSTED
     }
 
+    // Reason for edit: Always clear static DictationAccessibilityService.instance after each test so tests never leak accessibility state into other test classes
+    @org.junit.After
+    fun tearDown() {
+        try {
+            val instanceField = DictationAccessibilityService::class.java.getDeclaredField("instance").apply { isAccessible = true }
+            instanceField.set(null, null)
+        } catch (_: Exception) {}
+    }
+
     @Test
     fun testTriggerPhraseSerializationAndDeserialization() {
         val phrase = TriggerPhrase("hey Whisper", "edit")
@@ -1182,6 +1191,87 @@ class TriggerPhrasesTest {
             repository.baseUrl = "http://100.64.0.1:5000/v1"
             repository.lastWorkingBaseUrl = "http://100.64.0.1:5000/v1"
             assertTrue("Pairing PC with existing local skills must trigger one-time migration offer", repository.hasPendingLocalSkillsMigration())
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    // Reason for edit: F-80 unit tests — paired PC + An AI service runs cached PC skills (not cleanup), and falls back to plain cleanup when no cached copy exists
+    @Test
+    fun testF80PairedPcWithAiServiceRunsCachedPcSkillAndFallsBackToCleanupWithoutCache() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+
+        val server = MockWebServer()
+        server.start()
+        try {
+            val chatBaseUrl = server.url("/v1").toString().trimEnd('/')
+            repository.providerPreset = ProviderPreset.SELF_HOSTED
+            // PC IS paired (unreachable/separate address from the AI service)
+            repository.baseUrl = "http://100.64.0.99:5000/v1"
+            repository.lastWorkingBaseUrl = "http://100.64.0.99:5000/v1"
+            repository.transcriptionTarget = TranscriptionTarget.ON_DEVICE.id
+            repository.onDeviceTextFixer = com.example.whisperremote.data.OnDeviceTextFixer.AI_SERVICE.id
+            repository.cleanupChatUrl = chatBaseUrl
+            repository.cleanupChatKey = "sk_openrouter_test"
+            repository.cleanupChatModel = "meta-llama/llama-3.3-70b-instruct"
+            repository.cleanupEnabled = true
+            repository.injectionMode = com.example.whisperremote.data.InjectionMode.CLIPBOARD
+
+            assertTrue("PC must be paired", repository.hasPairedPc())
+            assertFalse("usesLocalSkills must be false when PC is paired", repository.usesLocalSkills())
+            assertTrue("usesCloudAiService must be true", repository.usesCloudAiService())
+
+            val floatService = Robolectric.buildService(FloatingButtonService::class.java).create().get()
+            val clipboard = app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+            // 1. Paired + AI service + cached PC skill ("skill grocery list") -> skill request, NOT cleanup
+            val pcGrocerySkill = com.example.whisperremote.data.CustomTrigger(
+                id = "grocery_list",
+                name = "Grocery list",
+                phrases = listOf("skill grocery list"),
+                prompt = "Sort the items by grocery store aisle.",
+                enabled = true
+            )
+            repository.saveCachedPcSkills(listOf(pcGrocerySkill))
+            assertEquals(1, repository.getCachedPcSkills().size)
+
+            server.enqueue(
+                MockResponse().setResponseCode(200).setBody(
+                    """{"choices":[{"message":{"content":"Produce:\n- Apples\nDairy:\n- Milk"}}]}"""
+                )
+            )
+            floatService.sendOnDeviceTextToCloudAi("milk and apples skill grocery list")
+            val reqSkill = server.takeRequest(5, TimeUnit.SECONDS)
+            val bodySkill = org.json.JSONObject(reqSkill!!.body.readUtf8())
+            val msgsSkill = bodySkill.getJSONArray("messages")
+            val sysSkill = msgsSkill.getJSONObject(0).getString("content")
+            val usrSkill = msgsSkill.getJSONObject(1).getString("content")
+            assertTrue("Must send PC skill instruction, not cleanup prompt", sysSkill.contains("Sort the items by grocery store aisle."))
+            assertTrue("Must include F-79 How to answer block", sysSkill.contains("How to answer:"))
+            assertEquals("<text>\nmilk and apples\n</text>", usrSkill)
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            assertEquals("Produce:\n- Apples\nDairy:\n- Milk", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+
+            // 2. Paired + AI service + NO cached PC skills -> ordinary cleanup request
+            repository.saveCachedPcSkills(emptyList())
+            assertTrue(repository.getSkillsForOnDeviceAiService().isEmpty())
+
+            server.enqueue(
+                MockResponse().setResponseCode(200).setBody(
+                    """{"choices":[{"message":{"content":"Milk and apples, skill grocery list."}}]}"""
+                )
+            )
+            floatService.sendOnDeviceTextToCloudAi("milk and apples skill grocery list")
+            val reqCleanup = server.takeRequest(5, TimeUnit.SECONDS)
+            val bodyCleanup = org.json.JSONObject(reqCleanup!!.body.readUtf8())
+            val msgsCleanup = bodyCleanup.getJSONArray("messages")
+            val sysCleanup = msgsCleanup.getJSONObject(0).getString("content")
+            assertFalse("Without cached PC skills, must run plain cleanup (not skill prompt)", sysCleanup.contains("Sort the items by grocery store aisle."))
+            Thread.sleep(150)
+            ShadowLooper.idleMainLooper()
+            assertEquals("Milk and apples, skill grocery list.", clipboard.primaryClip?.getItemAt(0)?.text?.toString())
         } finally {
             server.shutdown()
         }

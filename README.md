@@ -19,6 +19,12 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## What's New in v1.3 (Build 42)
+
+- **Paired PC Skills with Standalone AI Service (F-80)**:
+  - Persisted the phone's cached copy of the paired PC's skills list (`cachedPcSkillsJson`) whenever the PC answers (`fetchCustomTriggers` / `modifyCustomTriggers`), refreshing on service startup and when opening the style sheet.
+  - When a PC is paired and **On this phone → Fix the text with: An AI service** is active, spoken skill catchphrases and the style sheet's skill picker now run the cached PC skills directly against the chosen AI service (falling back to plain cleanup if no cached copy exists yet).
+
 ## What's New in v1.3 (Build 41)
 
 - **Skills with No PC (F-79)**:

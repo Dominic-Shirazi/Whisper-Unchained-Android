@@ -2471,9 +2471,17 @@ class FloatingButtonService : Service() {
         overlay.cardView = card
 
         // Populate card contents
-        // Reason for edit: Enable PC skill fetching when PC AI is active, or load phone-local skills when in no-PC AI service mode per F-77 & F-79
-        if (settingsRepository.usesLocalSkills() && settingsRepository.usesCloudAiService()) {
-            cachedCustomTriggers = settingsRepository.getLocalSkills().filter { it.enabled }
+        // Reason for edit: Load local or cached PC skills immediately when using AI service (and refresh from PC when paired), or fetch PC skills when PC AI is active per F-77, F-79, and F-80
+        if (settingsRepository.usesCloudAiService()) {
+            cachedCustomTriggers = settingsRepository.getSkillsForOnDeviceAiService().filter { it.enabled }
+            if (settingsRepository.hasPairedPc()) {
+                apiClient.fetchCustomTriggers { res ->
+                    if (res is CustomTriggersResult.Success) {
+                        cachedCustomTriggers = res.triggers.filter { it.enabled }
+                        (currentSheetCard as? LinearLayout)?.let { buildStyleSheetCard(it) }
+                    }
+                }
+            }
         } else if (cachedCustomTriggers.isEmpty() && settingsRepository.usesPcAi()) {
             apiClient.fetchCustomTriggers { res ->
                 if (res is CustomTriggersResult.Success) {
@@ -2697,9 +2705,8 @@ class FloatingButtonService : Service() {
         ))
 
         // Reason for edit: Add Skill picker row for dictation style sheet per contract 01 §1, F-54 §5 & F-62
-        // Reason for edit: Show skill picker on style sheet for PC AI mode OR no-PC AI service mode with phone-local skills per F-77 & F-79
-        val isSelfHosted = settingsRepository.usesPcAi() ||
-            (settingsRepository.usesLocalSkills() && settingsRepository.usesCloudAiService())
+        // Reason for edit: Show skill picker on style sheet for PC AI mode OR On-device + An AI service mode (using cached PC skills when paired or local skills when unpaired) per F-77, F-79, and F-80
+        val isSelfHosted = settingsRepository.usesPcAi() || settingsRepository.usesCloudAiService()
         val hasTriggers = isSelfHosted && cachedCustomTriggers.isNotEmpty()
         if (hasTriggers) {
             val currentTriggerVal = selectedSessionTrigger

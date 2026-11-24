@@ -3,6 +3,7 @@
 // Inputs: User inputs from Settings UI or QR code scan, with sensitive credentials (API keys) protected by hardware-backed KeyStore AES-256-GCM.
 // Outputs: Provider settings (base URL, API key, model, prompt hints), behavioral flags (auto-trim, boot start, Tailscale auto-restart), and injection mode.
 // It resolves endpoints according to the OpenAI standard (/v1/audio/transcriptions, /health, /v1/models) and migrates legacy URLs cleanly.
+// Reason for edit: Persist cached PC skills list (cachedPcSkillsJson) across restarts and resolve paired-PC or phone-local skills in getSkillsForOnDeviceAiService() per contract 05 §7 item 2 (F-80).
 // Reason for edit: Add phone-local skills storage (localSkillsJson, getLocalSkills/saveLocalSkills), usesLocalSkills(), and one-time PC-copy migration flag per contract 05 §7 (F-79).
 // Reason for edit: Add OnDeviceTextFixer 3-way choice (Nothing / Your PC / An AI service), usesCloudAiService(), hasAiServiceConfigured(), and normalizeChatCompletionsUrl() per contract 05 §6 (F-78).
 // Reason for edit: Add onDeviceUsePcAi toggle, hasPairedPc()/usesPcAi() helpers, and getProcessTextUrl() for F-77 (phone transcribes, PC's AI fixes text).
@@ -1224,6 +1225,34 @@ class SettingsRepository(context: Context) {
         val arr = JSONArray()
         skills.forEach { arr.put(it.toJson()) }
         localSkillsJson = arr.toString()
+    }
+
+    // Reason for edit: Persist last copy of paired PC's skills list across restarts so "On this phone + An AI service" runs PC skills on-device even if PC is unreachable per contract 05 §7 item 2 (F-80)
+    var cachedPcSkillsJson: String
+        get() = getPlainString("cached_pc_skills_json", "[]")
+        set(value) = putPlainString("cached_pc_skills_json", value)
+
+    fun getCachedPcSkills(): List<CustomTrigger> {
+        val raw = cachedPcSkillsJson
+        if (raw.isBlank() || raw == "[]") return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { CustomTrigger.fromJson(arr.getJSONObject(it)) }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveCachedPcSkills(skills: List<CustomTrigger>) {
+        val arr = JSONArray()
+        skills.forEach { arr.put(it.toJson()) }
+        cachedPcSkillsJson = arr.toString()
+        cachedCustomTriggersCount = skills.size
+    }
+
+    // Reason for edit: Active skill list for "On this phone + An AI service" — phone's local list when no PC is paired, or last cached copy of the PC's list when a PC is paired per F-79 & F-80
+    fun getSkillsForOnDeviceAiService(): List<CustomTrigger> {
+        return if (usesLocalSkills()) getLocalSkills() else getCachedPcSkills()
     }
 
     // Reason for edit: Per contract 05 §7 item 2 — when a PC is paired, the PC's list is authoritative; when no PC is paired, the phone's list is used

@@ -1160,7 +1160,7 @@ class ApiClient(private val context: Context) {
                                 val triggers = (0 until array.length()).map {
                                     com.example.whisperremote.data.CustomTrigger.fromJson(array.getJSONObject(it))
                                 }
-                                repository.cachedCustomTriggersCount = triggers.size
+                                repository.saveCachedPcSkills(triggers)
                                 val limits = com.example.whisperremote.data.TriggerLimits.fromJson(json.optJSONObject("limits"))
                                 callback(CustomTriggersResult.Success(com.example.whisperremote.data.CustomTriggersResponse(triggers, limits)))
                             } catch (e: Exception) {
@@ -1231,7 +1231,7 @@ class ApiClient(private val context: Context) {
                                 val triggers = (0 until array.length()).map {
                                     com.example.whisperremote.data.CustomTrigger.fromJson(array.getJSONObject(it))
                                 }
-                                repository.cachedCustomTriggersCount = triggers.size
+                                repository.saveCachedPcSkills(triggers)
                                 val limits = com.example.whisperremote.data.TriggerLimits.fromJson(json.optJSONObject("limits"))
                                 callback(CustomTriggersResult.Success(com.example.whisperremote.data.CustomTriggersResponse(triggers, limits)))
                             } catch (e: Exception) {
@@ -1724,7 +1724,7 @@ class ApiClient(private val context: Context) {
         styleOverrides: StyleOverrides? = null,
         triggerId: String? = null,
         highlightedText: String? = null,
-        localSkills: List<CustomTrigger> = if (repository.usesLocalSkills()) repository.getLocalSkills() else emptyList(),
+        localSkills: List<CustomTrigger> = repository.getSkillsForOnDeviceAiService(),
         rawCallback: (CloudAiFixResult) -> Unit
     ) {
         val callback: (CloudAiFixResult) -> Unit = { res -> runOnMain { rawCallback(res) } }
