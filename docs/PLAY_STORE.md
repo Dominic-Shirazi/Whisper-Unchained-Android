@@ -33,7 +33,8 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
   the disclosure can be **shown again** later (Paste into apps page / Run setup again).
   ([policy](https://support.google.com/googleplay/android-developer/answer/10964491))
 - 🟡 **Microphone disclosure**: one line before the system prompt: "Audio is recorded only while you tap the mic, and is
-  sent to the place you chose (this phone, your PC or your cloud service)."
+  sent to the place you chose (this phone, your PC or your cloud service)." Still true in build 43: with "On this
+  phone" the audio stays on the phone whatever "Fix the text with" is set to; only the text can go out.
 - 🟡 **Appear on top**: explain, then send to the system page; respect "no".
 - 🟡 Privacy policy link in About (F-22, URL updated in F-23).
 
@@ -65,11 +66,12 @@ user configures, so we declare conservatively:
 | Data type | Collected | Shared | Optional? | Purpose | Ephemeral |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | Audio → Voice or sound recordings | **Yes** (when transcribing on a PC or cloud service) | **No** (sent only where the user chose) | Required for that mode (on-device mode sends nothing) | App functionality | No (cloud services keep data under their own terms) |
-| App activity → Other user-generated content (dictated text sent for AI cleanup) | **Yes** | No | **Optional** | App functionality | No |
+| App activity → Other user-generated content (dictated text sent for AI cleanup, an AI edit or a skill; since build 39 also in "On this phone" mode when "Fix the text with" is set to Your PC or An AI service, together with the skill's instruction and the word list's spellings) | **Yes** | No (sent only where the user chose) | **Optional** ("Fix the text with: Nothing" sends nothing) | App functionality | No (AI services keep data under their own terms) |
 
 | App activity → Other user-generated content (text the user highlighted and asked the AI to rewrite; typed instructions) | **Yes** (since build 30) | No | **Optional** | App functionality | No |
 
 - Nothing else (no identifiers, location, contacts, diagnostics, analytics).
+- **Checked against build 43 (2026-11-24).** "On this phone" has three choices under "Fix the text with": Nothing (nothing leaves the phone), Your PC (the text goes to the user's own PC), An AI service (the text goes to the service whose address and key the user typed in). The recording itself never leaves the phone in this mode. The answers above already cover it; only the wording in the listing and on the privacy page had to change.
 - **Encrypted in transit:** **Yes**, once contract 06 ships (until then a LAN `http://` address is allowed).
   **Decision (Dominic, 2026-11-11): HTTPS is required before launch; the answer will be Yes.** "It's your own, it's
   secure, it's private": a "No" on the listing would undercut that. Design: contracts/06-https.md (the server makes its
@@ -83,19 +85,21 @@ ads: no, government/financial/health/news: no.
 
 ## 4. Store listing (🟡 draft)
 - **Name:** Whisper Unchained
-- **Short description (≤ 80):** "Dictate into any app. Your voice goes to your own PC, the phone, or your cloud key."
+- **Short description (≤ 80):** "Dictate into any app. Your voice stays on the phone, your PC, or your cloud key."
 - **Full description:**
 
 > Talk instead of typing, in any app. Tap the floating mic, speak, tap again, and your words appear where your cursor is.
 >
 > Whisper Unchained is free and open source, with no account, no ads and no tracking. You decide where your voice goes:
-> • **On this phone**: fast offline transcription, nothing leaves the device.
+> • **On this phone**: fast offline transcription. Your voice never leaves the device, and the text only does if you
+> ask your own computer or an AI service to tidy it.
 > • **Your own computer**: pair with the free Whisper Unchained Server (Windows) for the most accurate results, at home
 > or anywhere through Tailscale.
 > • **Your cloud service**: use your own Groq or OpenAI key.
 >
 > Optional AI cleanup removes "um"s, applies "no wait, I mean…" corrections and fixes punctuation, using your own
-> computer or your own AI service. Say "prompt AI, make this formal" to rewrite what you just said, or highlight text
+> computer or an AI service you choose, with your own key. Say "prompt AI, make this formal" to rewrite what you just
+> said, or highlight text
 > and say what to change. Skills save a long instruction under a short catchphrase: say "skill grocery list" and your
 > shopping is grouped by aisle.
 >
@@ -152,10 +156,23 @@ The page is accurate for v1.1. Update it **before** each of these ships:
   - "The optional AI editing features" sentence: add highlighted text and typed instructions to what is sent.
   - Remove "from v1.3, coming soon" (three places): 1.3 is out.
   - "What stays on your phone": add that About > Delete all local data clears it.
-  - Skills are saved on the PC, not the phone.
+  - Skills are saved on the PC, not the phone. (Changed again in builds 41 and 42, see below.)
   - The page says "MIT License". The licence has not been decided (AGPL or MIT); make the page match the LICENSE
     file once there is one.
   - Windows section: setup can also download a second speech engine and its model (from GitHub and Hugging Face) for
     AMD and Intel graphics cards.
   - Change the effective date.
+- **Builds 39 to 43 (must be on the page before the Play submission):**
+  - "On this phone": replace "nothing leaves it" with: "Speech recognition runs on the phone and the recording
+    never leaves it. The text stays on the phone too unless you turn on 'Fix the text with'. Set to 'Your PC', the
+    text goes to your own computer for tidying. Set to 'An AI service', the text goes to the service whose address
+    and key you typed in, and that service handles it under its own terms. Nothing goes to us."
+  - What is sent with the text in those two cases: the words you dictated, any text you highlighted and asked to
+    have rewritten, the instruction of the skill you used, and the spellings from your word list.
+  - The key for an AI service is stored on the phone only and is sent only to that service.
+  - Skills: saved on your PC when the phone is paired with one. With no PC, skills are saved on the phone. A paired
+    phone also keeps a copy of the PC's skills so they work with an AI service when the PC is off.
+  - About > Delete all local data also clears the phone's own skills, the copy of the PC's skills and the AI
+    service key (read in the code 2026-11-24: it clears every saved setting, both key stores, the models and the
+    cache; not tried on a phone).
 
