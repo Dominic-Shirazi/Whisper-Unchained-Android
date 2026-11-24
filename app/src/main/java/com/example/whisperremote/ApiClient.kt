@@ -1161,6 +1161,7 @@ class ApiClient(private val context: Context) {
                                     com.example.whisperremote.data.CustomTrigger.fromJson(array.getJSONObject(it))
                                 }
                                 repository.saveCachedPcSkills(triggers)
+                                Log.d("ApiClient", "Cached ${triggers.size} PC skills")
                                 val limits = com.example.whisperremote.data.TriggerLimits.fromJson(json.optJSONObject("limits"))
                                 callback(CustomTriggersResult.Success(com.example.whisperremote.data.CustomTriggersResponse(triggers, limits)))
                             } catch (e: Exception) {
@@ -1232,6 +1233,7 @@ class ApiClient(private val context: Context) {
                                     com.example.whisperremote.data.CustomTrigger.fromJson(array.getJSONObject(it))
                                 }
                                 repository.saveCachedPcSkills(triggers)
+                                Log.d("ApiClient", "Cached ${triggers.size} PC skills")
                                 val limits = com.example.whisperremote.data.TriggerLimits.fromJson(json.optJSONObject("limits"))
                                 callback(CustomTriggersResult.Success(com.example.whisperremote.data.CustomTriggersResponse(triggers, limits)))
                             } catch (e: Exception) {
@@ -1771,6 +1773,7 @@ class ApiClient(private val context: Context) {
 
         if (matchedSkillPair != null) {
             val (skill, skillBody) = matchedSkillPair
+            Log.d("ApiClient", "F-79/F-80 running skill id=${skill.id} (from ${localSkills.size} cached skills)")
             if (skillBody.isBlank() && highlightedText.isNullOrBlank()) {
                 callback(CloudAiFixResult.EmptySkillBody())
                 return

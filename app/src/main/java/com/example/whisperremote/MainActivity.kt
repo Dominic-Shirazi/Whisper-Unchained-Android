@@ -121,11 +121,15 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // Reason for edit: Display OnDevice status on home status card per contract 05 §2.3
+        // Reason for edit: Display OnDevice status on home status card per contract 05 §2.3, and refresh cached PC skills/catchphrases when a PC is paired so "On this phone + An AI service" always has an up-to-date PC skills cache per F-80 (Build 43)
         if (repository.transcriptionTarget == TranscriptionTarget.ON_DEVICE.id) {
             val modelSpec = OnDeviceModelManager(this).availableModels[repository.selectedOnDeviceModelId]
             val name = modelSpec?.displayName ?: "Parakeet TDT 110M"
             statusCardState = StatusCardState.OnDevice(name)
+            if (repository.hasPairedPc()) {
+                apiClient.fetchTriggerPhrases { _ -> }
+                apiClient.fetchCustomTriggers { _ -> }
+            }
             return
         }
 

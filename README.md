@@ -19,6 +19,11 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## What's New in v1.3 (Build 43)
+
+- **Automatic PC Skills Cache Sync in On-Device Mode (F-80)**:
+  - Fixed `MainActivity.updateStatusCardState()` returning early in `ON_DEVICE` mode before calling `fetchCustomTriggers()`, so opening the app while in **On this phone + An AI service** now automatically syncs and persists your paired PC's skills list without having to open the Skills screen first.
+
 ## What's New in v1.3 (Build 42)
 
 - **Paired PC Skills with Standalone AI Service (F-80)**:
