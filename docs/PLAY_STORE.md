@@ -85,17 +85,17 @@ ads: no, government/financial/health/news: no.
 
 ## 4. Store listing (🟡 draft)
 - **Name:** Whisper Unchained
-- **Short description (≤ 80):** "Dictate into any app. Your voice stays on the phone, your PC, or your cloud key."
+- **Short description (≤ 80):** "Dictate into any app, using this phone, your own PC, or your own cloud key."
 - **Full description:**
 
 > Talk instead of typing, in any app. Tap the floating mic, speak, tap again, and your words appear where your cursor is.
 >
 > Whisper Unchained is free and open source, with no account, no ads and no tracking. You decide where your voice goes:
-> • **On this phone**: fast offline transcription. Your voice never leaves the device, and the text only does if you
-> ask your own computer or an AI service to tidy it.
-> • **Your own computer**: pair with the free Whisper Unchained Server (Windows) for the most accurate results, at home
-> or anywhere through Tailscale.
-> • **Your cloud service**: use your own Groq or OpenAI key.
+> • **On this phone**: fast offline transcription. With this choice the recording stays on the phone; the text is
+> only sent out if you ask your own computer or an AI service to tidy it.
+> • **Your own computer**: pair with the free Whisper Unchained Server (Windows or Linux) for the most accurate
+> results, at home or anywhere through Tailscale. The recording goes to your computer and nowhere else.
+> • **Your cloud service**: use your own Groq or OpenAI key. The recording goes to that service.
 >
 > Optional AI cleanup removes "um"s, applies "no wait, I mean…" corrections and fixes punctuation, using your own
 > computer or an AI service you choose, with your own key. Say "prompt AI, make this formal" to rewrite what you just
