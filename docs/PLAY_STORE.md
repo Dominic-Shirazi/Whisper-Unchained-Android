@@ -13,8 +13,8 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
 
 ## 1. Build
 - ✅ targetSdk 36 (Play's minimum for new apps since 31 Aug 2026). minSdk 31 (Android 12+).
-- 🟡 **App bundle** built for build 38 (commit f4db020, version code 38, minSdk 31, all four ABIs, 60,836,240 bytes, SHA-256
-  `216c5c2f935bd9b3f66b5fc420a654d14ab2d98f506388850dd1857fa0835bdb`, at
+- 🟡 **App bundle** built for build 43 (commit da0644b, version code 43, version 1.3.0, minSdk 31, all four ABIs, 60,856,722 bytes, SHA-256
+  `52018756ba2956578baee9d13a59b3e57571ff2d036dda0d8ae65c2a2e1d0a45`, at
   `app/build/outputs/bundle/playRelease/app-play-release.aab`); not uploaded yet.
   (`gradlew :app:bundlePlayRelease`), signed with our key, which becomes the **upload key**; enroll in
   **Play App Signing** (Google holds the app-signing key).
