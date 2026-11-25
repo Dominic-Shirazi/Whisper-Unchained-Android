@@ -16,6 +16,10 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
 - 🟡 **App bundle** built for build 43 (commit da0644b, version code 43, version 1.3.0, minSdk 31, all four ABIs, 60,856,722 bytes, SHA-256
   `52018756ba2956578baee9d13a59b3e57571ff2d036dda0d8ae65c2a2e1d0a45`, at
   `app/build/outputs/bundle/playRelease/app-play-release.aab`); not uploaded yet.
+  **Do not upload this one.** Dominic decided on 2026-11-25 to keep the name Whisper Unchained and to change the
+  package ID to a neutral one before the first upload (`com.cyrus_studio.dictation`; `full` =
+  `com.cyrus_studio.dictation.full`), so that a later change of name would cost only the display name. The ID is
+  permanent once uploaded. Asked of Gemini as F-82; the bundle to upload is the one built after that.
   (`gradlew :app:bundlePlayRelease`), signed with our key, which becomes the **upload key**; enroll in
   **Play App Signing** (Google holds the app-signing key).
 - ⬜ **ABIs:** GitHub APKs are trimmed to `arm64-v8a` (v1.3, saves ~40 MB). The Play **bundle** should include all ABIs
@@ -110,6 +114,14 @@ ads: no, government/financial/health/news: no.
 > sent to us. You can use the clipboard instead if you prefer.
 >
 > Source code: github.com/Dominic-Shirazi/Whisper-Unchained-Android
+>
+> Whisper Unchained is an independent project. It is not affiliated with, endorsed by or sponsored by OpenAI.
+> "Whisper" is the name of the open-source speech recognition model OpenAI released, which this app can run on
+> your own computer.
+
+- **Name and OpenAI (Dominic, 2026-11-25):** the name stays Whisper Unchained. The line above goes in the
+  description, on the website and in both READMEs. No OpenAI logo or anything that looks like OpenAI's branding
+  in the icon, the feature graphic, the screenshots or the video.
 
 - **Graphics:** icon 512×512 PNG (alpha OK, ≤ 1 MB); feature graphic 1024×500 (no alpha); 4–8 phone screenshots
   (1080×1920 or similar, no alpha). Take them on a real phone from build 38: the six screens are listed in the relay
