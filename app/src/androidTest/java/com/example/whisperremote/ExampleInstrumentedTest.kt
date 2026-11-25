@@ -1,4 +1,5 @@
 // This file tests package context for the application.
+// Reason for edit: Update expected package prefix to com.cyrus_studio.dictation per F-82.
 // Reason for edit: Support both play and full flavor package names.
 
 package com.example.whisperremote
@@ -22,6 +23,6 @@ class ExampleInstrumentedTest {
     fun useAppContext() {
         // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertTrue(appContext.packageName.startsWith("com.cyrus_studio.whisperunchained"))
+        assertTrue(appContext.packageName.startsWith("com.cyrus_studio.dictation"))
     }
 }

@@ -137,9 +137,12 @@ fun AboutScreen(
             }
 
             // Group 2: Privacy Policy & Legal Links (Play Policy requirement per F-22 & F-23)
+            // Group 2: About & Privacy
+            // Reason for edit: Add OpenAI non-affiliation notice in small print below the license link per F-82
             item {
                 SettingsGroup(
                     header = "About & Privacy",
+                    footer = "Whisper Unchained is an independent project. It is not affiliated with, endorsed by or sponsored by OpenAI. \"Whisper\" is the name of the open-source speech recognition model OpenAI released.",
                     modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)
                 ) {
                     SettingsNavRow(

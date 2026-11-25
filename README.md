@@ -19,6 +19,14 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - A self-hosted Whisper server (such as [Whisper Unchained Server](https://github.com/Dominic-Shirazi/Whisper-Unchained-Server) or Speaches), cloud provider (Groq, OpenAI, OpenRouter), or local on-device transcription via sherpa-onnx (Parakeet TDT 110M int8)
 - Network access to the server (if using PC/cloud) — [Tailscale](https://tailscale.com/) works seamlessly for remote access
 
+## What's New in v1.3 (Build 44)
+
+- **Neutral Package IDs & Play Store Compliance (F-82)**:
+  - Switched Play flavor `applicationId` to `com.cyrus_studio.dictation` and Full flavor to `com.cyrus_studio.dictation.full` (app display names remain **Whisper Unchained** and **Whisper Unchained Full**).
+  - Added the OpenAI non-affiliation notice to the **About** screen and `README.md`.
+- **Skills Row Layout Fix**:
+  - Updated **Skills** rows so the skill name and catchphrase line get the full width next to the toggle switch, with **Edit** and **Remove** placed cleanly underneath to prevent awkward word wrapping.
+
 ## What's New in v1.3 (Build 43)
 
 - **Automatic PC Skills Cache Sync in On-Device Mode (F-80)**:
@@ -180,7 +188,7 @@ No cloud lock-in, zero telemetry — run it completely on your own hardware or w
 - **Optimized 64-bit ABI Packaging**: Streamlined native packaging (`arm64-v8a`) reducing release APK sizes by ~97 MB (from 156.8 MB down to 59.2 MB).
 - **End-to-End Encrypted PC Connection (Pinned TLS)**: Zero-CA self-signed TLS verification using leaf certificate SHA-256 fingerprint matching (`cert_sha256`) from QR pairing payload v2, hostname verification anchoring to the cert pin, explicit certificate change detection ("Your PC's security certificate changed. If you reinstalled Whisper Unchained Server, scan its pairing code again."), cleartext traffic disabled in the Play build (`usesCleartextTraffic="false"`), and backward-compatibility upgrade banner for older HTTP pairings (Contract 06).
 - **Home Wi-Fi Diagnostics & Setup Guidance**: Automatic detection of non-Tailscale LAN server pairings with one-tap Tailscale setup guidance, and post-scan connection diagnostics (Tailscale not installed / not connected / PC unreachable) (Contract 06 & F-37/F-38).
-- **Play Release & S25 Support**: Official `play` flavor distribution (`com.cyrus_studio.whisperunchained`, versionCode 20, versionName 1.3.0) featuring 3-choice engine picker (PC QR, Cloud API keys, or offline on-device), read-only demo practice box with floating mic button, scrollable accessibility disclosure, and automatic phone model backup cards.
+- **Play Release & S25 Support**: Official `play` flavor distribution (`com.cyrus_studio.dictation`, versionName 1.3.0) featuring 3-choice engine picker (PC QR, Cloud API keys, or offline on-device), read-only demo practice box with floating mic button, scrollable accessibility disclosure, and automatic phone model backup cards.
 
 ## What's New in v1.2 (UI Makeover + Intro Sandbox)
 
@@ -198,8 +206,8 @@ Whisper Unchained is built with two distinct product flavors to ensure full Goog
 
 | Flavor | Package ID | App Name | Internal Audio (`FOREGROUND_SERVICE_MEDIA_PROJECTION`) | Target Audience |
 |---|---|---|---|---|
-| **`play`** | `com.cyrus_studio.whisperunchained` | Whisper Unchained | **No** (manifest stripped, UI hidden, no projection code reachable) | Google Play Store distribution |
-| **`full`** | `com.cyrus_studio.whisperunchained.full` | Whisper Unchained Full | **Yes** (audio capture from media playback, e.g. videos/podcasts; phone calls excluded) | GitHub Releases / F-Droid / Sideloading |
+| **`play`** | `com.cyrus_studio.dictation` | Whisper Unchained | **No** (manifest stripped, UI hidden, no projection code reachable) | Google Play Store distribution |
+| **`full`** | `com.cyrus_studio.dictation.full` | Whisper Unchained Full | **Yes** (audio capture from media playback, e.g. videos/podcasts; phone calls excluded) | GitHub Releases / F-Droid / Sideloading |
 
 Both flavors include the Accessibility Service with prominent disclosure for seamless text injection. Both flavors share identical signing keys and can be installed side-by-side on the same device.
 
@@ -293,3 +301,7 @@ MIT — see [LICENSE](LICENSE).
 ## Attributions
 
 See [ATTRIBUTIONS.md](ATTRIBUTIONS.md) for third-party library licenses.
+
+---
+
+Whisper Unchained is an independent project. It is not affiliated with, endorsed by or sponsored by OpenAI. "Whisper" is the name of the open-source speech recognition model OpenAI released.

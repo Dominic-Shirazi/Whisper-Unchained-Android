@@ -43,7 +43,8 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.cyrus_studio.whisperunchained"
+        // Reason for edit: Switch to neutral Play applicationId com.cyrus_studio.dictation (and .full suffix) and bump versionCode to 44 per F-82
+        applicationId = "com.cyrus_studio.dictation"
         // Reason for edit: Bump versionCode to 43 for F-80 auto-sync of cached PC skills in MainActivity ON_DEVICE mode
         // Reason for edit: Bump versionCode to 42 for F-80 (paired PC + An AI service runs cached PC skills on-device and persists PC skills across restarts)
         // Reason for edit: Bump versionCode to 41 for F-79 (phone-local skills with no PC, acronym catchphrase matching, first-pair PC copy prompt) and R-F78 UI polish (retail-first Advanced row, "Your PC", dynamic on-device heading)
@@ -58,7 +59,7 @@ android {
         // Reason for edit: Lower minSdk from 34 to 31 (Android 12+) and bump versionCode to 32 per F-70
         minSdk = 31
         targetSdk = 36
-        versionCode = 43
+        versionCode = 44
         versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

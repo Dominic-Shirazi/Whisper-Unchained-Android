@@ -492,105 +492,115 @@ fun TriggersScreen(
                                 }
                             }
                         } else {
-                            // Compact skill rows: switch, name, say "<first phrase>" (+N more), Edit, Remove
+                            // Reason for edit: Give skill name + catchphrase full row width next to the switch and place Edit/Remove cleanly below per F-82
                             SettingsGroup(modifier = Modifier.padding(bottom = WhisperTokens.GroupGap)) {
                                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
                                     customTriggers.forEachIndexed { index, skill ->
                                         if (index > 0) {
                                             SettingsDivider(insetStart = false)
                                         }
-                                        Row(
+                                        Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                                .padding(top = 8.dp, bottom = 2.dp)
                                         ) {
-                                            Switch(
-                                                checked = skill.enabled,
-                                                onCheckedChange = { isChecked ->
-                                                    val updated = skill.copy(enabled = isChecked)
-                                                    val prev = customTriggers
-                                                    val nextList = customTriggers.map { if (it.id == skill.id) updated else it }
-                                                    customTriggers = nextList
-                                                    if (isLocalSkillsMode) {
-                                                        repository.saveLocalSkills(nextList)
-                                                    } else {
-                                                        apiClient.modifyCustomTriggers(set = listOf(updated)) { res ->
-                                                            if (res is CustomTriggersResult.Success) {
-                                                                customTriggers = res.triggers
-                                                            } else {
-                                                                customTriggers = prev
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            )
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = skill.name,
-                                                    style = MaterialTheme.typography.bodyLarge,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                                val saySummary = PromptPanelLogic.skillSummary(skill.phrases)
-                                                if (saySummary.isNotEmpty()) {
-                                                    Text(
-                                                        text = saySummary,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                            }
-                                            TextButton(
-                                                onClick = {
-                                                    editingCustomTrigger = skill
-                                                    currentSubView = SkillsSubView.SKILL_EDITOR
-                                                },
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text("Edit")
-                                            }
-                                            TextButton(
-                                                onClick = {
-                                                    val removed = skill
-                                                    val prev = customTriggers
-                                                    val nextList = customTriggers.filter { it.id != skill.id }
-                                                    customTriggers = nextList
-                                                    if (isLocalSkillsMode) {
-                                                        repository.saveLocalSkills(nextList)
-                                                    } else {
-                                                        apiClient.modifyCustomTriggers(remove = listOf(skill.id)) { res ->
-                                                            if (res is CustomTriggersResult.Success) {
-                                                                customTriggers = res.triggers
-                                                            }
-                                                        }
-                                                    }
-                                                    coroutineScope.launch {
-                                                        val snack = snackbarHostState.showSnackbar(
-                                                            message = "Removed '${skill.name}'",
-                                                            actionLabel = "Undo",
-                                                            duration = SnackbarDuration.Short
-                                                        )
-                                                        if (snack == SnackbarResult.ActionPerformed) {
-                                                            if (isLocalSkillsMode) {
-                                                                customTriggers = prev
-                                                                repository.saveLocalSkills(prev)
-                                                            } else {
-                                                                apiClient.modifyCustomTriggers(set = listOf(removed)) { res ->
-                                                                    if (res is CustomTriggersResult.Success) {
-                                                                        customTriggers = res.triggers
-                                                                    } else {
-                                                                        customTriggers = prev
-                                                                    }
+                                                Switch(
+                                                    checked = skill.enabled,
+                                                    onCheckedChange = { isChecked ->
+                                                        val updated = skill.copy(enabled = isChecked)
+                                                        val prev = customTriggers
+                                                        val nextList = customTriggers.map { if (it.id == skill.id) updated else it }
+                                                        customTriggers = nextList
+                                                        if (isLocalSkillsMode) {
+                                                            repository.saveLocalSkills(nextList)
+                                                        } else {
+                                                            apiClient.modifyCustomTriggers(set = listOf(updated)) { res ->
+                                                                if (res is CustomTriggersResult.Success) {
+                                                                    customTriggers = res.triggers
+                                                                } else {
+                                                                    customTriggers = prev
                                                                 }
                                                             }
                                                         }
                                                     }
-                                                },
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = skill.name,
+                                                        style = MaterialTheme.typography.bodyLarge,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    val saySummary = PromptPanelLogic.skillSummary(skill.phrases)
+                                                    if (saySummary.isNotEmpty()) {
+                                                        Text(
+                                                            text = saySummary,
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.End,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text("Remove", color = Color(0xFFD9694A))
+                                                TextButton(
+                                                    onClick = {
+                                                        editingCustomTrigger = skill
+                                                        currentSubView = SkillsSubView.SKILL_EDITOR
+                                                    },
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text("Edit")
+                                                }
+                                                TextButton(
+                                                    onClick = {
+                                                        val removed = skill
+                                                        val prev = customTriggers
+                                                        val nextList = customTriggers.filter { it.id != skill.id }
+                                                        customTriggers = nextList
+                                                        if (isLocalSkillsMode) {
+                                                            repository.saveLocalSkills(nextList)
+                                                        } else {
+                                                            apiClient.modifyCustomTriggers(remove = listOf(skill.id)) { res ->
+                                                                if (res is CustomTriggersResult.Success) {
+                                                                    customTriggers = res.triggers
+                                                                }
+                                                            }
+                                                        }
+                                                        coroutineScope.launch {
+                                                            val snack = snackbarHostState.showSnackbar(
+                                                                message = "Removed '${skill.name}'",
+                                                                actionLabel = "Undo",
+                                                                duration = SnackbarDuration.Short
+                                                            )
+                                                            if (snack == SnackbarResult.ActionPerformed) {
+                                                                if (isLocalSkillsMode) {
+                                                                    customTriggers = prev
+                                                                    repository.saveLocalSkills(prev)
+                                                                } else {
+                                                                    apiClient.modifyCustomTriggers(set = listOf(removed)) { res ->
+                                                                        if (res is CustomTriggersResult.Success) {
+                                                                            customTriggers = res.triggers
+                                                                        } else {
+                                                                            customTriggers = prev
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text("Remove", color = Color(0xFFD9694A))
+                                                }
                                             }
                                         }
                                     }
