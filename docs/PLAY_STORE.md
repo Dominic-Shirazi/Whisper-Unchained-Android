@@ -20,6 +20,9 @@ re-check the forms when submitting, they change. Status marks: ✅ done · 🟡 
   package ID to a neutral one before the first upload (`com.cyrus_studio.dictation`; `full` =
   `com.cyrus_studio.dictation.full`), so that a later change of name would cost only the display name. The ID is
   permanent once uploaded. Asked of Gemini as F-82; the bundle to upload is the one built after that.
+  **Build 44 is that bundle** (commit b9cb7ea, version code 44, version 1.3.0, package `com.cyrus_studio.dictation`,
+  60,857,333 bytes, SHA-256 `192ea53abdd177ea22ba8f1bd82400f9a10d6a390ca87b9dba9cbf51756f2b35`, hash checked by
+  Claude, same path). Installed on the S25 beside the old app; not yet opened there (the screen was locked).
   (`gradlew :app:bundlePlayRelease`), signed with our key, which becomes the **upload key**; enroll in
   **Play App Signing** (Google holds the app-signing key).
 - ⬜ **ABIs:** GitHub APKs are trimmed to `arm64-v8a` (v1.3, saves ~40 MB). The Play **bundle** should include all ABIs
